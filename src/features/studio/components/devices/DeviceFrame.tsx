@@ -38,8 +38,11 @@ export function DeviceFrame({
           "0 1px 0 1.5px rgba(255,255,255,0.10) inset, 0 0 0 1px rgba(0,0,0,0.6), 0 30px 60px -20px rgba(0,0,0,0.55), 0 12px 24px -12px rgba(0,0,0,0.5)",
       }}
     >
-      {/* Screen */}
+      {/* Screen — always LTR so every app renders in its canonical, non-mirrored
+          layout (sender on the right, receiver on the left, status bar with the
+          clock on the left). Message text still flows RTL/LTR per its own dir. */}
       <div
+        dir="ltr"
         className="relative h-full w-full overflow-hidden bg-black"
         style={{ borderRadius: screenRadius }}
       >

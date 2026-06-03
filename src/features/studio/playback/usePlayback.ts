@@ -38,7 +38,9 @@ export function usePlayback(scenario: Scenario): PlaybackView {
   const pauseRef = useRef(false);
   const timersRef = useRef<number[]>([]);
   const messagesRef = useRef<Message[]>(scenario.messages);
-  messagesRef.current = scenario.messages;
+  useEffect(() => {
+    messagesRef.current = scenario.messages;
+  }, [scenario.messages]);
 
   const after = useCallback((ms: number, fn: () => void) => {
     const t = window.setTimeout(fn, ms);
@@ -71,6 +73,10 @@ export function usePlayback(scenario: Scenario): PlaybackView {
     [after],
   );
 
+  // Holds the latest runStep so the recursive scheduling can call forward
+  // without referencing the callback before it is declared.
+  const runStepRef = useRef<(i: number) => void>(() => {});
+
   const runStep = useCallback(
     (i: number) => {
       const messages = messagesRef.current;
@@ -91,16 +97,20 @@ export function usePlayback(scenario: Scenario): PlaybackView {
           after(msg.typingMs, () => {
             setTyping(false);
             reveal(msg);
-            after(70, () => runStep(i + 1));
+            after(70, () => runStepRef.current(i + 1));
           });
         } else {
           reveal(msg);
-          after(70, () => runStep(i + 1));
+          after(70, () => runStepRef.current(i + 1));
         }
       });
     },
     [after, reveal],
   );
+
+  useEffect(() => {
+    runStepRef.current = runStep;
+  }, [runStep]);
 
   const play = useCallback(() => {
     clearTimers();

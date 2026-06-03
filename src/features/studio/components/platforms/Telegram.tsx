@@ -2,7 +2,7 @@
 
 import type { CSSProperties } from "react";
 
-import type { DeliveryStatus, Message } from "../../types";
+import type { DeliveryStatus } from "../../types";
 import { Avatar, dirOf, useChatScroll } from "../shared";
 import { StatusBar } from "../devices/StatusBar";
 import { groupInfo, type PlatformProps } from "./types";
@@ -84,7 +84,6 @@ export function Telegram({ scenario, playback }: PlatformProps) {
   const header = dark ? "#212d3b" : "#527da3";
   const chatBg = dark ? "#0e1621" : "#90a4ba";
   const inBubble = dark ? "#182533" : "#ffffff";
-  const outBubble = dark ? "#2b5278" : "#eeffde"; // telegram light keeps a soft green-tint out bubble
   const outBubbleLight = dark ? "#2b5278" : "#effdde";
   const textColor = dark ? "#e9eef2" : "#0f1620";
   const timeMine = dark ? "rgba(255,255,255,0.55)" : "#5aa158";
@@ -178,8 +177,8 @@ export function Telegram({ scenario, playback }: PlatformProps) {
                     </span>
                   )}
                   <span
-                    className="float-left ml-2 mt-1 flex translate-y-1 items-center gap-1"
-                    style={{ fontSize: 11, color: mine ? timeMine : timeThem }}
+                    className="mt-1 flex translate-y-1 items-center gap-1"
+                    style={{ fontSize: 11, color: mine ? timeMine : timeThem, float: "inline-end", marginInlineStart: 8 }}
                   >
                     {m.time}
                     {mine && <Ticks status={status} mine={false} />}

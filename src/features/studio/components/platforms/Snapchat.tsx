@@ -1,6 +1,5 @@
 "use client";
 
-import type { Message } from "../../types";
 import { Avatar, dirOf, useChatScroll } from "../shared";
 import { StatusBar } from "../devices/StatusBar";
 import { type PlatformProps } from "./types";

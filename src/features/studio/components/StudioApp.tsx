@@ -8,6 +8,7 @@ import {
   EyeOff,
   FilePlus2,
   FolderOpen,
+  MoreHorizontal,
   Save,
   Trash2,
   Upload,
@@ -16,9 +17,18 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/shared/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/shared/components/ui/dropdown-menu";
+import LanguageSwitcher from "@/shared/components/LanguageSwitcher";
+import { ThemeToggle } from "@/shared/components/ThemeToggle";
 import { useStudioStore } from "../store";
 import { usePlayback } from "../playback/usePlayback";
-import { createDefaultScenario, SCENARIO_VERSION } from "../data/defaults";
+import { SCENARIO_VERSION } from "../data/defaults";
 import type { Scenario } from "../types";
 import { DeviceStage } from "./DeviceStage";
 import { PlaybackControls } from "./PlaybackControls";
@@ -57,7 +67,10 @@ export function StudioApp() {
 
   // Avoid SSR/localStorage hydration mismatch from the persisted store.
   const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMounted(true);
+  }, []);
 
   const ctlLabels = {
     play: t.play,
@@ -137,43 +150,58 @@ export function StudioApp() {
   // ---- Editor ----
   return (
     <div className="mx-auto w-full max-w-[1600px] px-3 py-4 sm:px-5">
-      {/* Toolbar */}
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <div className="me-auto">
-          <h1 className="text-lg font-bold leading-tight">{t.appTitle}</h1>
-          <p className="text-xs text-muted-foreground">{t.appSubtitle}</p>
+      {/* Clean top bar */}
+      <header className="mb-5 flex items-center gap-3 border-b border-border pb-4">
+        <div className="me-auto min-w-0">
+          <h1 className="truncate text-lg font-bold leading-tight">{t.appTitle}</h1>
+          <p className="truncate text-xs text-muted-foreground">{t.appSubtitle}</p>
         </div>
 
-        <Button variant="outline" size="sm" className="gap-1.5" onClick={() => { resetScenario(); show(t.loaded); }}>
+        <Button variant="ghost" size="sm" className="hidden gap-1.5 sm:flex" onClick={() => { resetScenario(); show(t.loaded); }}>
           <FilePlus2 className="size-4" />
           {t.newScenario}
         </Button>
-        <Button variant="outline" size="sm" className="gap-1.5" onClick={() => { saveSlot(); show(t.saved); }}>
-          <Save className="size-4" />
-          {t.save}
-        </Button>
-        <Button variant="outline" size="sm" className="gap-1.5" onClick={() => show(loadSlot() ? t.loaded : t.noSave)}>
-          <FolderOpen className="size-4" />
-          {t.load}
-        </Button>
-        <Button variant="outline" size="sm" className="gap-1.5" onClick={onExport}>
-          <Download className="size-4" />
-          {t.exportJson}
-        </Button>
-        <Button variant="outline" size="sm" className="gap-1.5" onClick={() => importRef.current?.click()}>
-          <Upload className="size-4" />
-          {t.importJson}
-        </Button>
+
+        <DropdownMenu dir={locale === "ar" ? "rtl" : "ltr"}>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="gap-1.5">
+              <MoreHorizontal className="size-4" />
+              {t.data}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuItem onClick={() => { saveSlot(); show(t.saved); }}>
+              <Save className="size-4" /> {t.save}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => show(loadSlot() ? t.loaded : t.noSave)}>
+              <FolderOpen className="size-4" /> {t.load}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={onExport}>
+              <Download className="size-4" /> {t.exportJson}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => importRef.current?.click()}>
+              <Upload className="size-4" /> {t.importJson}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem className="sm:hidden" onClick={() => { resetScenario(); show(t.loaded); }}>
+              <FilePlus2 className="size-4" /> {t.newScenario}
+            </DropdownMenuItem>
+            <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => { clearAll(); show(t.cleared); }}>
+              <Trash2 className="size-4" /> {t.clear}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <input ref={importRef} type="file" accept="application/json" className="hidden" onChange={(e) => onImport(e.target.files?.[0])} />
-        <Button variant="ghost" size="sm" className="gap-1.5 text-destructive" onClick={() => { clearAll(); show(t.cleared); }}>
-          <Trash2 className="size-4" />
-          {t.clear}
-        </Button>
+
+        <LanguageSwitcher />
+        <ThemeToggle />
+
         <Button size="sm" className="gap-1.5" onClick={() => { setShowRecControls(true); setRecording(true); }}>
           <Video className="size-4" />
           {t.record}
         </Button>
-      </div>
+      </header>
 
       {/* 3-pane layout */}
       <div className="grid gap-4 xl:grid-cols-[300px_minmax(0,1fr)_370px]">
@@ -207,33 +235,49 @@ export function StudioApp() {
   );
 }
 
-function Timeline({ scenario, t }: { scenario: Scenario; t: StudioLabels }) {
+interface TimelineItem {
+  id: string;
+  index: number;
+  at: string;
+  mine: boolean;
+  preview: string;
+}
+
+function buildTimeline(scenario: Scenario): TimelineItem[] {
   let cumulative = 0;
+  return scenario.messages.map((m, i) => {
+    cumulative += m.delayMs + (m.sender === "them" ? m.typingMs : 0);
+    return {
+      id: m.id,
+      index: i,
+      at: (cumulative / 1000).toFixed(1),
+      mine: m.sender === "me",
+      preview: m.type === "voice" ? "🎤" : m.text.slice(0, 22) || "…",
+    };
+  });
+}
+
+function Timeline({ scenario, t }: { scenario: Scenario; t: StudioLabels }) {
+  const items = buildTimeline(scenario);
   return (
     <div className="mt-4 rounded-xl border border-border bg-background/60 p-3">
       <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t.timeline}</h3>
       <div className="flex gap-2 overflow-x-auto pb-1">
-        {scenario.messages.map((m, i) => {
-          cumulative += m.delayMs + (m.sender === "them" ? m.typingMs : 0);
-          const at = (cumulative / 1000).toFixed(1);
-          const mine = m.sender === "me";
-          const preview = m.type === "voice" ? "🎤" : m.text.slice(0, 22) || "…";
-          return (
-            <div
-              key={m.id}
-              className={`flex min-w-[120px] shrink-0 flex-col gap-1 rounded-lg border p-2 ${
-                mine ? "border-primary/40 bg-primary/5" : "border-border bg-card"
-              }`}
-            >
-              <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-                <span>#{i + 1}</span>
-                <span>{at}{t.seconds}</span>
-              </div>
-              <span className="truncate text-xs" dir="auto">{preview}</span>
+        {items.map((item) => (
+          <div
+            key={item.id}
+            className={`flex min-w-[120px] shrink-0 flex-col gap-1 rounded-lg border p-2 ${
+              item.mine ? "border-primary/40 bg-primary/5" : "border-border bg-card"
+            }`}
+          >
+            <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+              <span>#{item.index + 1}</span>
+              <span>{item.at}{t.seconds}</span>
             </div>
-          );
-        })}
-        {scenario.messages.length === 0 && (
+            <span className="truncate text-xs" dir="auto">{item.preview}</span>
+          </div>
+        ))}
+        {items.length === 0 && (
           <span className="py-3 text-xs text-muted-foreground">{t.empty}</span>
         )}
       </div>

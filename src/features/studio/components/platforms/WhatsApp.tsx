@@ -2,7 +2,7 @@
 
 import type { CSSProperties } from "react";
 
-import type { DeliveryStatus, Message } from "../../types";
+import type { DeliveryStatus } from "../../types";
 import { Avatar, dirOf, useChatScroll } from "../shared";
 import { StatusBar } from "../devices/StatusBar";
 import { groupInfo, type PlatformProps } from "./types";
@@ -213,8 +213,8 @@ export function WhatsApp({ scenario, playback }: PlatformProps) {
                     </span>
                   )}
                   <span
-                    className="float-left ml-2 mt-1 flex translate-y-1 items-center gap-1"
-                    style={{ fontSize: 11, color: timeColor }}
+                    className="mt-1 flex translate-y-1 items-center gap-1"
+                    style={{ fontSize: 11, color: timeColor, float: "inline-end", marginInlineStart: 8 }}
                   >
                     {m.time}
                     {mine && <Ticks status={status} />}

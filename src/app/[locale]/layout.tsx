@@ -7,7 +7,6 @@ import { getTranslations, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
 
 import { AppProvider } from "@/providers/app-provider";
-import { SiteFooter, SiteHeader } from "@/features/shell";
 import { createPageMetadata } from "@/core/seo/metadata";
 import { routing } from "@/i18n/routing";
 import { siteConfig } from "@/config/site";
@@ -58,11 +57,7 @@ export default async function RootLayout({
         suppressHydrationWarning
       >
         <AppProvider>
-          <NextIntlClientProvider>
-            <SiteHeader />
-            {children}
-            <SiteFooter />
-          </NextIntlClientProvider>
+          <NextIntlClientProvider>{children}</NextIntlClientProvider>
         </AppProvider>
         <Analytics />
         <SpeedInsights />
