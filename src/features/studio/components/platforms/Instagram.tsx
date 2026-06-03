@@ -2,6 +2,7 @@
 
 import { Avatar, dirOf, useChatScroll } from "../shared";
 import { StatusBar } from "../devices/StatusBar";
+import { CHROME } from "./chrome";
 import { groupInfo, type PlatformProps } from "./types";
 
 const IG_GRADIENT = "linear-gradient(120deg, #4a7bf6 0%, #8a3ff0 55%, #c13584 100%)";
@@ -42,8 +43,9 @@ function VoiceBubble({ mine, dark }: { mine: boolean; dark: boolean }) {
   );
 }
 
-export function Instagram({ scenario, playback }: PlatformProps) {
+export function Instagram({ scenario, playback, lang }: PlatformProps) {
   const dark = scenario.theme === "dark";
+  const c = CHROME[lang];
   const { messages, typing } = playback;
   const live = playback.isLive;
   const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}`);
@@ -57,11 +59,11 @@ export function Instagram({ scenario, playback }: PlatformProps) {
   const lastStatus = lastMineId ? playback.statusOf(messages.find((m) => m.id === lastMineId)!) : undefined;
 
   const presenceText = typing
-    ? "يكتب…"
+    ? c.typing
     : scenario.presence === "online"
-      ? "نشط الآن"
+      ? c.activeNow
       : scenario.presence === "typing"
-        ? "يكتب…"
+        ? c.typing
         : scenario.lastSeenText;
 
   return (
@@ -70,14 +72,14 @@ export function Instagram({ scenario, playback }: PlatformProps) {
 
       {/* Header */}
       <div className="flex items-center gap-3 px-3 pb-2 pt-1" style={{ background: pageBg }}>
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="rtl:-scale-x-100">
           <path d="M15 5l-7 7 7 7" stroke={fg} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
         <div className="relative">
           <Avatar person={scenario.them} size={38} />
           {scenario.presence === "online" && (
             <span
-              className="absolute bottom-0 right-0 rounded-full border-2"
+              className="absolute bottom-0 end-0 rounded-full border-2"
               style={{ width: 12, height: 12, background: "#3ac36a", borderColor: pageBg }}
             />
           )}
@@ -146,9 +148,9 @@ export function Instagram({ scenario, playback }: PlatformProps) {
           {typing && <div className="mt-2 flex items-end gap-2"><div className="w-6 shrink-0"><Avatar person={scenario.them} size={24} /></div><TypingBubble dark={dark} /></div>}
 
           {lastStatus && !typing && (
-            <div className="mt-1 flex justify-end pr-1">
+            <div className="mt-1 flex justify-end pe-1">
               <span className="text-[11px]" style={{ color: sub }}>
-                {lastStatus === "read" ? "شوهدت" : "تم الإرسال"}
+                {lastStatus === "read" ? c.seen : c.sent}
               </span>
             </div>
           )}
@@ -161,7 +163,7 @@ export function Instagram({ scenario, playback }: PlatformProps) {
           className="flex flex-1 items-center justify-between rounded-full px-4 py-2"
           style={{ border: `1px solid ${dark ? "#363636" : "#dbdbdb"}` }}
         >
-          <span className="text-[15px]" style={{ color: sub }}>الرسالة…</span>
+          <span className="text-[15px]" style={{ color: sub }}>{c.message}…</span>
           <div className="flex items-center gap-3" style={{ color: fg }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" /><circle cx="9" cy="10" r="1.1" fill="currentColor" /><circle cx="15" cy="10" r="1.1" fill="currentColor" /><path d="M8.5 14.5c.9 1.1 2 1.6 3.5 1.6s2.6-.5 3.5-1.6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="4" stroke="currentColor" strokeWidth="1.6" /><circle cx="12" cy="12" r="3.4" stroke="currentColor" strokeWidth="1.6" /><circle cx="17" cy="7" r="1" fill="currentColor" /></svg>

@@ -5,6 +5,7 @@ import type { CSSProperties } from "react";
 import type { DeliveryStatus } from "../../types";
 import { Avatar, dirOf, useChatScroll } from "../shared";
 import { StatusBar } from "../devices/StatusBar";
+import { CHROME } from "./chrome";
 import { groupInfo, type PlatformProps } from "./types";
 
 /** Telegram's signature light-blue patterned wallpaper. */
@@ -75,8 +76,9 @@ function VoiceBubble({ mine, dark }: { mine: boolean; dark: boolean }) {
   );
 }
 
-export function Telegram({ scenario, playback }: PlatformProps) {
+export function Telegram({ scenario, playback, lang, rtl }: PlatformProps) {
   const dark = scenario.theme === "dark";
+  const c = CHROME[lang];
   const { messages, typing } = playback;
   const live = playback.isLive;
   const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}`);
@@ -90,11 +92,11 @@ export function Telegram({ scenario, playback }: PlatformProps) {
   const timeThem = dark ? "rgba(233,238,242,0.45)" : "#a1aab3";
 
   const presenceText = typing
-    ? "يكتب…"
+    ? c.typing
     : scenario.presence === "online"
-      ? "متصل"
+      ? c.online
       : scenario.presence === "typing"
-        ? "يكتب…"
+        ? c.typing
         : scenario.lastSeenText;
 
   return (
@@ -103,7 +105,7 @@ export function Telegram({ scenario, playback }: PlatformProps) {
 
       {/* Header */}
       <div className="flex items-center gap-3 px-3 pb-2.5 pt-1.5" style={{ background: header }}>
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" className="text-white">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" className="rtl:-scale-x-100 text-white">
           <path d="M15 5l-7 7 7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
         <Avatar person={scenario.them} size={37} />
@@ -139,7 +141,7 @@ export function Telegram({ scenario, playback }: PlatformProps) {
             className="rounded-full px-2.5 py-1 text-[12px] font-medium text-white"
             style={{ background: "rgba(0,0,0,0.22)" }}
           >
-            اليوم
+            {c.today}
           </span>
         </div>
 
@@ -149,10 +151,11 @@ export function Telegram({ scenario, playback }: PlatformProps) {
             const { lastOfGroup } = groupInfo(messages, i);
             const status = playback.statusOf(m);
             const bg = mine ? outBubbleLight : inBubble;
+            const onRight = mine ? !rtl : rtl;
             const radius: CSSProperties = {
               borderRadius: 14,
               ...(lastOfGroup
-                ? mine
+                ? onRight
                   ? { borderBottomRightRadius: 5 }
                   : { borderBottomLeftRadius: 5 }
                 : {}),
@@ -199,7 +202,7 @@ export function Telegram({ scenario, playback }: PlatformProps) {
           <circle cx="9" cy="10" r="1.1" /><circle cx="15" cy="10" r="1.1" />
         </svg>
         <span className="flex-1 text-[15px]" style={{ color: dark ? "#6a7a8a" : "#9aa4ad" }}>
-          الرسالة
+          {c.message}
         </span>
         <svg width="22" height="22" viewBox="0 0 24 24" fill={dark ? "#6a7a8a" : "#9aa4ad"}>
           <path d="M16.5 6.5 8 15a3 3 0 0 0 4.2 4.2l7-7a5 5 0 0 0-7-7l-7 7a7 7 0 0 0 9.9 9.9l6.5-6.5" stroke={dark ? "#6a7a8a" : "#9aa4ad"} strokeWidth="1.5" fill="none" strokeLinecap="round" />

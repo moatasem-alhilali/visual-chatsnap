@@ -1,9 +1,14 @@
 import type { PlaybackView } from "../../playback/usePlayback";
 import type { Message, Scenario } from "../../types";
+import type { Lang } from "./chrome";
 
 export interface PlatformProps {
   scenario: Scenario;
   playback: PlaybackView;
+  /** UI language — drives in-mockup chrome strings */
+  lang: Lang;
+  /** true when the whole mockup should mirror (Arabic UI) */
+  rtl: boolean;
 }
 
 export interface GroupInfo {
