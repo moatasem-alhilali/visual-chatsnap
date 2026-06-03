@@ -7,21 +7,33 @@ export const DEVICE_SIZE: Record<Device, { w: number; h: number }> = {
   android: { w: 384, h: 836 },
 };
 
+const BEZEL: Record<Device, number> = { iphone: 13, android: 10 };
+
+/** Full outer footprint (screen + bezel) used by the responsive scaler. */
+export function deviceOuter(device: Device): { w: number; h: number } {
+  const { w, h } = DEVICE_SIZE[device];
+  const b = BEZEL[device];
+  return { w: w + b * 2, h: h + b * 2 };
+}
+
 /**
  * A realistic physical phone shell. Children fill the screen (including their
  * own status bar so the OS bar tints with the app header, exactly like the real
  * apps). The notch/Dynamic Island/punch-hole is drawn as a hardware overlay.
+ * `dir` mirrors the screen contents for RTL (Arabic) UI.
  */
 export function DeviceFrame({
   device,
+  dir = "ltr",
   children,
 }: {
   device: Device;
+  dir?: "ltr" | "rtl";
   children: React.ReactNode;
 }) {
   const isPhone = device === "iphone";
   const { w, h } = DEVICE_SIZE[device];
-  const bezel = isPhone ? 13 : 10;
+  const bezel = BEZEL[device];
   const outerRadius = isPhone ? 62 : 46;
   const screenRadius = isPhone ? 50 : 38;
 
@@ -38,11 +50,11 @@ export function DeviceFrame({
           "0 1px 0 1.5px rgba(255,255,255,0.10) inset, 0 0 0 1px rgba(0,0,0,0.6), 0 30px 60px -20px rgba(0,0,0,0.55), 0 12px 24px -12px rgba(0,0,0,0.5)",
       }}
     >
-      {/* Screen — always LTR so every app renders in its canonical, non-mirrored
-          layout (sender on the right, receiver on the left, status bar with the
-          clock on the left). Message text still flows RTL/LTR per its own dir. */}
+      {/* Screen — direction follows the UI language so the whole app mirrors
+          like a real Arabic/English install. Message text still flows per its
+          own detected direction. */}
       <div
-        dir="ltr"
+        dir={dir}
         className="relative h-full w-full overflow-hidden bg-black"
         style={{ borderRadius: screenRadius }}
       >
