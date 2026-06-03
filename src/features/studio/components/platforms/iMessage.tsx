@@ -4,6 +4,7 @@ import type { CSSProperties } from "react";
 
 import { Avatar, dirOf, useChatScroll } from "../shared";
 import { StatusBar } from "../devices/StatusBar";
+import { CHROME } from "./chrome";
 import { groupInfo, type PlatformProps } from "./types";
 
 const IMSG_BLUE = "#0a7cff";
@@ -49,8 +50,9 @@ function VoiceBubble({ mine }: { mine: boolean }) {
   );
 }
 
-export function IMessage({ scenario, playback }: PlatformProps) {
+export function IMessage({ scenario, playback, lang, rtl }: PlatformProps) {
   const dark = scenario.theme === "dark";
+  const c = CHROME[lang];
   const { messages, typing } = playback;
   const live = playback.isLive;
   const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}`);
@@ -66,14 +68,6 @@ export function IMessage({ scenario, playback }: PlatformProps) {
   const lastMine = messages.find((m) => m.id === lastMineId);
   const lastStatus = lastMine ? playback.statusOf(lastMine) : undefined;
 
-  const presenceText = typing
-    ? "يكتب…"
-    : scenario.presence === "online"
-      ? "متصل الآن"
-      : scenario.presence === "typing"
-        ? "يكتب…"
-        : scenario.lastSeenText;
-
   return (
     <div className="flex h-full w-full flex-col" style={{ background: pageBg }}>
       <div style={{ background: headerBg, backdropFilter: "blur(20px)" }}>
@@ -81,7 +75,7 @@ export function IMessage({ scenario, playback }: PlatformProps) {
         {/* Header: centered contact, back chevron + facetime */}
         <div className="relative flex flex-col items-center px-3 pb-2 pt-0.5">
           <div className="absolute bottom-2 flex w-full items-center justify-between px-2">
-            <svg width="13" height="22" viewBox="0 0 13 22" fill="none">
+            <svg width="13" height="22" viewBox="0 0 13 22" fill="none" className="rtl:-scale-x-100">
               <path d="M11 2 3 11l8 9" stroke={IMSG_BLUE} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
@@ -94,7 +88,7 @@ export function IMessage({ scenario, playback }: PlatformProps) {
             <span className="text-[12px] font-medium" style={{ color: inText }}>
               {scenario.them.name}
             </span>
-            <svg width="8" height="12" viewBox="0 0 8 12" fill="none">
+            <svg width="8" height="12" viewBox="0 0 8 12" fill="none" className="rtl:-scale-x-100">
               <path d="M2 2l4 4-4 4" stroke={subColor} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </div>
@@ -105,7 +99,7 @@ export function IMessage({ scenario, playback }: PlatformProps) {
       <div ref={scrollRef} className="rcss-scroll flex-1 overflow-y-auto px-3 pb-2 pt-2" style={{ background: pageBg }}>
         <div className="mb-3 mt-1 flex justify-center">
           <span className="text-[11px]" style={{ color: subColor }}>
-            <span className="font-semibold">iMessage</span> · {presenceText}
+            <span className="font-semibold">iMessage</span>
           </span>
         </div>
 
@@ -113,16 +107,12 @@ export function IMessage({ scenario, playback }: PlatformProps) {
           {messages.map((m, i) => {
             const mine = m.sender === "me";
             const { lastOfGroup, firstOfGroup } = groupInfo(messages, i);
-            const radius: CSSProperties = {
-              borderRadius: 19,
-              ...(mine
-                ? lastOfGroup
-                  ? { borderBottomRightRadius: 5 }
-                  : {}
-                : lastOfGroup
-                  ? { borderBottomLeftRadius: 5 }
-                  : {}),
-            };
+            const onRight = mine ? !rtl : rtl;
+            const radius: CSSProperties = { borderRadius: 19 };
+            if (lastOfGroup) {
+              if (onRight) radius.borderBottomRightRadius = 5;
+              else radius.borderBottomLeftRadius = 5;
+            }
             return (
               <div
                 key={m.id}
@@ -155,9 +145,9 @@ export function IMessage({ scenario, playback }: PlatformProps) {
 
           {/* Delivered / Read under the last outgoing bubble */}
           {lastStatus && !typing && (
-            <div className="mt-1 flex justify-end pr-1">
+            <div className="mt-1 flex justify-end pe-1">
               <span className="text-[11px] font-medium" style={{ color: subColor }}>
-                {lastStatus === "read" ? "تمت القراءة" : lastStatus === "delivered" ? "تم التسليم" : "تم الإرسال"}
+                {lastStatus === "read" ? c.read : lastStatus === "delivered" ? c.delivered : c.sent}
               </span>
             </div>
           )}
