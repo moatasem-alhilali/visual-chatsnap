@@ -112,10 +112,25 @@ export function Telegram({ scenario, playback, lang, rtl }: PlatformProps) {
         <div className="min-w-0 flex-1 leading-tight">
           <div className="truncate text-[16px] font-semibold text-white">{scenario.them.name}</div>
           <div
-            className="truncate text-[12.5px]"
+            className="flex items-center gap-1 truncate text-[12.5px]"
             style={{ color: typing || scenario.presence === "online" ? "#a6d2ff" : "rgba(255,255,255,0.7)" }}
           >
-            {presenceText}
+            {typing ? (
+              <>
+                <span>{lang === "ar" ? "يكتب" : "typing"}</span>
+                <span className="flex items-end gap-[2px] pb-[3px]">
+                  {[0, 1, 2].map((i) => (
+                    <span
+                      key={i}
+                      className="rcss-typing-dot inline-block rounded-full"
+                      style={{ width: 3, height: 3, background: "#a6d2ff", animationDelay: `${i * 0.18}s` }}
+                    />
+                  ))}
+                </span>
+              </>
+            ) : (
+              presenceText
+            )}
           </div>
         </div>
         <div className="flex items-center gap-5 pr-1 text-white">
