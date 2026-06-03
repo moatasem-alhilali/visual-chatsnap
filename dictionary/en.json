@@ -1,0 +1,43 @@
+{
+  "metadata": {
+    "title": "Professional Next.js Template",
+    "description": "A multilingual Next.js foundation for large applications without coupling to a specific business domain.",
+    "keywords": "Next.js, template, enterprise app, performance, SEO"
+  },
+  "home": {
+    "eyebrow": "Production-ready foundation",
+    "title": "A clean base before building any large product",
+    "description": "This template prepares architecture, rules, performance, localization, and user experience without linking to a store or any specific backend workflow.",
+    "pointOne": "App Router and Server Components first",
+    "pointTwo": "Clear feature-driven structure",
+    "pointThree": "SEO and accessibility rules from day one",
+    "pointFour": "HTTP layer prepared without real endpoints",
+    "readinessLabel": "Template readiness",
+    "architectureTitle": "Organized architecture",
+    "architectureBody": "Each domain owns its feature, while app only handles routing and composition.",
+    "performanceTitle": "Measurable performance",
+    "performanceBody": "The template defines rules for images, fonts, caching, and JavaScript reduction.",
+    "qualityTitle": "Verifiable quality",
+    "qualityBody": "Every page should pass build, lint, typecheck, and Lighthouse review."
+  },
+  "auth": {
+    "loginTitle": "Login",
+    "registerTitle": "Create account",
+    "placeholder": "This is a structural placeholder only. Do not wire authentication or backend logic before the real project phase starts."
+  },
+  "dashboard": {
+    "title": "Workspace",
+    "description": "A structural area for applications that need a private workspace or dashboard."
+  },
+  "error": {
+    "title": "Something went wrong",
+    "description": "You can try again or return to the home page.",
+    "tryAgain": "Try again",
+    "returnHome": "Return home"
+  },
+  "notFound": {
+    "title": "Page not found",
+    "description": "The requested link is unavailable or has moved.",
+    "returnHome": "Return home"
+  }
+}

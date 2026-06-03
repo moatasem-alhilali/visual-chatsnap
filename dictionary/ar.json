@@ -1,0 +1,43 @@
+{
+  "metadata": {
+    "title": "قالب Next.js احترافي",
+    "description": "قالب Next.js متعدد اللغات جاهز كأساس لتطبيقات كبيرة بدون ربط بأي دومين تجاري محدد.",
+    "keywords": "Next.js, قالب, تطبيقات كبيرة, أداء, SEO"
+  },
+  "home": {
+    "eyebrow": "قالب إنتاجي قابل للتخصيص",
+    "title": "أساس نظيف قبل بناء أي مشروع كبير",
+    "description": "هذه النسخة تجهز البنية، القواعد، الأداء، الترجمة، وتجربة الاستخدام بدون ربطها بأي متجر أو مجال عمل محدد.",
+    "pointOne": "App Router و Server Components أولاً",
+    "pointTwo": "بنية features واضحة وقابلة للتوسع",
+    "pointThree": "قواعد SEO و Accessibility من البداية",
+    "pointFour": "طبقة HTTP جاهزة بدون endpoints فعلية",
+    "readinessLabel": "جاهزية القالب",
+    "architectureTitle": "معمارية منظمة",
+    "architectureBody": "كل نطاق له feature مستقل، و app مسؤول عن routing فقط.",
+    "performanceTitle": "أداء قابل للقياس",
+    "performanceBody": "القالب يضع قواعد واضحة للصور، الخطوط، الكاش، وتقليل JavaScript.",
+    "qualityTitle": "جودة قابلة للتحقق",
+    "qualityBody": "كل صفحة يجب أن تمر عبر build و lint و typecheck ومراجعة Lighthouse."
+  },
+  "auth": {
+    "loginTitle": "تسجيل الدخول",
+    "registerTitle": "إنشاء حساب",
+    "placeholder": "هذه صفحة هيكلية فقط. لا تربط المصادقة أو أي backend قبل بدء مرحلة المشروع الفعلية."
+  },
+  "dashboard": {
+    "title": "لوحة العمل",
+    "description": "مساحة هيكلية للتطبيقات التي تحتاج منطقة خاصة أو لوحة تحكم."
+  },
+  "error": {
+    "title": "حدث خطأ غير متوقع",
+    "description": "يمكنك المحاولة مرة أخرى أو العودة للرئيسية.",
+    "tryAgain": "حاول مرة أخرى",
+    "returnHome": "العودة للرئيسية"
+  },
+  "notFound": {
+    "title": "الصفحة غير موجودة",
+    "description": "الرابط المطلوب غير متاح أو تم نقله.",
+    "returnHome": "العودة للرئيسية"
+  }
+}
