@@ -9,6 +9,7 @@ import { Download, Film, Loader2, X } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import { deviceOuter, DeviceFrame } from "./devices/DeviceFrame";
 import { PlatformView } from "./platforms";
+import { deviceFontFamily } from "../data/fonts";
 import { buildTimeline, type FrameState } from "../export/schedule";
 import { canExportVideo, exportToMp4 } from "../export/exportVideo";
 import type { PlaybackView } from "../playback/usePlayback";
@@ -309,7 +310,11 @@ export function ExportDialog({
             boxSizing: "border-box",
           }}
         >
-          <DeviceFrame device={scenario.device} dir={rtl ? "rtl" : "ltr"}>
+          <DeviceFrame
+            device={scenario.device}
+            dir={rtl ? "rtl" : "ltr"}
+            fontFamily={deviceFontFamily(scenario.device, scenario.androidFont)}
+          >
             <PlatformView scenario={scenario} playback={view} lang={lang} rtl={rtl} />
           </DeviceFrame>
         </div>

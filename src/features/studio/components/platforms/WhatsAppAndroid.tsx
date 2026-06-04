@@ -112,10 +112,7 @@ export function WhatsAppAndroid({ scenario, playback, lang, rtl }: PlatformProps
         : scenario.lastSeenText;
 
   return (
-    <div
-      className="flex h-full w-full flex-col"
-      style={{ background: chatBg, fontFamily: "Roboto, 'Noto Sans Arabic', system-ui, sans-serif" }}
-    >
+    <div className="flex h-full w-full flex-col" style={{ background: chatBg }}>
       <SamsungStatusBar tint="light" background={header} lang={lang} />
 
       {/* Material header */}

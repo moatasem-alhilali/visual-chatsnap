@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { NextIntlClientProvider, hasLocale } from "next-intl";
-import { Geist, Geist_Mono, Tajawal } from "next/font/google";
+import { Cairo, Geist, Geist_Mono, Inter, Roboto, Tajawal } from "next/font/google";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
 
@@ -28,6 +28,16 @@ const tajawal = Tajawal({
   weight: ["400", "500", "700", "800"],
 });
 
+// iPhone uses an SF-like face (Inter); Samsung uses Roboto; Cairo is an
+// alternative the user can switch the Samsung font to.
+const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
+const roboto = Roboto({
+  variable: "--font-roboto",
+  subsets: ["latin"],
+  weight: ["400", "500", "700"],
+});
+const cairo = Cairo({ variable: "--font-cairo", subsets: ["arabic", "latin"] });
+
 export default async function RootLayout({
   children,
   params,
@@ -49,7 +59,7 @@ export default async function RootLayout({
     <html
       lang={locale}
       dir={isArabic ? "rtl" : "ltr"}
-      className={`${geistSans.variable} ${geistMono.variable} ${tajawal.variable}`}
+      className={`${geistSans.variable} ${geistMono.variable} ${tajawal.variable} ${inter.variable} ${roboto.variable} ${cairo.variable}`}
       suppressHydrationWarning
     >
       <body

@@ -30,6 +30,7 @@ type StudioState = {
   setTheme: (theme: ChatTheme) => void;
   setPresence: (presence: PresenceStatus) => void;
   setLastSeenText: (text: string) => void;
+  setAndroidFont: (font: string) => void;
 
   updatePerson: (who: Sender, patch: Partial<Person>) => void;
   swapRoles: () => void;
@@ -66,6 +67,8 @@ export const useStudioStore = create<StudioState>()(
         set((s) => ({ scenario: { ...s.scenario, presence } })),
       setLastSeenText: (lastSeenText) =>
         set((s) => ({ scenario: { ...s.scenario, lastSeenText } })),
+      setAndroidFont: (androidFont) =>
+        set((s) => ({ scenario: { ...s.scenario, androidFont } })),
 
       updatePerson: (who, patch) =>
         set((s) => ({

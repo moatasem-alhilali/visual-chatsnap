@@ -85,10 +85,12 @@ function CameraLens({ size }: { size: number }) {
 export function DeviceFrame({
   device,
   dir = "ltr",
+  fontFamily,
   children,
 }: {
   device: Device;
   dir?: "ltr" | "rtl";
+  fontFamily?: string;
   children: React.ReactNode;
 }) {
   const isPhone = device === "iphone";
@@ -122,7 +124,7 @@ export function DeviceFrame({
         <div
           dir={dir}
           className="relative h-full w-full overflow-hidden bg-black"
-          style={{ borderRadius: s.screenRadius }}
+          style={{ borderRadius: s.screenRadius, fontFamily }}
         >
           {children}
 

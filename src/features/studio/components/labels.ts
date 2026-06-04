@@ -5,6 +5,7 @@ export interface StudioLabels {
   device: string;
   iphone: string;
   android: string;
+  font: string;
   chatTheme: string;
   light: string;
   dark: string;
@@ -89,6 +90,7 @@ export const STUDIO_LABELS: Record<"ar" | "en", StudioLabels> = {
     device: "الجهاز",
     iphone: "آيفون",
     android: "سامسونج",
+    font: "خط سامسونج",
     chatTheme: "ثيم المحادثة",
     light: "فاتح",
     dark: "داكن",
@@ -171,6 +173,7 @@ export const STUDIO_LABELS: Record<"ar" | "en", StudioLabels> = {
     device: "Device",
     iphone: "iPhone",
     android: "Samsung",
+    font: "Samsung font",
     chatTheme: "Chat theme",
     light: "Light",
     dark: "Dark",

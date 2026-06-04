@@ -54,5 +54,7 @@ export interface Scenario {
   presence: PresenceStatus;
   /** custom "last seen" text used when presence === "lastseen" */
   lastSeenText: string;
+  /** font id for the Samsung/Android mockup (Samsung can change its system font) */
+  androidFont: string;
   messages: Message[];
 }

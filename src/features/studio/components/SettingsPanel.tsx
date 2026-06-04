@@ -6,6 +6,7 @@ import { ArrowLeftRight, Upload, X } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import { useStudioStore } from "../store";
 import type { Person, Scenario, Sender } from "../types";
+import { ANDROID_FONTS } from "../data/fonts";
 import { PLATFORMS } from "./platforms";
 import { Avatar } from "./shared";
 import type { StudioLabels } from "./labels";
@@ -100,6 +101,7 @@ export function SettingsPanel({ scenario, t }: { scenario: Scenario; t: StudioLa
   const setTheme = useStudioStore((s) => s.setTheme);
   const setPresence = useStudioStore((s) => s.setPresence);
   const setLastSeenText = useStudioStore((s) => s.setLastSeenText);
+  const setAndroidFont = useStudioStore((s) => s.setAndroidFont);
   const swapRoles = useStudioStore((s) => s.swapRoles);
 
   return (
@@ -133,6 +135,25 @@ export function SettingsPanel({ scenario, t }: { scenario: Scenario; t: StudioLa
             { value: "android", label: t.android },
           ]}
         />
+        {scenario.device === "android" && (
+          <div className="mt-2">
+            <span className="mb-1 block text-[11px] font-medium text-muted-foreground">{t.font}</span>
+            <div className="flex gap-1 rounded-lg bg-muted p-1">
+              {ANDROID_FONTS.map((f) => (
+                <button
+                  key={f.id}
+                  onClick={() => setAndroidFont(f.id)}
+                  className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
+                    scenario.androidFont === f.id ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                  style={{ fontFamily: f.family }}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </Section>
 
       <Section title={t.chatTheme}>

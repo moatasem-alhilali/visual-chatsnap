@@ -113,6 +113,7 @@ export function createDefaultScenario(): Scenario {
     them: { name: "خالد", avatar: null },
     presence: "online",
     lastSeenText: "آخر ظهور اليوم 10:30 ص",
+    androidFont: "roboto",
     messages: defaultMessages(),
   };
 }
