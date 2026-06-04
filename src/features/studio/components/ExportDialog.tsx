@@ -8,7 +8,7 @@ import { Download, Film, Loader2, X } from "lucide-react";
 
 import { Button } from "@/shared/components/ui/button";
 import { deviceOuter, DeviceFrame } from "./devices/DeviceFrame";
-import { PLATFORM_MAP } from "./platforms";
+import { PlatformView } from "./platforms";
 import { buildTimeline, type FrameState } from "../export/schedule";
 import { canExportVideo, exportToMp4 } from "../export/exportVideo";
 import type { PlaybackView } from "../playback/usePlayback";
@@ -76,7 +76,6 @@ export function ExportDialog({
   const offscreenRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  const { Component } = PLATFORM_MAP[scenario.platform];
   const outer = deviceOuter(scenario.device);
   const wrapperW = outer.w + PADDING * 2;
   const wrapperH = outer.h + PADDING * 2;
@@ -311,7 +310,7 @@ export function ExportDialog({
           }}
         >
           <DeviceFrame device={scenario.device} dir={rtl ? "rtl" : "ltr"}>
-            <Component scenario={scenario} playback={view} lang={lang} rtl={rtl} />
+            <PlatformView scenario={scenario} playback={view} lang={lang} rtl={rtl} />
           </DeviceFrame>
         </div>
       </div>
