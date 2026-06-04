@@ -1,268 +1,127 @@
-# Next.js 15 Template with i18n and Shadcn UI
+# Scenora
 
-A modern, SEO-optimized template for Next.js 15 applications featuring server components, internationalization support, shadcn UI components, and theme switching capabilities. Perfect for building performant, accessible, and multilingual web applications.
+**Create Conversations. Tell Stories. Drive Results.**
 
-## ✨ Features
+Scenora is a realistic conversation **simulation studio** that runs entirely in the
+browser. It lets marketers, content creators, agencies, e‑commerce owners, and
+brands build authentic chat scenarios that look and behave exactly like the real
+messaging apps — **WhatsApp, Telegram, Instagram DM, Snapchat, and iMessage** —
+then play them back cinematically and export them as video for ads, promos, and
+social content.
 
-- **Next.js 15**: Built on the latest [Next.js 15](https://nextjs.org/) React framework with App Router and Server Components for optimal performance
-- **SEO Optimization**: Includes metadata API, structured data, and optimized page loading strategies
-- **Internationalization**: Full i18n support using middleware-based routing with [next-intl](https://next-intl-docs.vercel.app/)
-- **Shadcn UI**: Pre-configured [shadcn UI](https://ui.shadcn.com/) components using the new React Server Components pattern
-- **Theme System**: CSS Variables-based theme system with light/dark mode toggle and system preference detection
-- **Language Switching**: Seamless switching between languages (including RTL support for Arabic and other RTL languages)
-- **OmitRTL Utility**: Helper component to control elements that should maintain LTR (left-to-right) rendering in RTL contexts
-- **TypeScript**: Type-safe codebase with TypeScript configuration optimized for Next.js 15
-- **Metadata API**: Built-in SEO metadata management using Next.js 15's metadata API
+🔗 **Live:** https://visual-chatsnap.vercel.app
 
-## 🚀 Getting Started
+---
 
-Clone the repository:
+## ✨ What it does
 
-```bash
-git clone https://github.com/S0vers/next-app-i18n-starter.git
-```
+- **Five pixel‑accurate platform templates** — each app has its own look *and feel*
+  (headers, bubbles, tails, read receipts, typing indicators, online status,
+  message animations). Not a single recoloured chat UI.
+- **Realistic device mockups** — iPhone 15 Pro (Dynamic Island, San Francisco font)
+  and Samsung Galaxy (centered punch‑hole, One UI status bar, Roboto). Each
+  device renders its own platform variant.
+- **Full direction support** — the whole mockup mirrors to RTL for Arabic and LTR
+  for English, like a genuinely localized install of the app.
+- **Scenario editor** — customize the two participants (name + avatar), pick the
+  platform, device and theme, then add/edit/reorder messages with per‑message
+  delay, typing duration, delivery/read status, time, and type (text/voice).
+- **Cinematic playback** — messages appear gradually with the right per‑platform
+  entrance animation, typing indicators, smooth auto‑scroll, and live
+  sent → delivered → read transitions.
+- **Recording Mode** — a clean, full‑screen stage with hideable controls, made
+  for screen recording.
+- **In‑browser video export** — generate a real **MP4** of the conversation with
+  WebCodecs + snapdom + mp4‑muxer. No server, nothing uploaded.
+- **Customization** — status‑bar icons (Wi‑Fi / cellular coverage / battery %),
+  switchable Samsung system font, light & dark chat themes.
+- **Local persistence** — autosaves your draft; Save / Load / Clear plus
+  Export / Import scenario as JSON.
 
-Install dependencies:
+---
+
+## 🧱 Tech stack
+
+- **Next.js 16** (App Router) · **React 19** · **TypeScript**
+- **Tailwind CSS v4** · shadcn/Radix UI
+- **Zustand** (state + persistence) · **next-intl** (Arabic/English) ·
+  **next-themes**
+- **WebCodecs**, **@zumer/snapdom**, **mp4-muxer** (client‑side video export)
+
+---
+
+## 🚀 Getting started
 
 ```bash
 npm install
-# or
-yarn
-# or
-pnpm install
-# or
-bun install
+npm run dev      # http://localhost:3000  → redirects to /ar
 ```
 
-Start the development server:
+### Scripts
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+| Command | Description |
+| --- | --- |
+| `npm run dev` | Start the dev server (Turbopack) |
+| `npm run build` | Production build |
+| `npm run start` | Run the production build |
+| `npm run lint` | ESLint |
+| `npm run typecheck` | TypeScript check |
+| `npm run verify` | typecheck + lint + build |
+
+---
+
+## 🗺️ How to use
+
+1. Open the app and pick a **platform** (WhatsApp, Telegram, …) and a **device**
+   (iPhone / Samsung).
+2. Edit the **participants** (names + photos) and the **status bar**.
+3. Add and arrange **messages**, tuning delay, typing time, and read status.
+4. Press **Play** to preview the conversation cinematically.
+5. Use **Recording Mode** to record your screen, or **Export Video** to download
+   an MP4 directly.
+
+---
+
+## 📁 Project structure
+
+```
+src/
+  app/[locale]/          App Router pages (the studio is the home page)
+  features/studio/        The product
+    components/           Editor, device frames, platform templates
+      platforms/          WhatsApp, Telegram, Instagram, Snapchat, iMessage (+ Android variants)
+      devices/            DeviceFrame, status bars, responsive scaler
+    export/               Deterministic timeline + WebCodecs MP4 encoder
+    playback/             Cinematic reveal engine
+    store.ts / types.ts   Zustand store + domain model
+  config/site.ts          Branding & SEO config
+  core/seo/               Metadata helpers (bilingual SEO, OG, canonical, alternates)
+dictionary/               ar.json / en.json (i18n + SEO strings)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser to see the result.
+---
 
-## 📋 Project Structure
+## 🌍 Localization & SEO
 
-The project follows Next.js 15's recommended App Router structure with additions for internationalization:
+Scenora ships bilingual (Arabic / English) SEO: localized `<title>`,
+description, keywords, Open Graph, Twitter cards, canonical URLs, and
+`hreflang` alternates — all driven from `dictionary/*.json` and
+`src/config/site.ts`. Configure the deployment via env vars
+(`NEXT_PUBLIC_SITE_NAME`, `NEXT_PUBLIC_SITE_URL`, …).
 
-```
-├── .next                                 # Next.js build output
-├── dictionary                            # i18n translation files
-│   ├── ar.json                           # Arabic translations
-│   └── en.json                           # English translations
-├── node_modules                          # Dependencies
-├── public                                # Static assets
-├── src                                   # Source code
-│   ├── app                               # Next.js App Router
-│   │   ├── [locale]                      # Dynamic locale routing
-│   │   │   ├── page.tsx                  # Home page
-│   │   │   ├── error.tsx                 # Error handling
-│   │   │   ├── favicon.ico               # Favicon
-│   │   │   ├── globals.css               # Global styles
-│   │   │   ├── robots.txt                # SEO robots file
-│   │   │   └── sitemap.ts                # Dynamic sitemap generation
-│   │   └── components                    # Application components
-│   │       ├── ui                        # shadcn UI components
-│   │       ├── LanguageSwitcher.tsx      # Language toggle component
-│   │       ├── ModeToggle.tsx            # Theme toggle component
-│   │       ├── OmitRTL.tsx               # RTL handling utility
-│   │       └── theme-provider.tsx        # Theme context provider
-│   ├── i18n                              # Internationalization utilities
-│   │   ├── navigation.ts                 # Localized navigation helpers
-│   │   ├── requests.ts                   # i18n-aware API request helpers
-│   │   └── routing.ts                    # Locale routing utilities
-│   ├── lib                               # Utility functions and shared code
-│   │   └── middleware.ts                 # i18n middleware for route handling
-│   └── components.json                   # shadcn UI component configuration
-├── .eslintrc.json                        # ESLint configuration
-├── global.d.ts                           # Global TypeScript declarations
-├── LICENSE                               # Project license
-├── next-env.d.ts                         # Next.js TypeScript declarations
-├── next.config.js                        # Next.js configuration
-├── package.json                          # Project dependencies and scripts
-├── bun.lock                              # Bun lock file
-├── postcss.config.js                     # PostCSS configuration
-├── README.md                             # Project documentation
-└── tsconfig.json                         # TypeScript configuration
-```
+---
 
-## 🌐 Internationalization
+## 📦 Environment variables
 
-This template uses middleware-based i18n routing with Next.js 15. Language files are stored in the `dictionary/` directory.
+| Variable | Default |
+| --- | --- |
+| `NEXT_PUBLIC_SITE_NAME` | `Scenora` |
+| `NEXT_PUBLIC_SITE_URL` | `https://visual-chatsnap.vercel.app` |
+| `NEXT_PUBLIC_SITE_DESCRIPTION` | (Scenora description) |
+| `NEXT_PUBLIC_SUPPORT_EMAIL` | `hello@scenora.app` |
 
-### Adding a New Language
-
-1. Create a new JSON file in the `dictionary/` directory (e.g., `fr.json`)
-2. Add the language to the supported locales in `middleware.ts` and `lib/i18n.ts`
-3. Add language option to the `LanguageSwitcher` component
-
-## 🎨 Shadcn UI Components
-
-Shadcn UI components are configured to work with Next.js 15 Server Components. Import them from the `components/ui/` directory:
-
-```jsx
-import { Button } from "@/components/ui/button";
-
-export default function Home() {
-  return <Button>Click me</Button>;
-}
-```
-
-## 🔄 OmitRTL Utility
-
-The `OmitRTL` utility helps you control which elements should maintain LTR direction even when the site is in RTL mode.
-
-### How to use the function:
-
-```jsx
-import { OmitRTL } from "@/components/OmitRTL";
-
-function MyComponent() {
-  return (
-    <div>
-      <p>This text will follow the website's direction.</p>
-      <OmitRTL omitRTL={true}>
-        <img src="/logo.png" alt="Logo" />
-        <div>
-          <h2>This heading and content will always be LTR</h2>
-          <p>Regardless of the website's direction.</p>
-        </div>
-      </OmitRTL>
-    </div>
-  );
-}
-```
-
-### NPM Package
-
-If you just need the OmitRTL function, it's also available as an npm package:
-
-```bash
-npm i react-omit-rtl
-```
-
-```jsx
-import React from "react";
-import OmitRTL from "react-omit-rtl";
-
-function App() {
-  return (
-    <OmitRTL omitRTL={true}>
-      <p>This text will not have RTL direction.</p>
-    </OmitRTL>
-  );
-}
-export default App;
-```
-
-## 🔍 SEO Optimization
-
-The template provides comprehensive SEO features with the Next.js 15 Metadata API:
-
-```jsx
-export async function generateMetadata({
-  params,
-}: {
-  params: { locale: string },
-}): Promise<Metadata> {
-  const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "Metadata" });
-
-  return {
-    title: t("title"),
-    description: t("description"),
-    other: {
-      "google-site-verification": "********",
-    },
-    openGraph: {
-      title: t("title"),
-      description: t("description"),
-      url: `next-app-i18n-starter.vercel.app`,
-      siteName: "Next.js i18n Template",
-      images: [
-        {
-          url: "next-app-i18n-starter.vercel.app/og-image.png",
-          width: 1200,
-          height: 630,
-        },
-      ],
-      locale: locale,
-      type: "website",
-    },
-    twitter: {
-      card: "summary_large_image",
-      title: t("title"),
-      description: t("description"),
-      images: ["next-app-i18n-starter.vercel.app/og-image.png"],
-    },
-    alternates: {
-      canonical: `next-app-i18n-starter.vercel.app`,
-      languages: {
-        en: "next-app-i18n-starter.vercel.app",
-        ar: "next-app-i18n-starter.vercel.app",
-      },
-    },
-    robots: {
-      index: true,
-      follow: true,
-      googleBot: {
-        index: true,
-        follow: true,
-        "max-video-preview": -1,
-        "max-image-preview": "large",
-        "max-snippet": -1,
-      },
-    },
-  };
-}
-```
-
-Additionally, structured data is implemented using react-schemaorg for better search engine understanding:
-
-```jsx
-<script
-  {...(jsonLdScriptProps <
-    WebSite >
-    {
-      "@context": "https://schema.org",
-      "@type": "WebSite",
-      name: "Next.js i18n Template",
-      description:
-        "A humble Next 15 starter with i18n, shadcn UI, light/dark themes, and language switch.",
-      url: "next-app-i18n-starter.vercel.app",
-    })}
-/>
-```
-
-Other SEO features included in the template:
-
-- Canonical URLs to prevent duplicate content issues
-- Language-specific metadata with translations
-- Proper HTML lang attribute based on current locale
-- Dynamic sitemap generation
-- Robots.txt configuration
-- Google site verification
-- Optimized OpenGraph and Twitter card images
-
-These features work together to help search engines better understand, index, and display your content to potential visitors across different languages and regions.
-
-## 🤝 Contributing
-
-We welcome contributions to improve this template! Here's how you can help:
-
-1. Fork the repository
-2. Create a new branch (`git checkout -b feature/your-feature`)
-3. Commit your changes (`git commit -am 'Add some feature'`)
-4. Push to the branch (`git push origin feature/your-feature`)
-5. Create a new Pull Request
+---
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+See [LICENSE](./LICENSE).

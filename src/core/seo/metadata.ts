@@ -8,7 +8,11 @@ type MetadataInput = {
   path?: string;
   image?: string;
   noIndex?: boolean;
+  keywords?: string;
+  locale?: string;
 };
+
+const OG_LOCALE: Record<string, string> = { ar: "ar_SA", en: "en_US" };
 
 export function createPageMetadata({
   title,
@@ -16,14 +20,25 @@ export function createPageMetadata({
   path = "/",
   image = siteConfig.socialImage,
   noIndex = false,
+  keywords,
+  locale,
 }: MetadataInput): Metadata {
   const url = new URL(path, siteConfig.url);
   const imageUrl = new URL(image, siteConfig.url);
   const languages = createLanguageAlternates(path);
+  const ogLocale = locale ? OG_LOCALE[locale] : undefined;
+  const altLocale = locale
+    ? siteConfig.locales.filter((l) => l !== locale).map((l) => OG_LOCALE[l])
+    : undefined;
 
   return {
     title,
     description,
+    metadataBase: new URL(siteConfig.url),
+    applicationName: siteConfig.name,
+    keywords: keywords
+      ? keywords.split(",").map((k) => k.trim()).filter(Boolean)
+      : undefined,
     alternates: {
       canonical: url,
       languages,
@@ -35,6 +50,8 @@ export function createPageMetadata({
       siteName: siteConfig.name,
       images: [{ url: imageUrl, width: 1200, height: 630, alt: title }],
       type: "website",
+      locale: ogLocale,
+      alternateLocale: altLocale,
     },
     twitter: {
       card: "summary_large_image",

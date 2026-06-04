@@ -91,6 +91,8 @@ export async function generateMetadata({
   return createPageMetadata({
     title: t("title"),
     description: t("description"),
+    keywords: t("keywords"),
+    locale,
     path: `/${locale}`,
   });
 }
