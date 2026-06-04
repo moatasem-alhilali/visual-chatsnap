@@ -8,25 +8,27 @@ function toArabicDigits(s: string): string {
   return s.replace(/[0-9]/g, (d) => map[Number(d)]);
 }
 
-function Wifi({ color }: { color: string }) {
+/** Samsung cellular coverage indicator: signal bars + 4G+ + VoLTE/LTE+ label. */
+function Coverage({ color }: { color: string }) {
+  const bars = [5, 7.5, 10, 12.5];
   return (
-    <svg width="16" height="12" viewBox="0 0 16 13" fill="none">
-      <path d="M8 11.8 15.4 3a11 11 0 0 0-14.8 0L8 11.8Z" fill={color} />
-    </svg>
-  );
-}
-
-function Signal({ color }: { color: string }) {
-  // Only the signal icon mirrors with direction; battery/wifi keep their shape.
-  return (
-    <svg width="17" height="12" viewBox="0 0 17 13" fill="none" className="rtl:-scale-x-100">
-      <path d="M15.5 1 1 13h14.5z" fill={color} />
-    </svg>
+    <div dir="ltr" className="flex items-end gap-1">
+      <div className="flex items-end gap-[1.5px]">
+        {bars.map((h, i) => (
+          <span key={i} style={{ width: 2.5, height: h, borderRadius: 1, background: color }} />
+        ))}
+      </div>
+      <span style={{ fontSize: 11, fontWeight: 700, color, lineHeight: 1 }}>4G+</span>
+      <div className="flex flex-col items-start" style={{ fontSize: 6.5, fontWeight: 700, lineHeight: 1.15, color }}>
+        <span>VoLTE</span>
+        <span>LTE+</span>
+      </div>
+    </div>
   );
 }
 
 function Battery({ color }: { color: string }) {
-  // One UI horizontal battery with a small nub on the end.
+  // One UI horizontal battery with a small terminal on the end.
   return (
     <svg width="24" height="13" viewBox="0 0 24 13" fill="none">
       <rect x="0.5" y="1.5" width="20" height="10" rx="3" stroke={color} strokeOpacity="0.6" />
@@ -46,9 +48,9 @@ function Alarm({ color }: { color: string }) {
 }
 
 /**
- * Samsung One UI status bar. Clock + notification icons sit at the inline-start
- * (right in Arabic / left in English), system icons at the inline-end — exactly
- * like a real Galaxy, mirroring with the UI direction.
+ * Samsung One UI status bar. Clock + notification icon at the inline-start
+ * (right in Arabic / left in English); on the inline-end the battery sits at the
+ * edge followed by the cellular coverage, mirroring with the UI direction.
  */
 export function SamsungStatusBar({
   tint,
@@ -76,10 +78,9 @@ export function SamsungStatusBar({
         </span>
         <Alarm color={color} />
       </div>
-      {/* inline-end: system icons (battery keeps its natural orientation) */}
-      <div className="flex items-center gap-1.5">
-        <Signal color={color} />
-        <Wifi color={color} />
+      {/* inline-end: coverage (inner) then battery (at the edge) */}
+      <div className="flex items-center gap-2">
+        <Coverage color={color} />
         <Battery color={color} />
       </div>
     </div>
