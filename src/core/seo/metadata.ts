@@ -37,9 +37,13 @@ export function createPageMetadata({
     metadataBase: new URL(siteConfig.url),
     applicationName: siteConfig.name,
     icons: {
-      icon: [{ url: "/logo.png", type: "image/png" }],
-      shortcut: ["/logo.png"],
-      apple: [{ url: "/logo.png" }],
+      icon: [
+        { url: "/favicon/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+        { url: "/favicon/favicon-16x16.png", sizes: "16x16", type: "image/png" },
+        { url: "/favicon/favicon.ico", sizes: "any" },
+      ],
+      shortcut: ["/favicon/favicon.ico"],
+      apple: [{ url: "/favicon/apple-touch-icon.png", sizes: "180x180" }],
     },
     keywords: keywords
       ? keywords.split(",").map((k) => k.trim()).filter(Boolean)
