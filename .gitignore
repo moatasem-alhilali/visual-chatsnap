@@ -45,3 +45,4 @@ next-env.d.ts
 dev.log
 build.log
 build2.log
+build*.log

@@ -24,6 +24,8 @@ interface StatusEvent {
 export interface Timeline {
   durationMs: number;
   stateAt: (t: number) => FrameState;
+  /** time (ms) each message becomes visible — used for entrance animation */
+  revealAt: Map<string, number>;
 }
 
 // Mirrors usePlayback's timing constants exactly so the export matches playback.
@@ -66,6 +68,9 @@ export function buildTimeline(scenario: Scenario): Timeline {
   const lastStatusAt = statusEvents.reduce((mx, e) => Math.max(mx, e.at), t);
   const durationMs = Math.max(t, lastStatusAt) + END_PADDING;
 
+  const revealAt = new Map<string, number>();
+  for (const r of reveals) revealAt.set(r.id, r.at);
+
   const stateAt = (time: number): FrameState => {
     const visibleIds = new Set<string>();
     for (const r of reveals) if (r.at <= time) visibleIds.add(r.id);
@@ -86,5 +91,5 @@ export function buildTimeline(scenario: Scenario): Timeline {
     return { visibleIds, typing, statuses };
   };
 
-  return { durationMs, stateAt };
+  return { durationMs, stateAt, revealAt };
 }

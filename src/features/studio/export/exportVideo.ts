@@ -90,15 +90,19 @@ export async function exportToMp4(opts: ExportOptions): Promise<Blob> {
 
       onProgress?.(i + 1, totalFrames);
 
-      // back-pressure: let the encoder drain so memory stays bounded.
-      // Uses setTimeout (not rAF) so it keeps working in background tabs.
+      // back-pressure: let the encoder drain so memory stays bounded. Uses the
+      // encoder's "dequeue" event (not a timer) so it isn't throttled in the
+      // background.
       if (encoder.encodeQueueSize > 8) {
         await new Promise<void>((resolve) => {
-          const check = () => {
-            if (encoder.encodeQueueSize <= 4) resolve();
-            else setTimeout(check, 8);
+          const onDequeue = () => {
+            if (encoder.encodeQueueSize <= 4) {
+              encoder.removeEventListener("dequeue", onDequeue);
+              resolve();
+            }
           };
-          check();
+          encoder.addEventListener("dequeue", onDequeue);
+          onDequeue();
         });
       }
     }

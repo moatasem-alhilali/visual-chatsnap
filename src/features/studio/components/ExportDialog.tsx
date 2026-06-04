@@ -116,13 +116,38 @@ export function ExportDialog({
       // warm-up capture so snapdom embeds fonts/styles into its cache
       await snapdom.toCanvas(node, { scale: 1, embedFonts: true });
 
+      const ENTER_DUR = 300; // ms — message entrance animation length
+      const easeOut = (p: number) => 1 - Math.pow(1 - p, 3);
+      const scrollPos = new Map<HTMLElement, number>();
+
       const drawFrame = async (timeMs: number) => {
         flushSync(() => setFrame(timeline.stateAt(timeMs)));
-        // keep the latest messages in view in every frame
-        node.querySelectorAll<HTMLElement>(".rcss-scroll").forEach((el) => {
-          el.scrollTop = el.scrollHeight;
+
+        // Entrance animation: the freshly revealed message slides up + fades in.
+        node.querySelectorAll<HTMLElement>("[data-mid]").forEach((el) => {
+          const at = timeline.revealAt.get(el.dataset.mid ?? "");
+          if (at === undefined) return;
+          const age = timeMs - at;
+          if (age >= 0 && age < ENTER_DUR) {
+            const p = easeOut(age / ENTER_DUR);
+            el.style.opacity = String(p);
+            el.style.transform = `translateY(${(1 - p) * 16}px) scale(${0.965 + 0.035 * p})`;
+            el.style.transformOrigin = "center bottom";
+          } else {
+            el.style.opacity = "";
+            el.style.transform = "";
+          }
         });
-        await settle();
+
+        // Smooth auto-scroll: ease toward the bottom instead of jumping.
+        node.querySelectorAll<HTMLElement>(".rcss-scroll").forEach((el) => {
+          const target = el.scrollHeight - el.clientHeight;
+          const prev = scrollPos.has(el) ? scrollPos.get(el)! : target;
+          const next = prev + (target - prev) * 0.3;
+          scrollPos.set(el, next);
+          el.scrollTop = next;
+        });
+
         const snap = await snapdom.toCanvas(node, {
           scale: pixelRatio,
           embedFonts: true,
