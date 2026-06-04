@@ -160,19 +160,20 @@ export function StudioApp() {
           <p className="truncate text-xs text-muted-foreground">{t.appSubtitle}</p>
         </div>
 
-        <Button variant="ghost" size="sm" className="hidden gap-1.5 sm:flex" onClick={() => { resetScenario(); show(t.loaded); }}>
-          <FilePlus2 className="size-4" />
-          {t.newScenario}
-        </Button>
+        <LanguageSwitcher />
+        <ThemeToggle />
 
         <DropdownMenu dir={locale === "ar" ? "rtl" : "ltr"}>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-1.5">
+            <Button variant="outline" size="icon" title={t.data} aria-label={t.data}>
               <MoreHorizontal className="size-4" />
-              {t.data}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuItem onClick={() => { resetScenario(); show(t.loaded); }}>
+              <FilePlus2 className="size-4" /> {t.newScenario}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => { saveSlot(); show(t.saved); }}>
               <Save className="size-4" /> {t.save}
             </DropdownMenuItem>
@@ -187,9 +188,6 @@ export function StudioApp() {
               <Upload className="size-4" /> {t.importJson}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="sm:hidden" onClick={() => { resetScenario(); show(t.loaded); }}>
-              <FilePlus2 className="size-4" /> {t.newScenario}
-            </DropdownMenuItem>
             <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => { clearAll(); show(t.cleared); }}>
               <Trash2 className="size-4" /> {t.clear}
             </DropdownMenuItem>
@@ -197,12 +195,9 @@ export function StudioApp() {
         </DropdownMenu>
         <input ref={importRef} type="file" accept="application/json" className="hidden" onChange={(e) => onImport(e.target.files?.[0])} />
 
-        <LanguageSwitcher />
-        <ThemeToggle />
-
         <Button variant="outline" size="sm" className="gap-1.5" onClick={() => { setShowRecControls(true); setRecording(true); }}>
           <Video className="size-4" />
-          {t.record}
+          <span className="hidden sm:inline">{t.record}</span>
         </Button>
         <Button size="sm" className="gap-1.5" onClick={() => setShowExport(true)}>
           <Film className="size-4" />
