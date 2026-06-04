@@ -68,6 +68,17 @@ export interface StudioLabels {
   messagePlaceholder: string;
   hideControls: string;
   showControls: string;
+  exportVideo: string;
+  exportStart: string;
+  exportRendering: string;
+  exportDone: string;
+  exportAgain: string;
+  exportCancel: string;
+  exportError: string;
+  exportUnsupported: string;
+  exportHint: string;
+  exportBackground: string;
+  exportFps: string;
 }
 
 export const STUDIO_LABELS: Record<"ar" | "en", StudioLabels> = {
@@ -141,6 +152,17 @@ export const STUDIO_LABELS: Record<"ar" | "en", StudioLabels> = {
     messagePlaceholder: "اكتب نص الرسالة…",
     hideControls: "إخفاء الأزرار",
     showControls: "إظهار الأزرار",
+    exportVideo: "تصدير فيديو",
+    exportStart: "ابدأ التصدير",
+    exportRendering: "جارٍ توليد الفيديو…",
+    exportDone: "تم إنشاء الفيديو وبدأ التنزيل ✓",
+    exportAgain: "تصدير مرة أخرى",
+    exportCancel: "إلغاء",
+    exportError: "حدث خطأ:",
+    exportUnsupported: "متصفحك لا يدعم توليد الفيديو. استخدم Chrome أو Edge، أو استخدم وضع التسجيل وسجّل شاشتك.",
+    exportHint: "يتم توليد الفيديو بالكامل داخل متصفحك بدون رفع أي بيانات.",
+    exportBackground: "الخلفية",
+    exportFps: "الإطارات/الثانية",
   },
   en: {
     appTitle: "Chat Scenario Studio",
@@ -212,5 +234,16 @@ export const STUDIO_LABELS: Record<"ar" | "en", StudioLabels> = {
     messagePlaceholder: "Type message text…",
     hideControls: "Hide controls",
     showControls: "Show controls",
+    exportVideo: "Export video",
+    exportStart: "Start export",
+    exportRendering: "Generating video…",
+    exportDone: "Video created — download started ✓",
+    exportAgain: "Export again",
+    exportCancel: "Cancel",
+    exportError: "Error:",
+    exportUnsupported: "Your browser can't generate video. Use Chrome or Edge, or use Recording Mode and capture your screen.",
+    exportHint: "The video is generated entirely in your browser — nothing is uploaded.",
+    exportBackground: "Background",
+    exportFps: "Frames/sec",
   },
 };

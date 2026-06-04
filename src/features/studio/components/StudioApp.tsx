@@ -7,6 +7,7 @@ import {
   Eye,
   EyeOff,
   FilePlus2,
+  Film,
   FolderOpen,
   MoreHorizontal,
   Save,
@@ -34,6 +35,7 @@ import { DeviceStage } from "./DeviceStage";
 import { PlaybackControls } from "./PlaybackControls";
 import { SettingsPanel } from "./SettingsPanel";
 import { MessageEditor } from "./MessageEditor";
+import { ExportDialog } from "./ExportDialog";
 import { STUDIO_LABELS, type StudioLabels } from "./labels";
 
 function useToast() {
@@ -64,6 +66,7 @@ export function StudioApp() {
   const { msg, show } = useToast();
   const importRef = useRef<HTMLInputElement>(null);
   const [showRecControls, setShowRecControls] = useState(true);
+  const [showExport, setShowExport] = useState(false);
 
   // Avoid SSR/localStorage hydration mismatch from the persisted store.
   const [mounted, setMounted] = useState(false);
@@ -197,9 +200,13 @@ export function StudioApp() {
         <LanguageSwitcher />
         <ThemeToggle />
 
-        <Button size="sm" className="gap-1.5" onClick={() => { setShowRecControls(true); setRecording(true); }}>
+        <Button variant="outline" size="sm" className="gap-1.5" onClick={() => { setShowRecControls(true); setRecording(true); }}>
           <Video className="size-4" />
           {t.record}
+        </Button>
+        <Button size="sm" className="gap-1.5" onClick={() => setShowExport(true)}>
+          <Film className="size-4" />
+          {t.exportVideo}
         </Button>
       </header>
 
@@ -224,6 +231,10 @@ export function StudioApp() {
 
       {/* Bottom: simple timeline */}
       <Timeline scenario={scenario} t={t} />
+
+      {showExport && (
+        <ExportDialog scenario={scenario} t={t} onClose={() => setShowExport(false)} />
+      )}
 
       {/* Toast */}
       {msg && (
