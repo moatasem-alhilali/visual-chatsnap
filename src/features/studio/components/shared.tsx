@@ -2,7 +2,52 @@
 
 import { useEffect, useRef } from "react";
 
-import type { Person } from "../types";
+import type { Device, Person } from "../types";
+
+/**
+ * The OS bottom affordance — an iOS home indicator pill for iPhone, or the
+ * Android (Samsung) 3-button navigation bar for Android. This is one of the
+ * clearest tells that distinguishes the two device mockups.
+ */
+export function SystemBottomBar({
+  device,
+  bg,
+  fg,
+}: {
+  device: Device;
+  bg: string;
+  fg: string;
+}) {
+  if (device === "iphone") {
+    return (
+      <div className="flex justify-center pb-2 pt-1.5" style={{ background: bg }}>
+        <span className="rounded-full" style={{ width: 134, height: 5, background: fg }} />
+      </div>
+    );
+  }
+  // Android / Samsung 3-button navigation
+  return (
+    <div
+      className="flex items-center justify-center gap-16 py-2.5"
+      style={{ background: bg }}
+    >
+      {/* recents (square) */}
+      <span
+        className="block rounded-sm"
+        style={{ width: 13, height: 13, border: `1.8px solid ${fg}` }}
+      />
+      {/* home (circle) */}
+      <span
+        className="block rounded-full"
+        style={{ width: 15, height: 15, border: `1.8px solid ${fg}` }}
+      />
+      {/* back (triangle) */}
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="rtl:-scale-x-100">
+        <path d="M15 5 7 12l8 7z" fill={fg} />
+      </svg>
+    </div>
+  );
+}
 
 /** Detect predominant direction so Arabic renders RTL inside an LTR app and vice-versa. */
 export function dirOf(text: string): "rtl" | "ltr" {

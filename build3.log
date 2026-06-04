@@ -1,0 +1,45 @@
+
+> next-enterprise-template@0.1.0 build
+> next build
+
+▲ Next.js 16.2.7 (Turbopack)
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 3.4s
+  Running TypeScript ...
+  Finished TypeScript in 6.2s ...
+  Collecting page data using 15 workers ...
+  Generating static pages using 15 workers (0/21) ...
+  Generating static pages using 15 workers (5/21) 
+  Generating static pages using 15 workers (10/21) 
+  Generating static pages using 15 workers (15/21) 
+✓ Generating static pages using 15 workers (21/21) in 490ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /_not-found
+├ ƒ /.well-known/agent-skills/index.json
+├ ƒ /.well-known/agent-skills/public-content-discovery.md
+├ ƒ /.well-known/agent-skills/safe-page-summarization.md
+├ ƒ /.well-known/agent-skills/support-navigation.md
+├ ƒ /.well-known/api-catalog
+├ ● /[locale]
+│ ├ /ar
+│ └ /en
+├ ƒ /[locale]/dashboard
+├ ƒ /[locale]/index.md
+├ ƒ /[locale]/login
+├ ƒ /[locale]/register
+├ ƒ /index.md
+├ ƒ /llms.txt
+├ ƒ /openapi.json
+├ ○ /robots.txt
+└ ○ /sitemap.xml
+
+
+ƒ Proxy (Middleware)
+
+○  (Static)   prerendered as static content
+●  (SSG)      prerendered as static HTML (uses generateStaticParams)
+ƒ  (Dynamic)  server-rendered on demand
+

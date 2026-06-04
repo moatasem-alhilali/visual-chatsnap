@@ -1,6 +1,6 @@
 "use client";
 
-import { Avatar, dirOf, useChatScroll } from "../shared";
+import { Avatar, dirOf, SystemBottomBar, useChatScroll } from "../shared";
 import { StatusBar } from "../devices/StatusBar";
 import { CHROME } from "./chrome";
 import { groupInfo, type PlatformProps } from "./types";
@@ -170,11 +170,7 @@ export function Instagram({ scenario, playback, lang }: PlatformProps) {
           </div>
         </div>
       </div>
-      {scenario.device === "iphone" && (
-        <div className="flex justify-center pb-2 pt-0.5" style={{ background: pageBg }}>
-          <span className="rounded-full" style={{ width: 134, height: 5, background: dark ? "#ffffff" : "#000000" }} />
-        </div>
-      )}
+      <SystemBottomBar device={scenario.device} bg={pageBg} fg={dark ? "#ffffff" : "#000000"} />
     </div>
   );
 }

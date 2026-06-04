@@ -1,6 +1,6 @@
 "use client";
 
-import { Avatar, dirOf, useChatScroll } from "../shared";
+import { Avatar, dirOf, SystemBottomBar, useChatScroll } from "../shared";
 import { StatusBar } from "../devices/StatusBar";
 import { CHROME, type ChromeStrings } from "./chrome";
 import { type PlatformProps } from "./types";
@@ -133,11 +133,7 @@ export function Snapchat({ scenario, playback, lang }: PlatformProps) {
         </div>
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M4 12h16M4 6h16M4 18h10" stroke={sub} strokeWidth="1.8" strokeLinecap="round" /></svg>
       </div>
-      {scenario.device === "iphone" && (
-        <div className="flex justify-center pb-2 pt-0.5" style={{ background: pageBg }}>
-          <span className="rounded-full" style={{ width: 134, height: 5, background: dark ? "#ffffff" : "#000000" }} />
-        </div>
-      )}
+      <SystemBottomBar device={scenario.device} bg={pageBg} fg={dark ? "#ffffff" : "#000000"} />
     </div>
   );
 }

@@ -3,7 +3,7 @@
 import type { CSSProperties } from "react";
 
 import type { DeliveryStatus } from "../../types";
-import { Avatar, dirOf, useChatScroll } from "../shared";
+import { Avatar, dirOf, SystemBottomBar, useChatScroll } from "../shared";
 import { StatusBar } from "../devices/StatusBar";
 import { CHROME } from "./chrome";
 import { groupInfo, type PlatformProps } from "./types";
@@ -216,11 +216,7 @@ export function WhatsApp({ scenario, playback, lang, rtl }: PlatformProps) {
           </svg>
         </div>
       </div>
-      {scenario.device === "iphone" && (
-        <div className="flex justify-center pb-2 pt-1" style={{ background: barBg }}>
-          <span className="rounded-full" style={{ width: 134, height: 5, background: dark ? "#e9edef" : "#111b21" }} />
-        </div>
-      )}
+      <SystemBottomBar device={scenario.device} bg={barBg} fg={dark ? "#e9edef" : "#111b21"} />
     </div>
   );
 }
