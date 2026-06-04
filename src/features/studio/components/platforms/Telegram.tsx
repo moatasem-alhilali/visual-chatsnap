@@ -178,6 +178,7 @@ export function Telegram({ scenario, playback, lang, rtl }: PlatformProps) {
             return (
               <div
                 key={m.id}
+                data-mid={m.id}
                 className={`flex ${mine ? "justify-end" : "justify-start"}`}
               >
                 <div

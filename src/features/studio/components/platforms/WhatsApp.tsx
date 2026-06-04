@@ -157,6 +157,7 @@ export function WhatsApp({ scenario, playback, lang, rtl }: PlatformProps) {
             return (
               <div
                 key={m.id}
+                data-mid={m.id}
                 className={`flex ${mine ? "justify-end" : "justify-start"} ${firstOfGroup ? "mt-1.5" : ""}`}
               >
                 <div

@@ -81,7 +81,7 @@ export function Snapchat({ scenario, playback, lang }: PlatformProps) {
             const accent = mine ? SNAP_RED : SNAP_BLUE;
             const status = playback.statusOf(m);
             return (
-              <div key={m.id} className={`${live ? "rcss-anim-fade" : ""}`}>
+              <div key={m.id} data-mid={m.id} className={`${live ? "rcss-anim-fade" : ""}`}>
                 <div className="flex items-stretch gap-2.5" dir={dirOf(m.text)}>
                   <span className="shrink-0 self-stretch rounded-full" style={{ width: 3, background: accent }} />
                   <div className="min-w-0 flex-1">

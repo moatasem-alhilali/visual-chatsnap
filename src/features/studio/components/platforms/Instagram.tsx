@@ -119,6 +119,7 @@ export function Instagram({ scenario, playback, lang }: PlatformProps) {
             return (
               <div
                 key={m.id}
+                data-mid={m.id}
                 className={`flex items-end gap-2 ${mine ? "justify-end" : "justify-start"} ${firstOfGroup ? "mt-2" : "mt-0.5"}`}
               >
                 {!mine && (

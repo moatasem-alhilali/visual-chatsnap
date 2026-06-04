@@ -116,6 +116,7 @@ export function IMessage({ scenario, playback, lang, rtl }: PlatformProps) {
             return (
               <div
                 key={m.id}
+                data-mid={m.id}
                 className={`flex ${mine ? "justify-end" : "justify-start"} ${firstOfGroup ? "mt-2" : "mt-0.5"}`}
               >
                 <div
