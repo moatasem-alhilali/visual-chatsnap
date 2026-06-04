@@ -6,6 +6,10 @@ export interface StudioLabels {
   iphone: string;
   android: string;
   font: string;
+  statusBarTitle: string;
+  sbWifi: string;
+  sbCellular: string;
+  sbBatteryPct: string;
   chatTheme: string;
   light: string;
   dark: string;
@@ -91,6 +95,10 @@ export const STUDIO_LABELS: Record<"ar" | "en", StudioLabels> = {
     iphone: "آيفون",
     android: "سامسونج",
     font: "خط سامسونج",
+    statusBarTitle: "شريط الحالة",
+    sbWifi: "واي‑فاي",
+    sbCellular: "تغطية الجوّال",
+    sbBatteryPct: "نسبة البطارية",
     chatTheme: "ثيم المحادثة",
     light: "فاتح",
     dark: "داكن",
@@ -174,6 +182,10 @@ export const STUDIO_LABELS: Record<"ar" | "en", StudioLabels> = {
     iphone: "iPhone",
     android: "Samsung",
     font: "Samsung font",
+    statusBarTitle: "Status bar",
+    sbWifi: "Wi‑Fi",
+    sbCellular: "Cellular",
+    sbBatteryPct: "Battery %",
     chatTheme: "Chat theme",
     light: "Light",
     dark: "Dark",

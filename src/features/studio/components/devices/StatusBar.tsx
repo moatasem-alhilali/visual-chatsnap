@@ -1,5 +1,7 @@
 "use client";
 
+import { useStudioStore } from "../../store";
+import { DEFAULT_STATUS_BAR } from "../../types";
 import type { Device } from "../../types";
 
 type Tint = "light" | "dark";
@@ -80,6 +82,7 @@ export function StatusBar({
   background?: string;
   time?: string;
 }) {
+  const sb = useStudioStore((s) => s.scenario.statusBar) ?? DEFAULT_STATUS_BAR;
   const color = tint === "light" ? "#ffffff" : "#000000";
   const ios = device === "iphone";
 
@@ -96,8 +99,11 @@ export function StatusBar({
           {time}
         </span>
         <div className="flex items-center gap-1.5">
-          <IosCellular color={color} />
-          <IosWifi color={color} />
+          {sb.cellular && <IosCellular color={color} />}
+          {sb.wifi && <IosWifi color={color} />}
+          {sb.batteryPct && (
+            <span className="text-[14px] font-medium" style={{ color }}>85</span>
+          )}
           <IosBattery color={color} />
         </div>
       </div>
@@ -114,8 +120,11 @@ export function StatusBar({
         {time}
       </span>
       <div className="flex items-center gap-1.5">
-        <AndroidSignal color={color} />
-        <AndroidWifi color={color} />
+        {sb.cellular && <AndroidSignal color={color} />}
+        {sb.wifi && <AndroidWifi color={color} />}
+        {sb.batteryPct && (
+          <span className="text-[11px] font-medium" style={{ color }}>85</span>
+        )}
         <AndroidBattery color={color} />
       </div>
     </div>

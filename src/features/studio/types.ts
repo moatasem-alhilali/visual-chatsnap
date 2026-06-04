@@ -23,6 +23,21 @@ export interface Person {
   avatar: string | null;
 }
 
+/** User-controlled status-bar icons. */
+export interface StatusBarConfig {
+  wifi: boolean;
+  /** cellular coverage (signal bars + 4G+/VoLTE on Samsung) */
+  cellular: boolean;
+  /** show the battery percentage number */
+  batteryPct: boolean;
+}
+
+export const DEFAULT_STATUS_BAR: StatusBarConfig = {
+  wifi: true,
+  cellular: false,
+  batteryPct: false,
+};
+
 export interface Message {
   id: string;
   sender: Sender;
@@ -56,5 +71,7 @@ export interface Scenario {
   lastSeenText: string;
   /** font id for the Samsung/Android mockup (Samsung can change its system font) */
   androidFont: string;
+  /** which icons appear in the status bar */
+  statusBar: StatusBarConfig;
   messages: Message[];
 }

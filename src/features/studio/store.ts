@@ -12,7 +12,9 @@ import type {
   PresenceStatus,
   Scenario,
   Sender,
+  StatusBarConfig,
 } from "./types";
+import { DEFAULT_STATUS_BAR } from "./types";
 import {
   SCENARIO_VERSION,
   createBlankMessage,
@@ -31,6 +33,7 @@ type StudioState = {
   setPresence: (presence: PresenceStatus) => void;
   setLastSeenText: (text: string) => void;
   setAndroidFont: (font: string) => void;
+  updateStatusBar: (patch: Partial<StatusBarConfig>) => void;
 
   updatePerson: (who: Sender, patch: Partial<Person>) => void;
   swapRoles: () => void;
@@ -69,6 +72,13 @@ export const useStudioStore = create<StudioState>()(
         set((s) => ({ scenario: { ...s.scenario, lastSeenText } })),
       setAndroidFont: (androidFont) =>
         set((s) => ({ scenario: { ...s.scenario, androidFont } })),
+      updateStatusBar: (patch) =>
+        set((s) => ({
+          scenario: {
+            ...s.scenario,
+            statusBar: { ...DEFAULT_STATUS_BAR, ...s.scenario.statusBar, ...patch },
+          },
+        })),
 
       updatePerson: (who, patch) =>
         set((s) => ({

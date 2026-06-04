@@ -6,6 +6,7 @@ import { ArrowLeftRight, Upload, X } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import { useStudioStore } from "../store";
 import type { Person, Scenario, Sender } from "../types";
+import { DEFAULT_STATUS_BAR } from "../types";
 import { ANDROID_FONTS } from "../data/fonts";
 import { PLATFORMS } from "./platforms";
 import { Avatar } from "./shared";
@@ -102,7 +103,10 @@ export function SettingsPanel({ scenario, t }: { scenario: Scenario; t: StudioLa
   const setPresence = useStudioStore((s) => s.setPresence);
   const setLastSeenText = useStudioStore((s) => s.setLastSeenText);
   const setAndroidFont = useStudioStore((s) => s.setAndroidFont);
+  const updateStatusBar = useStudioStore((s) => s.updateStatusBar);
   const swapRoles = useStudioStore((s) => s.swapRoles);
+
+  const sb = scenario.statusBar ?? DEFAULT_STATUS_BAR;
 
   return (
     <div className="space-y-5">
@@ -154,6 +158,31 @@ export function SettingsPanel({ scenario, t }: { scenario: Scenario; t: StudioLa
             </div>
           </div>
         )}
+      </Section>
+
+      <Section title={t.statusBarTitle}>
+        <div className="flex flex-wrap gap-2">
+          {([
+            { key: "wifi", label: t.sbWifi },
+            { key: "cellular", label: t.sbCellular },
+            { key: "batteryPct", label: t.sbBatteryPct },
+          ] as const).map((o) => {
+            const on = sb[o.key];
+            return (
+              <button
+                key={o.key}
+                onClick={() => updateStatusBar({ [o.key]: !on })}
+                className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                  on
+                    ? "border-primary bg-primary/10 text-foreground"
+                    : "border-border bg-card text-muted-foreground hover:border-foreground/30"
+                }`}
+              >
+                {o.label}
+              </button>
+            );
+          })}
+        </div>
       </Section>
 
       <Section title={t.chatTheme}>

@@ -114,6 +114,7 @@ export function createDefaultScenario(): Scenario {
     presence: "online",
     lastSeenText: "آخر ظهور اليوم 10:30 ص",
     androidFont: "roboto",
+    statusBar: { wifi: true, cellular: false, batteryPct: false },
     messages: defaultMessages(),
   };
 }

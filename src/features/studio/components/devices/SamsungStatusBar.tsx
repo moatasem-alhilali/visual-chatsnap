@@ -1,5 +1,7 @@
 "use client";
 
+import { useStudioStore } from "../../store";
+import { DEFAULT_STATUS_BAR } from "../../types";
 import type { Lang } from "../platforms/chrome";
 
 /** Convert ASCII digits to Arabic-Indic so the One UI clock reads like the real device. */
@@ -27,8 +29,15 @@ function Coverage({ color }: { color: string }) {
   );
 }
 
+function Wifi({ color }: { color: string }) {
+  return (
+    <svg width="16" height="12" viewBox="0 0 16 13" fill="none">
+      <path d="M8 11.8 15.4 3a11 11 0 0 0-14.8 0L8 11.8Z" fill={color} />
+    </svg>
+  );
+}
+
 function Battery({ color }: { color: string }) {
-  // One UI horizontal battery with a small terminal on the end.
   return (
     <svg width="24" height="13" viewBox="0 0 24 13" fill="none">
       <rect x="0.5" y="1.5" width="20" height="10" rx="3" stroke={color} strokeOpacity="0.6" />
@@ -48,9 +57,8 @@ function Alarm({ color }: { color: string }) {
 }
 
 /**
- * Samsung One UI status bar. Clock + notification icon at the inline-start
- * (right in Arabic / left in English); on the inline-end the battery sits at the
- * edge followed by the cellular coverage, mirroring with the UI direction.
+ * Samsung One UI status bar. The user chooses which icons appear (wifi /
+ * cellular coverage / battery percentage). Battery sits at the edge.
  */
 export function SamsungStatusBar({
   tint,
@@ -63,6 +71,7 @@ export function SamsungStatusBar({
   lang: Lang;
   time?: string;
 }) {
+  const sb = useStudioStore((s) => s.scenario.statusBar) ?? DEFAULT_STATUS_BAR;
   const color = tint === "light" ? "#ffffff" : "#0b0b0b";
   const clock = lang === "ar" ? toArabicDigits(time) : time;
 
@@ -78,9 +87,15 @@ export function SamsungStatusBar({
         </span>
         <Alarm color={color} />
       </div>
-      {/* inline-end: coverage (inner) then battery (at the edge) */}
+      {/* inline-end: chosen connection icons (inner) then battery (at the edge) */}
       <div className="flex items-center gap-2">
-        <Coverage color={color} />
+        {sb.cellular && <Coverage color={color} />}
+        {sb.wifi && <Wifi color={color} />}
+        {sb.batteryPct && (
+          <span className="text-[11px] font-semibold" style={{ color }}>
+            {lang === "ar" ? toArabicDigits("85") : "85"}
+          </span>
+        )}
         <Battery color={color} />
       </div>
     </div>
