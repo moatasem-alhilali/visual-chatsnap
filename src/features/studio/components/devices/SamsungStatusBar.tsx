@@ -54,17 +54,14 @@ export function SamsungStatusBar({
   background,
   lang,
   time = "10:05",
-  battery = "85",
 }: {
   tint: "light" | "dark";
   background?: string;
   lang: Lang;
   time?: string;
-  battery?: string;
 }) {
   const color = tint === "light" ? "#ffffff" : "#0b0b0b";
   const clock = lang === "ar" ? toArabicDigits(time) : time;
-  const pct = lang === "ar" ? toArabicDigits(battery) : battery;
 
   return (
     <div
@@ -78,13 +75,11 @@ export function SamsungStatusBar({
         </span>
         <Alarm color={color} />
       </div>
-      {/* inline-end: system icons */}
-      <div className="flex items-center gap-1.5">
+      {/* inline-end: system icons — mirror with direction so they read correctly
+          in both Arabic (RTL) and English (LTR), like a real device. */}
+      <div className="flex items-center gap-1.5 rtl:-scale-x-100">
         <Signal color={color} />
         <Wifi color={color} />
-        <span className="text-[12px] font-medium" style={{ color }}>
-          {pct}
-        </span>
         <Battery color={color} />
       </div>
     </div>

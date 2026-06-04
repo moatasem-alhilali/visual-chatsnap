@@ -94,7 +94,7 @@ export function StatusBar({
         >
           {time}
         </span>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 rtl:-scale-x-100">
           <IosCellular color={color} />
           <IosWifi color={color} />
           <IosBattery color={color} />
@@ -103,7 +103,7 @@ export function StatusBar({
     );
   }
 
-  // Android / Samsung — time left, then signal · wifi · battery% on the right.
+  // Android — clock on one side, system icons (mirroring with direction) on the other.
   return (
     <div
       className="relative flex w-full select-none items-center justify-between px-4 pt-1.5"
@@ -112,10 +112,9 @@ export function StatusBar({
       <span className="text-[13px] font-semibold" style={{ color, fontFamily: "Roboto, system-ui, sans-serif" }}>
         {time}
       </span>
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1.5 rtl:-scale-x-100">
         <AndroidSignal color={color} />
         <AndroidWifi color={color} />
-        <span className="text-[11px] font-medium" style={{ color }}>85</span>
         <AndroidBattery color={color} />
       </div>
     </div>
