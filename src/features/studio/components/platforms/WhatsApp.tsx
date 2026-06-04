@@ -128,19 +128,6 @@ export function WhatsApp({ scenario, playback, lang, rtl }: PlatformProps) {
         className="rcss-scroll flex-1 overflow-y-auto px-3 py-3"
         style={{ backgroundImage: DOODLE, backgroundColor: chatBg }}
       >
-        <div className="mb-3 flex justify-center">
-          <span
-            className="rounded-md px-2.5 py-1 text-[12px]"
-            style={{
-              background: dark ? "#182229" : "#ffffff",
-              color: dark ? "#8696a0" : "#54656f",
-              boxShadow: "0 1px 0.5px rgba(0,0,0,0.13)",
-            }}
-          >
-            {c.today}
-          </span>
-        </div>
-
         <div className="flex flex-col gap-0.5">
           {messages.map((m, i) => {
             const mine = m.sender === "me";

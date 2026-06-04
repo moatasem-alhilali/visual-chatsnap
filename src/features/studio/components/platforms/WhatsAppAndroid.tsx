@@ -1,6 +1,6 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 
 import type { DeliveryStatus, Person } from "../../types";
 import { Avatar, dirOf, SystemBottomBar, useChatScroll } from "../shared";
@@ -87,6 +87,12 @@ export function WhatsAppAndroid({ scenario, playback, lang, rtl }: PlatformProps
   const { messages, typing } = playback;
   const live = playback.isLive;
   const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}`);
+  const [atBottom, setAtBottom] = useState(true);
+
+  const scrollToBottom = () => {
+    const el = scrollRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  };
 
   const header = dark ? "#1f2c34" : "#008069";
   const chatBg = dark ? "#0b141a" : "#efeae2";
@@ -138,24 +144,16 @@ export function WhatsAppAndroid({ scenario, playback, lang, rtl }: PlatformProps
       </div>
 
       {/* Body */}
-      <div
-        ref={scrollRef}
-        className="rcss-scroll relative flex-1 overflow-y-auto px-3 py-2.5"
-        style={{ backgroundImage: dark ? DOODLE : DOODLE_LIGHT, backgroundColor: chatBg }}
-      >
-        <div className="mb-3 flex justify-center">
-          <span
-            className="rounded-lg px-3 py-1 text-[12px] font-medium"
-            style={{
-              background: dark ? "#1d282f" : "#ffffff",
-              color: dark ? "#8696a0" : "#54656f",
-              boxShadow: "0 1px 0.5px rgba(0,0,0,0.13)",
-            }}
-          >
-            {c.today}
-          </span>
-        </div>
-
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={scrollRef}
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 60);
+          }}
+          className="rcss-scroll h-full overflow-y-auto px-3 py-2.5"
+          style={{ backgroundImage: dark ? DOODLE : DOODLE_LIGHT, backgroundColor: chatBg }}
+        >
         <div className="flex flex-col gap-1">
           {messages.map((m, i) => {
             const mine = m.sender === "me";
@@ -206,21 +204,22 @@ export function WhatsAppAndroid({ scenario, playback, lang, rtl }: PlatformProps
             );
           })}
         </div>
+        </div>
 
-        {/* Floating scroll-to-bottom button (Android detail) */}
-        <div
-          className="sticky bottom-0 flex justify-center pt-1"
-          style={{ pointerEvents: "none" }}
-        >
-          <span
-            className="flex h-9 w-9 items-center justify-center rounded-full"
-            style={{ background: dark ? "#2a3942" : "#ffffff", boxShadow: "0 2px 4px rgba(0,0,0,0.25)" }}
+        {/* Scroll-to-bottom — bottom-end corner, only when the user scrolled up
+            (hidden during playback, which always sticks to the bottom). */}
+        {!live && !atBottom && (
+          <button
+            onClick={scrollToBottom}
+            aria-label="scroll to bottom"
+            className="absolute bottom-3 flex h-9 w-9 items-center justify-center rounded-full"
+            style={{ insetInlineEnd: 10, background: dark ? "#2a3942" : "#ffffff", boxShadow: "0 2px 5px rgba(0,0,0,0.3)" }}
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-              <path d="M6 9l6 6 6-6M6 4l6 6 6-6" stroke={dark ? "#8696a0" : "#54656f"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M6 9l6 6 6-6" stroke={dark ? "#8696a0" : "#54656f"} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-          </span>
-        </div>
+          </button>
+        )}
       </div>
 
       {/* Input bar (Android) */}

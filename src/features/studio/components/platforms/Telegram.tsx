@@ -151,15 +151,6 @@ export function Telegram({ scenario, playback, lang, rtl }: PlatformProps) {
         className="rcss-scroll flex-1 overflow-y-auto px-3 py-3"
         style={{ backgroundImage: PATTERN, backgroundColor: chatBg }}
       >
-        <div className="mb-3 flex justify-center">
-          <span
-            className="rounded-full px-2.5 py-1 text-[12px] font-medium text-white"
-            style={{ background: "rgba(0,0,0,0.22)" }}
-          >
-            {c.today}
-          </span>
-        </div>
-
         <div className="flex flex-col gap-1">
           {messages.map((m, i) => {
             const mine = m.sender === "me";
