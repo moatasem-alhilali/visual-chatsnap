@@ -1,8 +1,10 @@
 import type { Device } from "../types";
 
-/** iPhone uses an SF-like face (Inter), with an Arabic fallback. */
+/** iPhone uses Apple's real system font (San Francisco) when available — on
+ *  Apple devices `-apple-system`/`SF Pro` resolve to the genuine SF typeface;
+ *  elsewhere it falls back to Inter (the closest SF-like face) then Arabic. */
 const IPHONE_FONT =
-  'var(--font-inter), -apple-system, "SF Pro Text", system-ui, var(--font-tajawal), sans-serif';
+  '-apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "SF Pro", var(--font-inter), system-ui, var(--font-tajawal), sans-serif';
 
 export type AndroidFontId = "roboto" | "cairo" | "tajawal";
 
