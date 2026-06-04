@@ -10,7 +10,7 @@ function toArabicDigits(s: string): string {
   return s.replace(/[0-9]/g, (d) => map[Number(d)]);
 }
 
-/** Samsung cellular coverage indicator: signal bars + 4G+ + VoLTE/LTE+ label. */
+/** Samsung cellular coverage indicator: signal bars + 4G+ label. */
 function Coverage({ color }: { color: string }) {
   const bars = [5, 7.5, 10, 12.5];
   return (
@@ -21,10 +21,6 @@ function Coverage({ color }: { color: string }) {
         ))}
       </div>
       <span style={{ fontSize: 11, fontWeight: 700, color, lineHeight: 1 }}>4G+</span>
-      <div className="flex flex-col items-start" style={{ fontSize: 6.5, fontWeight: 700, lineHeight: 1.15, color }}>
-        <span>VoLTE</span>
-        <span>LTE+</span>
-      </div>
     </div>
   );
 }
