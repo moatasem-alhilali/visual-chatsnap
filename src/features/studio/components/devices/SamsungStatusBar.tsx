@@ -17,8 +17,9 @@ function Wifi({ color }: { color: string }) {
 }
 
 function Signal({ color }: { color: string }) {
+  // Only the signal icon mirrors with direction; battery/wifi keep their shape.
   return (
-    <svg width="17" height="12" viewBox="0 0 17 13" fill="none">
+    <svg width="17" height="12" viewBox="0 0 17 13" fill="none" className="rtl:-scale-x-100">
       <path d="M15.5 1 1 13h14.5z" fill={color} />
     </svg>
   );
@@ -75,9 +76,8 @@ export function SamsungStatusBar({
         </span>
         <Alarm color={color} />
       </div>
-      {/* inline-end: system icons — mirror with direction so they read correctly
-          in both Arabic (RTL) and English (LTR), like a real device. */}
-      <div className="flex items-center gap-1.5 rtl:-scale-x-100">
+      {/* inline-end: system icons (battery keeps its natural orientation) */}
+      <div className="flex items-center gap-1.5">
         <Signal color={color} />
         <Wifi color={color} />
         <Battery color={color} />

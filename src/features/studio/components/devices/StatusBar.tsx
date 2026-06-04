@@ -7,9 +7,10 @@ type Tint = "light" | "dark";
 /* ----------------------------- iOS glyphs ----------------------------- */
 
 function IosCellular({ color }: { color: string }) {
-  // Four rounded bars increasing in height — Apple's signal glyph.
+  // Four rounded bars increasing in height — Apple's signal glyph. Only the
+  // signal mirrors with direction; battery keeps its natural orientation.
   return (
-    <svg width="18" height="12" viewBox="0 0 18 12" fill="none">
+    <svg width="18" height="12" viewBox="0 0 18 12" fill="none" className="rtl:-scale-x-100">
       <rect x="0" y="8" width="3" height="4" rx="1" fill={color} />
       <rect x="5" y="5.5" width="3" height="6.5" rx="1" fill={color} />
       <rect x="10" y="3" width="3" height="9" rx="1" fill={color} />
@@ -41,9 +42,9 @@ function IosBattery({ color }: { color: string }) {
 /* --------------------------- Android glyphs --------------------------- */
 
 function AndroidSignal({ color }: { color: string }) {
-  // Full filled signal — Material style.
+  // Full filled signal — Material style. Mirrors with direction.
   return (
-    <svg width="17" height="13" viewBox="0 0 17 13" fill="none">
+    <svg width="17" height="13" viewBox="0 0 17 13" fill="none" className="rtl:-scale-x-100">
       <path d="M15.5 1 1 13h14.5z" fill={color} />
     </svg>
   );
@@ -94,7 +95,7 @@ export function StatusBar({
         >
           {time}
         </span>
-        <div className="flex items-center gap-1.5 rtl:-scale-x-100">
+        <div className="flex items-center gap-1.5">
           <IosCellular color={color} />
           <IosWifi color={color} />
           <IosBattery color={color} />
@@ -112,7 +113,7 @@ export function StatusBar({
       <span className="text-[13px] font-semibold" style={{ color, fontFamily: "Roboto, system-ui, sans-serif" }}>
         {time}
       </span>
-      <div className="flex items-center gap-1.5 rtl:-scale-x-100">
+      <div className="flex items-center gap-1.5">
         <AndroidSignal color={color} />
         <AndroidWifi color={color} />
         <AndroidBattery color={color} />
