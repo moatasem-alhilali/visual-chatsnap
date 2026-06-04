@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { useLocale } from "next-intl";
 import {
   Download,
@@ -155,9 +156,17 @@ export function StudioApp() {
     <div className="mx-auto w-full max-w-[1600px] px-3 py-4 sm:px-5">
       {/* Clean top bar */}
       <header className="mb-5 flex items-center gap-3 border-b border-border pb-4">
-        <div className="me-auto min-w-0">
-          <h1 className="truncate text-lg font-bold leading-tight">{t.appTitle}</h1>
-          <p className="truncate text-xs text-muted-foreground">{t.appSubtitle}</p>
+        <div className="me-auto flex min-w-0 items-center gap-2.5">
+          <Image
+            src="/logo.png"
+            alt="Scenora"
+            width={720}
+            height={480}
+            priority
+            className="h-9 w-auto shrink-0 sm:h-10"
+          />
+          <p className="hidden truncate text-xs text-muted-foreground md:block">{t.appSubtitle}</p>
+          <h1 className="sr-only">{t.appTitle}</h1>
         </div>
 
         <LanguageSwitcher />

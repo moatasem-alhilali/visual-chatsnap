@@ -36,6 +36,11 @@ export function createPageMetadata({
     description,
     metadataBase: new URL(siteConfig.url),
     applicationName: siteConfig.name,
+    icons: {
+      icon: [{ url: "/logo.png", type: "image/png" }],
+      shortcut: ["/logo.png"],
+      apple: [{ url: "/logo.png" }],
+    },
     keywords: keywords
       ? keywords.split(",").map((k) => k.trim()).filter(Boolean)
       : undefined,
@@ -48,7 +53,7 @@ export function createPageMetadata({
       description,
       url,
       siteName: siteConfig.name,
-      images: [{ url: imageUrl, width: 1200, height: 630, alt: title }],
+      images: [{ url: imageUrl, width: 720, height: 480, alt: title }],
       type: "website",
       locale: ogLocale,
       alternateLocale: altLocale,

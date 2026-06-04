@@ -8,7 +8,7 @@ export const siteConfig = {
   defaultLocale: "ar",
   locales: ["ar", "en"] as const,
   supportEmail: process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? "hello@scenora.app",
-  socialImage: "/og-image.png",
+  socialImage: "/logo.png",
 } as const;
 
 export type AppLocale = (typeof siteConfig.locales)[number];
