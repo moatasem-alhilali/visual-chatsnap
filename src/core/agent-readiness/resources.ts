@@ -24,7 +24,11 @@ export const privateRobotDisallows = [
   "/cart",
   "/profile",
   "/login",
+  "/*/account",
+  "/*/cart",
+  "/*/checkout",
   "/*/login",
+  "/*/profile",
   "/*/register",
   "/*/dashboard",
 ] as const;

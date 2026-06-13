@@ -269,6 +269,7 @@ Current routes:
 /llms.txt
 /openapi.json
 /.well-known/api-catalog
+/.well-known/mcp/server-card.json
 /.well-known/agent-skills/index.json
 /.well-known/agent-skills/<skill-id>.md
 /<locale>/index.md
@@ -281,8 +282,10 @@ Architecture rules:
 - `api-catalog` uses `application/linkset+json` and links only to safe public resources.
 - `openapi.json` is honest discovery metadata; it remains without executable `paths` until real public APIs exist.
 - `agent-skills` describes public reading, summarization, and navigation skills only; no purchasing, registration, or form submission.
+- `mcp/server-card.json` is an honest HTTPS discovery-only server card. It documents read-only public discovery and browser tools, and explicitly does not claim a remote executable MCP transport.
+- `WebMcpTools` registers read-only browser tools only when `navigator.modelContext` exists. It must not expose export, import, save, clear, recording, account, checkout, or mutation actions.
 - `proxy.ts` adds Link discovery headers and `Vary: Accept`, and returns Markdown only for safe public pages when `Accept: text/markdown` is sent.
-- MCP Server Cards and OAuth metadata are added only when a real MCP/OAuth capability exists and is documented.
+- OAuth/OIDC metadata is added only when a real OAuth/OIDC capability exists and is documented.
 
 When adding a new public page:
 

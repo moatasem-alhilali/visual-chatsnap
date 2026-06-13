@@ -29,6 +29,14 @@ const nextConfig: NextConfig = {
         headers: [htmlVaryHeader],
       },
       {
+        source: "/ar",
+        headers: [htmlVaryHeader],
+      },
+      {
+        source: "/en",
+        headers: [htmlVaryHeader],
+      },
+      {
         source: "/:locale(ar|en)",
         headers: [htmlVaryHeader],
       },

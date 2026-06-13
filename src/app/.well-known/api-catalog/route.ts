@@ -58,6 +58,7 @@ export function GET(): Response {
       "Cache-Control": "public, max-age=300, stale-while-revalidate=3600",
       "Content-Type": "application/linkset+json; charset=utf-8",
       Link: createAgentDiscoveryLinkHeader(),
+      Vary: "Accept",
       "X-Content-Type-Options": "nosniff",
     },
   });

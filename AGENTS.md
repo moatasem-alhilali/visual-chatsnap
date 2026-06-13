@@ -131,6 +131,7 @@ This template must stay safely and honestly agent-ready. When adding any public 
 - `src/app/llms.txt/route.ts`
 - `src/app/openapi.json/route.ts`
 - `src/app/.well-known/api-catalog/route.ts`
+- `src/app/.well-known/mcp/server-card.json/route.ts`
 - `src/app/.well-known/agent-skills/index.json/route.ts`
 - `src/core/agent-readiness/*`
 
@@ -314,6 +315,7 @@ curl -I /ar
 curl -I /llms.txt
 curl -I /.well-known/api-catalog
 curl -I /openapi.json
+curl -I /.well-known/mcp/server-card.json
 curl -I /.well-known/agent-skills/index.json
 curl -H "Accept: text/markdown" /ar
 curl /ar/index.md

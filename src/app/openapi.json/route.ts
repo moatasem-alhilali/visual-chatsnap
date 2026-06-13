@@ -9,7 +9,7 @@ export function GET(): Response {
       title: `${siteConfig.name} Public API`,
       version: "0.1.0",
       description:
-        "This template currently exposes no public transactional APIs. Add only documented, safe public APIs here when a real project requires them.",
+        "Scenora currently exposes no public executable or transactional APIs. This document exists for honest agent discovery and will list only documented, safe public APIs if they are added later.",
     },
     servers: [
       {
@@ -30,6 +30,7 @@ export function GET(): Response {
       "Cache-Control": "public, max-age=300, stale-while-revalidate=3600",
       "Content-Type": "application/vnd.oai.openapi+json; charset=utf-8",
       Link: createAgentDiscoveryLinkHeader(),
+      Vary: "Accept",
       "X-Content-Type-Options": "nosniff",
     },
   });

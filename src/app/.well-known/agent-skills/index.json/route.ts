@@ -18,7 +18,7 @@ export function GET(): Response {
       notes: [
         "Agents may inspect public pages and discovery documents.",
         "Agents must not access protected paths or submit forms for users.",
-        "No MCP tools, OAuth flows, or transactional commerce APIs are exposed by this template.",
+        "Only read-only browser discovery tools are described; no OAuth flows, remote MCP transport, or transactional commerce APIs are exposed.",
       ],
     },
     skills: agentSkills.map((skill) => ({
@@ -35,6 +35,7 @@ export function GET(): Response {
       "Cache-Control": "public, max-age=300, stale-while-revalidate=3600",
       "Content-Type": "application/json; charset=utf-8",
       Link: createAgentDiscoveryLinkHeader(),
+      Vary: "Accept",
       "X-Content-Type-Options": "nosniff",
     },
   });

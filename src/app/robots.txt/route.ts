@@ -1,4 +1,5 @@
 import { siteConfig } from "@/config/site";
+import { createAgentDiscoveryLinkHeader } from "@/core/agent-readiness/headers";
 import { absoluteUrl, privateRobotDisallows } from "@/core/agent-readiness/resources";
 
 export function GET(): Response {
@@ -18,6 +19,8 @@ export function GET(): Response {
     headers: {
       "Cache-Control": "public, max-age=300, stale-while-revalidate=3600",
       "Content-Type": "text/plain; charset=utf-8",
+      Link: createAgentDiscoveryLinkHeader(),
+      Vary: "Accept",
       "X-Content-Type-Options": "nosniff",
     },
   });
