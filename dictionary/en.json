@@ -29,6 +29,12 @@
     "title": "Workspace",
     "description": "A structural area for applications that need a private workspace or dashboard."
   },
+  "analyticsConsent": {
+    "title": "Your privacy matters",
+    "description": "We measure visits anonymously to improve the experience, without storing chat content or private data.",
+    "accept": "Allow",
+    "decline": "Not now"
+  },
   "error": {
     "title": "Something went wrong",
     "description": "You can try again or return to the home page.",

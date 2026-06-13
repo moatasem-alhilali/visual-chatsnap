@@ -8,10 +8,10 @@ This project is a generic Next.js template for large applications. Its purpose i
 routes, recording flow, local draft behavior, JSON import/export, and video export
 behavior are treated as frozen behavior unless a task explicitly asks to change them.
 
-The app is prepared for Laravel/API integration, but no executable private backend
-endpoint is claimed in public discovery routes until that endpoint really exists. HTTP
-clients live in `src/core/http`, and feature-owned API calls must live under
-`src/features/<feature>/api`.
+The app is connected to Laravel only for privacy-first analytics. The browser sends
+events to the internal Next.js route `/api/analytics/track`, and Next forwards them to
+`/api/v1/visual-chats/analytics/track` on the configured Laravel API. HTTP clients live
+in `src/core/http`, and feature-owned API calls must live under `src/features/<feature>/api`.
 
 ## Core Principles
 
@@ -51,6 +51,7 @@ src/
     seo/                   metadata helpers
 
   features/
+    analytics/             consent-gated anonymous visit/page-view tracking
     auth/                  authentication placeholder components
     dashboard/             dashboard placeholder
     home/                  generic template home page
@@ -187,6 +188,8 @@ Important rules:
   browser requests; `BACKEND_API_URL` remains the server-preferred value.
 - API calls for a feature must be colocated under `features/<feature>/api` and may
   use `core/http/*` internally.
+- Analytics is non-critical. It must fail silently, never block navigation, never store
+  scenario message content, and only record safe metadata after user consent.
 
 ## Data Fetching Strategy
 

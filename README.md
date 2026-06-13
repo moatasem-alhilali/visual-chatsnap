@@ -119,6 +119,15 @@ description, keywords, Open Graph, Twitter cards, canonical URLs, and
 | `NEXT_PUBLIC_SITE_URL` | `https://visual-chatsnap.vercel.app` |
 | `NEXT_PUBLIC_SITE_DESCRIPTION` | (Scenora description) |
 | `NEXT_PUBLIC_SUPPORT_EMAIL` | `hello@scenora.app` |
+| `BACKEND_API_URL` | Laravel API base URL for server-side forwarding |
+| `NEXT_PUBLIC_API_URL` | Laravel API base URL for browser-safe clients |
+
+Analytics events are sent from the browser to the local Next.js route
+`/api/analytics/track`, then forwarded server-side to:
+
+```txt
+/api/v1/visual-chats/analytics/track
+```
 
 ---
 

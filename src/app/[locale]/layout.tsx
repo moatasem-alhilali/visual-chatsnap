@@ -5,9 +5,11 @@ import { NextIntlClientProvider, hasLocale } from "next-intl";
 import { Cairo, Geist, Geist_Mono, Inter, Roboto, Tajawal } from "next/font/google";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
+import { Suspense } from "react";
 
 import { AppProvider } from "@/providers/app-provider";
 import { createPageMetadata } from "@/core/seo/metadata";
+import { AnalyticsConsentBanner, VisitorAnalyticsTracker } from "@/features/analytics";
 import { routing } from "@/i18n/routing";
 import { siteConfig } from "@/config/site";
 import "../globals.css";
@@ -67,7 +69,13 @@ export default async function RootLayout({
         suppressHydrationWarning
       >
         <AppProvider>
-          <NextIntlClientProvider>{children}</NextIntlClientProvider>
+          <NextIntlClientProvider>
+            <Suspense fallback={null}>
+              <VisitorAnalyticsTracker />
+            </Suspense>
+            <AnalyticsConsentBanner />
+            {children}
+          </NextIntlClientProvider>
         </AppProvider>
         <Analytics />
         <SpeedInsights />
