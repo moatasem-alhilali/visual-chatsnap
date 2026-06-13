@@ -4,11 +4,14 @@ import { toApiError } from "@/core/http/errors";
 import { buildApiHeaders } from "@/core/http/headers";
 import type { ApiEnvelope, ApiRequestOptions, RequestContext } from "@/core/http/types";
 
-const apiBaseUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL;
+const apiBaseUrl =
+  process.env.NEXT_PUBLIC_API_URL ?? process.env.NEXT_PUBLIC_BACKEND_API_URL;
 
 function getApiUrl(path: string): string {
   if (!apiBaseUrl) {
-    throw new Error("NEXT_PUBLIC_BACKEND_API_URL is required for browser API requests.");
+    throw new Error(
+      "NEXT_PUBLIC_API_URL or NEXT_PUBLIC_BACKEND_API_URL is required for browser API requests.",
+    );
   }
 
   return `${apiBaseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}`;

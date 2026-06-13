@@ -2,6 +2,17 @@
 
 This project is a generic Next.js template for large applications. Its purpose is to provide a clean starting point before connecting any store, external system, or business-specific domain.
 
+## Current Product Boundary
+
+`visul-chats` currently ships the Scenora visual chat studio. The visible UI, copy,
+routes, recording flow, local draft behavior, JSON import/export, and video export
+behavior are treated as frozen behavior unless a task explicitly asks to change them.
+
+The app is prepared for Laravel/API integration, but no executable private backend
+endpoint is claimed in public discovery routes until that endpoint really exists. HTTP
+clients live in `src/core/http`, and feature-owned API calls must live under
+`src/features/<feature>/api`.
+
 ## Core Principles
 
 - `app` is responsible for routing, layouts, metadata, loading, error, and not-found boundaries only.
@@ -44,6 +55,16 @@ src/
     dashboard/             dashboard placeholder
     home/                  generic template home page
     shell/                 header and footer only
+    studio/                Scenora chat scenario studio
+      components/          studio-owned UI composition
+      data/                static defaults and font options
+      export/              video timeline and MP4 export logic
+      hooks/               studio-only client hooks
+      playback/            playback state machine hook
+      services/            persistence and file workflow adapters
+      store.ts             Zustand draft/UI state
+      types.ts             scenario domain types
+      validations/         Zod import/runtime contracts
 
   i18n/
     routing.ts             next-intl routing config
@@ -106,6 +127,20 @@ Feature rules:
 - Cross-feature imports must come from `features/<name>/index.ts`.
 - Do not put remote API payloads in Zustand.
 - Do not place business workflows inside components or pages.
+- Keep feature-specific persistence and browser file workflows in `services/`, not
+  in React components.
+- Validate imported or external payloads with Zod before loading them into state.
+
+### Studio Feature Rules
+
+- `components/StudioApp.tsx` is the UI orchestrator only.
+- `store.ts` owns draft/UI state through Zustand. It may call feature services, but
+  it should not access storage APIs directly.
+- `services/scenario-storage.ts` owns the local draft/manual-save adapter.
+- `services/scenario-file.ts` owns JSON import/export browser workflows.
+- `validations/scenario.ts` is the runtime contract for imported scenario JSON.
+- Video rendering stays in `export/` and `components/ExportDialog.tsx` because it is
+  browser-only and tightly coupled to the recording UI.
 
 ## Import Direction
 
@@ -148,6 +183,10 @@ Important rules:
 - Use `credentials: "include"` when working with cookie-based backends.
 - Add `X-Locale`, `X-Currency`, `X-Country`, and `X-Cart-Token` from context only when needed.
 - Do not connect real endpoints in the template. Add them only when the real project phase begins.
+- `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_BACKEND_API_URL` are both accepted for
+  browser requests; `BACKEND_API_URL` remains the server-preferred value.
+- API calls for a feature must be colocated under `features/<feature>/api` and may
+  use `core/http/*` internally.
 
 ## Data Fetching Strategy
 
@@ -166,6 +205,14 @@ Every data function must define:
 - Should it be invalidated after a mutation?
 - What are the query/cache tags?
 
+TanStack Query defaults are intentionally conservative for production UX:
+
+- Fresh lifetime: 5 minutes.
+- Garbage-collection lifetime: 30 minutes.
+- No refetch on window focus.
+- Refetch on reconnect.
+- Retry transient failures up to 2 times, but never retry 4xx API errors.
+
 ## State Management
 
 - Server state: Server Components or TanStack Query.
@@ -173,6 +220,10 @@ Every data function must define:
 - Form state: React Hook Form.
 - Validation: Zod.
 - URL state: search params for shareable filters or pagination.
+- Feature-local UI state may live in a feature store when it does not cross app
+  boundaries.
+- Local persistence is an adapter concern. Hide direct `localStorage` calls behind
+  a feature service.
 
 Forbidden:
 

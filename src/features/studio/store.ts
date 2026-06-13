@@ -19,9 +19,13 @@ import {
   SCENARIO_VERSION,
   createBlankMessage,
   createDefaultScenario,
+  createId,
 } from "./data/defaults";
-
-const SAVE_SLOT_KEY = "rcss.savedScenario";
+import {
+  clearScenarioStorage,
+  loadScenarioSlot,
+  saveScenarioSlot,
+} from "./services/scenario-storage";
 
 type StudioState = {
   scenario: Scenario;
@@ -146,7 +150,7 @@ export const useStudioStore = create<StudioState>()(
           if (idx < 0) return s;
           const copy: Message = {
             ...list[idx],
-            id: Math.random().toString(36).slice(2, 10) + Date.now().toString(36),
+            id: createId(),
           };
           list.splice(idx + 1, 0, copy);
           return { scenario: { ...s.scenario, messages: list } };
@@ -162,39 +166,18 @@ export const useStudioStore = create<StudioState>()(
       setRecording: (recording) => set(() => ({ recording })),
 
       saveSlot: () => {
-        if (typeof window === "undefined") return;
-        try {
-          window.localStorage.setItem(
-            SAVE_SLOT_KEY,
-            JSON.stringify(get().scenario),
-          );
-        } catch {
-          /* ignore quota errors */
-        }
+        saveScenarioSlot(get().scenario);
       },
 
       loadSlot: () => {
-        if (typeof window === "undefined") return false;
-        try {
-          const raw = window.localStorage.getItem(SAVE_SLOT_KEY);
-          if (!raw) return false;
-          const parsed = JSON.parse(raw) as Scenario;
-          set(() => ({ scenario: { ...parsed, version: SCENARIO_VERSION } }));
-          return true;
-        } catch {
-          return false;
-        }
+        const scenario = loadScenarioSlot();
+        if (!scenario) return false;
+        set(() => ({ scenario }));
+        return true;
       },
 
       clearAll: () => {
-        if (typeof window !== "undefined") {
-          try {
-            window.localStorage.removeItem(SAVE_SLOT_KEY);
-            window.localStorage.removeItem("rcss.draft");
-          } catch {
-            /* ignore */
-          }
-        }
+        clearScenarioStorage();
         set(() => ({ scenario: createDefaultScenario() }));
       },
     }),
