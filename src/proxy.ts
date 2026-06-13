@@ -27,3 +27,5 @@ export const config = {
   // - … the ones containing a dot (e.g. `favicon.ico`)
   matcher: "/((?!api|trpc|_next|_vercel|.*\\..*).*)",
 };
+
+// 
