@@ -4,10 +4,10 @@ import { absoluteUrl, agentDiscoveryPaths } from "./resources";
 
 const localizedCopy = {
   ar: {
-    title: "دليل القالب للوكلاء",
+    title: "دليل Scenora للوكلاء",
     source: "رابط المصدر",
     description:
-      "هذا قالب Next.js عام متعدد اللغات ومجهز كبنية بداية لمشاريع كبيرة. لا يحتوي القالب الحالي على متجر أو واجهات API تنفيذية عامة.",
+      "Scenora أداة ويب عامة لإنشاء ومحاكاة محادثات واقعية بصريًا وتصدير السيناريوهات محليًا. لا يعلن الموقع الحالي عن واجهات API تنفيذية عامة أو متجر أو دفع.",
     publicPages: "الصفحات العامة",
     safety: "قواعد السلامة",
     links: "روابط الاكتشاف",
@@ -16,10 +16,10 @@ const localizedCopy = {
     noInventing: "لا تخترع أسعارًا أو توفرًا أو خصائص غير موجودة في الصفحة الرسمية.",
   },
   en: {
-    title: "Agent guide for this template",
+    title: "Agent guide for Scenora",
     source: "Source URL",
     description:
-      "This is a multilingual generic Next.js template prepared as a starting point for large projects. The current template does not expose a store or public transactional APIs.",
+      "Scenora is a public web app for visually building realistic chat scenarios and exporting local drafts. The current site does not expose public executable APIs, commerce, or payments.",
     publicPages: "Public pages",
     safety: "Safety rules",
     links: "Discovery links",
@@ -82,11 +82,13 @@ export function createLlmsText(): string {
     `- API catalog: ${absoluteUrl(agentDiscoveryPaths.apiCatalog)}`,
     `- Agent skills: ${absoluteUrl(agentDiscoveryPaths.agentSkills)}`,
     `- OpenAPI: ${absoluteUrl(agentDiscoveryPaths.openapi)}`,
+    `- MCP server card: ${absoluteUrl(agentDiscoveryPaths.mcpServerCard)}`,
     "",
     "## Safety",
     "",
     "- Public content may be read, summarized, and linked.",
     "- Do not collect, store, or expose personal data.",
+    "- Draft chat scenarios may contain personal or sensitive text. Do not read, export, or reuse a user's local draft unless the user explicitly asks.",
     "- Do not submit forms, create accounts, authenticate users, buy products, or start checkout flows unless the user explicitly performs the action through the normal interface.",
     "- Do not invent prices, availability, offers, account status, shipping details, or support promises.",
     "- Do not access admin, account, profile, cart, checkout, or protected API paths.",

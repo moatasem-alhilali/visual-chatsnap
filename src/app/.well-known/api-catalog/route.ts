@@ -21,6 +21,11 @@ export function GET(): Response {
             title: "OpenAPI description",
           },
           {
+            href: absoluteUrl(agentDiscoveryPaths.mcpServerCard),
+            type: "application/json",
+            title: "MCP server card",
+          },
+          {
             href: absoluteUrl(agentDiscoveryPaths.agentSkills),
             type: "application/json",
             title: "Agent skills index",

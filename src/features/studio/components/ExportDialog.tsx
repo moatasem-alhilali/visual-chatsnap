@@ -12,6 +12,7 @@ import { PlatformView } from "./platforms";
 import { deviceFontFamily } from "../data/fonts";
 import { buildTimeline, type FrameState } from "../export/schedule";
 import { canExportVideo, exportToMp4 } from "../export/exportVideo";
+import { createVideoFile, isTouchDevice, saveVideoFile } from "../services/video-file";
 import type { PlaybackView } from "../playback/usePlayback";
 import type { Scenario } from "../types";
 import type { StudioLabels } from "./labels";
@@ -73,6 +74,8 @@ export function ExportDialog({
   const [phase, setPhase] = useState<"idle" | "rendering" | "done" | "error">("idle");
   const [progress, setProgress] = useState(0);
   const [errMsg, setErrMsg] = useState("");
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const offscreenRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -90,6 +93,8 @@ export function ExportDialog({
     if (!node) return;
     setPhase("rendering");
     setProgress(0);
+    setErrMsg("");
+    setVideoFile(null);
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
@@ -169,13 +174,13 @@ export function ExportDialog({
         signal: ctrl.signal,
       });
 
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `chat-${scenario.platform}.mp4`;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      const file = createVideoFile(blob, scenario.platform);
+      setVideoFile(file);
       setPhase("done");
+
+      if (!isTouchDevice()) {
+        await saveVideoFile(file);
+      }
     } catch (e) {
       if ((e as Error).message === "ABORTED") {
         setPhase("idle");
@@ -189,6 +194,21 @@ export function ExportDialog({
   };
 
   const cancel = () => abortRef.current?.abort();
+
+  const saveExportedVideo = async () => {
+    if (!videoFile) return;
+    setSaving(true);
+    setErrMsg("");
+    try {
+      await saveVideoFile(videoFile);
+    } catch (e) {
+      if ((e as Error).name !== "AbortError") {
+        setErrMsg((e as Error).message || "save failed");
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const view = makeView(scenario, frame);
 
@@ -227,8 +247,18 @@ export function ExportDialog({
         ) : phase === "done" ? (
           <div className="space-y-4 py-2 text-center">
             <p className="text-sm font-medium text-foreground">{t.exportDone}</p>
+            <p className="text-xs text-muted-foreground">{t.exportSaveHint}</p>
+            {errMsg && (
+              <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {t.exportError} {errMsg}
+              </p>
+            )}
+            <Button className="w-full gap-2" onClick={saveExportedVideo} disabled={!videoFile || saving}>
+              <Download className="size-4" />
+              {saving ? t.exportRendering : t.exportSave}
+            </Button>
             <div className="flex gap-2">
-              <Button className="flex-1" onClick={runExport}>{t.exportAgain}</Button>
+              <Button variant="outline" className="flex-1" onClick={runExport}>{t.exportAgain}</Button>
               <Button variant="outline" className="flex-1" onClick={onClose}>{t.exitRecord}</Button>
             </div>
           </div>

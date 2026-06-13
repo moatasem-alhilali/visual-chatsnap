@@ -70,6 +70,12 @@ export function createAgentDiscoveryLinkHeader({
       title: "Agent skills",
     },
     {
+      href: absoluteUrl(agentDiscoveryPaths.mcpServerCard),
+      rel: "service-desc",
+      type: "application/json",
+      title: "MCP server card",
+    },
+    {
       href: absoluteUrl(agentDiscoveryPaths.openapi),
       rel: "service-desc",
       type: "application/vnd.oai.openapi+json",

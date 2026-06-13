@@ -77,6 +77,8 @@ export interface StudioLabels {
   exportStart: string;
   exportRendering: string;
   exportDone: string;
+  exportSave: string;
+  exportSaveHint: string;
   exportAgain: string;
   exportCancel: string;
   exportError: string;
@@ -165,7 +167,9 @@ export const STUDIO_LABELS: Record<"ar" | "en", StudioLabels> = {
     exportVideo: "تصدير فيديو",
     exportStart: "ابدأ التصدير",
     exportRendering: "جارٍ توليد الفيديو…",
-    exportDone: "تم إنشاء الفيديو وبدأ التنزيل ✓",
+    exportDone: "تم إنشاء الفيديو ✓",
+    exportSave: "حفظ الفيديو",
+    exportSaveHint: "على الموبايل اختر حفظ إلى الملفات من قائمة المشاركة.",
     exportAgain: "تصدير مرة أخرى",
     exportCancel: "إلغاء",
     exportError: "حدث خطأ:",
@@ -252,7 +256,9 @@ export const STUDIO_LABELS: Record<"ar" | "en", StudioLabels> = {
     exportVideo: "Export video",
     exportStart: "Start export",
     exportRendering: "Generating video…",
-    exportDone: "Video created — download started ✓",
+    exportDone: "Video created ✓",
+    exportSave: "Save video",
+    exportSaveHint: "On mobile, choose Save to Files from the share sheet.",
     exportAgain: "Export again",
     exportCancel: "Cancel",
     exportError: "Error:",

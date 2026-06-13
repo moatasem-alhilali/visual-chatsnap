@@ -12,6 +12,7 @@ export const agentDiscoveryPaths = {
   apiCatalog: "/.well-known/api-catalog",
   agentSkills: "/.well-known/agent-skills/index.json",
   llms: "/llms.txt",
+  mcpServerCard: "/.well-known/mcp/server-card.json",
   openapi: "/openapi.json",
 } as const;
 
