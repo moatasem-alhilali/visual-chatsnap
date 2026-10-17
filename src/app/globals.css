@@ -46,6 +46,10 @@
 }
 
 :root {
+  /* Phone-mockup device fonts: Latin face first, then a real Arabic face for
+     Arabic glyphs (instead of an Arial fallback). */
+  --font-inter: var(--font-inter-base), var(--font-device-arabic);
+  --font-roboto: var(--font-roboto-base), var(--font-device-arabic);
   --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
