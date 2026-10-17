@@ -68,103 +68,25 @@ import { StatusBar } from "../devices/StatusBar";
 import type { Lang } from "./chrome";
 import { groupInfo, type PlatformMotion, type PlatformProps } from "./types";
 
-/* ------------------------------------------------------------------ */
-/* Shared Telegram helpers (kept for TelegramAndroid.tsx compatibility) */
-/* ------------------------------------------------------------------ */
+/** CSS `url("data:…")` value for an inline SVG. */
+const svgUri = (svg: string) => `url("data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}")`;
 
-/** Telegram's own wording for presence (en strings from Telegram, ar from Telegram's Arabic pack). */
-export const TG_STRINGS: Record<Lang, { online: string; typing: string; lastSeenRecently: string }> = {
-  en: { online: "online", typing: "typing", lastSeenRecently: "last seen recently" },
-  ar: { online: "متصل", typing: "يكتب", lastSeenRecently: "آخر ظهور منذ قليل" },
-};
-
-/**
- * Line-art doodles approximating Telegram's default chat pattern ("d" slug), laid out on a
- * 240×240 tile. Stroke colour/opacity are injected by the callers.
- */
-const DOODLES = [
-  '<path transform="translate(18 20) rotate(-12)" d="M0 8 22 0 15 20 10 12ZM10 12 22 0"/>',
-  '<path transform="translate(92 14)" d="M10 18C-4 8 2-2 10 5c8-7 14 3 0 13Z"/>',
-  '<path transform="translate(160 26) rotate(10)" d="M10 0l2.9 6.9 7.1.7-5.4 4.7 1.6 7.2L10 15.7l-6.2 3.8 1.6-7.2L0 7.6l7.1-.7Z"/>',
-  '<g transform="translate(206 70)"><path d="M2 9 3 0l6 5h6l6-5 1 9c1 9-21 9-20 0Z"/><circle cx="8" cy="10" r="1"/><circle cx="16" cy="10" r="1"/></g>',
-  '<g transform="translate(40 78)"><path d="M6 16V3l12-3v13"/><circle cx="3.5" cy="16" r="2.6"/><circle cx="15.5" cy="13" r="2.6"/></g>',
-  '<path transform="translate(120 70)" d="M14 2a9 9 0 1 0 8 13A7 7 0 0 1 14 2Z"/>',
-  '<path transform="translate(150 84) rotate(-8)" d="M0 14 2 3l5 6 4-8 4 8 5-6 2 11Z"/>',
-  '<path transform="translate(172 128)" d="M0 11a11 11 0 0 1 22 0ZM11 11v8a2 2 0 0 1-4 0"/>',
-  '<g transform="translate(14 140)"><ellipse cx="9" cy="8" rx="7" ry="8.5"/><path d="M9 16.5q-3 4 1 8"/></g>',
-  '<g transform="translate(86 132)"><circle cx="10" cy="10" r="2.6"/><circle cx="10" cy="3.5" r="3.4"/><circle cx="16.2" cy="8" r="3.4"/><circle cx="13.8" cy="15.3" r="3.4"/><circle cx="6.2" cy="15.3" r="3.4"/><circle cx="3.8" cy="8" r="3.4"/></g>',
-  '<path transform="translate(130 190)" d="M10 0v20M1.3 5l17.4 10M1.3 15 18.7 5M10 0 7.5 2.5M10 0l2.5 2.5M10 20l-2.5-2.5M10 20l2.5-2.5"/>',
-  '<path transform="translate(206 186)" d="M2 4h14v8a7 7 0 0 1-14 0ZM16 6h2.5a3 3 0 0 1 0 6H16M6 0v2M11 0v2"/>',
-  '<g transform="translate(58 196)"><circle cx="10" cy="10" r="9"/><path d="M6 12.5a5 5 0 0 0 8 0"/><circle cx="7" cy="8" r=".8"/><circle cx="13" cy="8" r=".8"/></g>',
-  '<path transform="translate(110 104)" d="M3 9h14L10 24ZM3 9a7 7 0 0 1 14 0"/>',
-  '<path transform="translate(8 206)" d="M1 7h18v4H1ZM3 11h14v9H3ZM10 7v13M10 7C7 1 3 3 6 7M10 7c3-6 7-4 4 0"/>',
-  '<path transform="translate(190 4)" d="M0 6h12M6 0v12"/>',
-  '<path transform="translate(22 104) scale(.6)" d="M10 0l2.9 6.9 7.1.7-5.4 4.7 1.6 7.2L10 15.7l-6.2 3.8 1.6-7.2L0 7.6l7.1-.7Z"/>',
-  '<path transform="translate(186 222) scale(.65)" d="M10 18C-4 8 2-2 10 5c8-7 14 3 0 13Z"/>',
-  '<path transform="translate(144 146)" d="M0 14C0 4 8 0 16 0c0 8-4 16-14 16ZM0 16 9 7"/>',
-  '<circle cx="72" cy="50" r="2"/><circle cx="200" cy="112" r="2.2"/><circle cx="112" cy="226" r="1.8"/><circle cx="60" cy="168" r="1.6"/>',
-].join("");
-
-const svgUri = (svg: string) => `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
-
-/** Doodle tile with darker/lighter strokes (positive intensity wallpapers). */
-export function tgPatternUri(stroke: string, opacity: number): string {
-  return svgUri(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240"><g fill="none" stroke="${stroke}" stroke-opacity="${opacity}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${DOODLES}</g></svg>`,
-  );
-}
-
-/**
- * Inverted (negative intensity) tile: a black veil with the doodles "cut out" so the gradient
- * underneath only glows through the pattern — how Telegram renders its dark default wallpaper.
- */
-export function tgInvertedPatternUri(veilOpacity: number, holeLuminance: string): string {
-  return svgUri(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240"><defs><mask id="m" maskUnits="userSpaceOnUse" x="0" y="0" width="240" height="240"><rect width="240" height="240" fill="#fff"/><g fill="none" stroke="${holeLuminance}" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${DOODLES}</g></mask></defs><rect width="240" height="240" fill="#000" fill-opacity="${veilOpacity}" mask="url(#m)"/></svg>`,
-  );
-}
-
-/**
- * Telegram's 4-colour "freeform" gradient. Points are the phase-0 positions used by
- * GradientBackgroundNode (iOS) / MotionBackgroundDrawable (Android).
- */
-export function tgGradient(c: [string, string, string, string]): string {
-  return [
-    `radial-gradient(ellipse 75% 55% at 80% 10%, ${c[0]} 0%, transparent 100%)`,
-    `radial-gradient(ellipse 70% 50% at 35% 25%, ${c[1]} 0%, transparent 100%)`,
-    `radial-gradient(ellipse 75% 50% at 20% 90%, ${c[2]} 0%, transparent 100%)`,
-    `radial-gradient(ellipse 70% 50% at 65% 75%, ${c[3]} 0%, transparent 100%)`,
-  ].join(", ");
-}
-
-/** Full wallpaper style: doodle tile (repeating) over the 4-point gradient (stretched). */
-export function tgWallpaper(pattern: string, colors: [string, string, string, string], base: string): CSSProperties {
-  return {
-    backgroundColor: base,
-    backgroundImage: `${pattern}, ${tgGradient(colors)}`,
-    backgroundSize: "240px 240px, 100% 100%, 100% 100%, 100% 100%, 100% 100%",
-    backgroundRepeat: "repeat, no-repeat, no-repeat, no-repeat, no-repeat",
-  };
-}
-
-/** Deterministic pseudo-waveform (0..1) so each voice note looks different but stable. */
-export function tgWaveform(seed: string, count: number): number[] {
+/** Deterministic Telegram-style waveform (5-bit levels like SeekBarWaveform), seeded by message id. */
+function tgWaveform(seed: string, count: number): number[] {
   let h = 2166136261;
   for (let i = 0; i < seed.length; i++) h = Math.imul(h ^ seed.charCodeAt(i), 16777619);
   const out: number[] = [];
+  let prev = 0.4;
   for (let i = 0; i < count; i++) {
     h = Math.imul(h ^ (h >>> 15), 2246822507);
     h ^= h >>> 13;
     const r = ((h >>> 0) % 1000) / 1000;
-    const env = 0.3 + 0.7 * Math.abs(Math.sin((i / count) * Math.PI * 2.2 + 0.7));
-    out.push(Math.max(0.08, r * env));
+    const env = 0.35 + 0.65 * Math.abs(Math.sin((i / Math.max(1, count)) * Math.PI * 1.7 + 0.5));
+    const v = Math.min(1, Math.max(0, 0.55 * prev + 0.45 * r * env * 1.25));
+    prev = v;
+    out.push(1 + Math.round(v * 31));
   }
   return out;
-}
-
-/** Rough width of the time/check block so text can reserve room on its last line. */
-export function metaReserve(time: string, mine: boolean, charW: number, checksW: number): number {
-  return Math.ceil(time.length * charW + (mine ? checksW : 0) + 8);
 }
 
 /* ------------------------------------------------------------------ */

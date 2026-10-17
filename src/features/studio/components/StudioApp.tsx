@@ -240,7 +240,7 @@ export function StudioApp() {
 
   if (!mounted) return <StudioSkeleton />;
 
-  const toaster = <Toaster closeLabel={t.close} className="bottom-5 max-md:top-16 max-md:bottom-auto" />;
+  const toaster = <Toaster closeLabel={t.close} className="bottom-[104px] max-md:top-16 max-md:bottom-auto" />;
 
   if (recording) {
     return (
@@ -330,7 +330,7 @@ export function StudioApp() {
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">
-          <main className="relative h-[50dvh] min-h-[320px] shrink-0 border-b border-border">{stage}</main>
+          <main className="relative h-[46dvh] min-h-[300px] shrink-0 border-b border-border">{stage}</main>
           <section aria-label={t.setup} className="flex min-h-0 flex-1 flex-col bg-studio-panel">
             <PanelTabs tab={panelTab} onTab={setPanelTab} t={t} count={scenario.messages.length} setup={setup} messages={messages} trailing={duration} />
           </section>

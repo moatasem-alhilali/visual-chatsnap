@@ -242,8 +242,8 @@
 }
 
 /* ============================================================
-   Studio UI (editor chrome) — canvas backdrop, range slider,
-   auto-growing fields. Tokens live in :root / .dark above.
+   Studio UI (editor chrome): canvas backdrop, range slider,
+   auto-growing fields, thin scrollbars. Tokens live in :root / .dark.
    ============================================================ */
 .studio-canvas {
   background-color: var(--studio-canvas);

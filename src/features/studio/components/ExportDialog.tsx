@@ -641,6 +641,19 @@ export function ExportDialog({
       stripOuterShadow(stage);
       const dims = measureDevice(stage);
       try {
+        // TEMP-BENCH
+        (window as unknown as { __bench: unknown }).__bench = async (opts: object, n: number, sel?: string) => {
+          const { snapdom } = await import("@zumer/snapdom");
+          const node = sel ? (stage.node.querySelector(sel) as HTMLElement) : stage.node;
+          const times: number[] = [];
+          for (let i = 0; i < n; i++) {
+            const t0 = performance.now();
+            const cv = await snapdom.toCanvas(node, { scale: 1.87, dpr: 1, embedFonts: true, ...opts });
+            times.push(Math.round(performance.now() - t0));
+            cv.width = 0;
+          }
+          return times;
+        };
         const scale = 0.8;
         const canvas = await captureStage(stage, scale);
         if (cancelled) return;
