@@ -13,6 +13,12 @@ export interface PlaybackView {
   messages: Message[];
   /** typing indicator for the other party is showing */
   typing: boolean;
+  /**
+   * Deterministic clock (ms since playback start) supplied by the video
+   * exporter, where CSS animations do not run. When defined, looping animations
+   * (typing dots, etc.) must be derived from it instead of CSS keyframes.
+   */
+  clockMs?: number;
   /** resolve the status to display for a given message */
   statusOf: (m: Message) => DeliveryStatus;
   play: () => void;
