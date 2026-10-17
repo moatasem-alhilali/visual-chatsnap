@@ -86,11 +86,11 @@ function IosBattery({ color, showPct }: { color: string; showPct: boolean }) {
           <rect width="27.4" height="13" fill="#fff" />
           <text
             x="12.7"
-            y="10.15"
+            y="9.95"
             textAnchor="middle"
-            fontSize="11"
+            fontSize="10.4"
             fontWeight="700"
-            letterSpacing="-0.35"
+            letterSpacing="-0.45"
             fill="#000"
             style={{ fontFamily: IOS_FONT }}
           >

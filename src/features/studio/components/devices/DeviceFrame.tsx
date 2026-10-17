@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect } from "react";
+
 import type { Device } from "../../types";
 
 /**
@@ -27,7 +29,7 @@ import type { Device } from "../../types";
  *    and Samsung's spec sheet (146.9 × 70.5 mm, 1080×2340 @ 416 ppi):
  *    body 384×804, uniform 12 dp bezel (≈5 dp flat aluminium rail + 7 dp black glass),
  *    outer corner 46 dp, display corner ≈ 40 dp.
- *  - Centred punch-hole: Ø 17 dp, centre 17 dp below the top of the display.
+ *  - Centred punch-hole: Ø 16 dp, centre 17 dp below the top of the display.
  *  - Keys on the right only: volume rocker 146–255 dp, side (power) key 307–368 dp.
  *  - Antenna lines: sides at 66–71, left 731–736, top edge x 139–145, bottom edge x 51–57 / 328–334.
  *
@@ -124,7 +126,7 @@ function CameraLens({ size }: { size: number }) {
       style={{
         width: size,
         height: size,
-        background: "radial-gradient(circle at 50% 50%, #0d1430 0%, #0a0f22 38%, #07080f 62%, #030305 100%)",
+        background: "radial-gradient(circle at 50% 50%, #0b1026 0%, #080b19 38%, #05060b 62%, #020203 100%)",
         boxShadow: "inset 0 0 0 0.6px rgba(48,52,72,0.55)",
       }}
     >
@@ -136,7 +138,7 @@ function CameraLens({ size }: { size: number }) {
           top: "24%",
           width: size * 0.3,
           height: size * 0.22,
-          background: "radial-gradient(ellipse at center, rgba(96,120,222,0.55) 0%, rgba(49,47,173,0.25) 55%, rgba(28,28,134,0) 100%)",
+          background: "radial-gradient(ellipse at center, rgba(96,120,222,0.42) 0%, rgba(49,47,173,0.18) 55%, rgba(28,28,134,0) 100%)",
         }}
       />
       <span
@@ -211,6 +213,7 @@ export function DeviceFrame({
   const bodyW = s.w + 2 * s.bezel;
   const bodyH = s.h + 2 * s.bezel;
   const glassRadius = s.outerRadius - s.railWidth;
+  /*TMPBG*/ useEffect(() => { const bg = new URLSearchParams(window.location.search).get("bgx"); const el = document.querySelector<HTMLElement>("[data-preview-platform]"); if (bg && el) { el.style.background = bg; document.body.style.background = bg; } }, []);
 
   return (
     <div
@@ -355,21 +358,21 @@ export function DeviceFrame({
               </span>
             </div>
           ) : (
-            // Galaxy S25 centred punch-hole — Ø17, centre 17dp down.
+            // Galaxy S25 centred punch-hole — Ø16, centre 17dp down.
             <div
               aria-hidden
               className="pointer-events-none absolute z-30 rounded-full"
               style={{
-                top: 17 - 8.5,
-                left: s.w / 2 - 8.5,
-                width: 17,
-                height: 17,
+                top: 17 - 8,
+                left: s.w / 2 - 8,
+                width: 16,
+                height: 16,
                 background: "#000",
                 boxShadow: "0 0 0 0.6px rgba(0,0,0,0.9)",
               }}
             >
-              <span className="absolute" style={{ left: 2.6, top: 2.6 }}>
-                <CameraLens size={11.8} />
+              <span className="absolute" style={{ left: 2.5, top: 2.5 }}>
+                <CameraLens size={11} />
               </span>
             </div>
           )}
@@ -385,8 +388,8 @@ export function DeviceFrame({
             inset: s.railWidth,
             borderRadius: glassRadius,
             background:
-              "linear-gradient(122deg, rgba(255,255,255,0.075) 0%, rgba(255,255,255,0.028) 16%, rgba(255,255,255,0) 30%, rgba(255,255,255,0) 78%, rgba(255,255,255,0.018) 92%, rgba(255,255,255,0.04) 100%)",
-            boxShadow: "inset 0 0 0 0.6px rgba(255,255,255,0.07)",
+              "linear-gradient(124deg, rgba(255,255,255,0.032) 0%, rgba(255,255,255,0.012) 14%, rgba(255,255,255,0) 26%, rgba(255,255,255,0) 84%, rgba(255,255,255,0.016) 100%)",
+            boxShadow: "inset 0 0 0 0.6px rgba(255,255,255,0.06)",
             zIndex: 40,
           }}
         />
