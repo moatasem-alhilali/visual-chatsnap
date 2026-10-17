@@ -8,7 +8,9 @@ import { WhatsApp } from "./WhatsApp";
 import { WhatsAppAndroid } from "./WhatsAppAndroid";
 import { Telegram } from "./Telegram";
 import { Instagram } from "./Instagram";
+import { InstagramAndroid } from "./InstagramAndroid";
 import { Snapchat } from "./Snapchat";
+import { SnapchatAndroid } from "./SnapchatAndroid";
 import { IMessage } from "./iMessage";
 
 type PlatformComponent = (props: PlatformProps) => React.ReactNode;
@@ -28,8 +30,8 @@ export interface PlatformMeta {
 export const PLATFORMS: PlatformMeta[] = [
   { id: "whatsapp", label: "WhatsApp", accent: "#25d366", Component: WhatsApp, android: WhatsAppAndroid },
   { id: "telegram", label: "Telegram", accent: "#2aabee", Component: Telegram },
-  { id: "instagram", label: "Instagram", accent: "#e1306c", Component: Instagram },
-  { id: "snapchat", label: "Snapchat", accent: "#fffc00", Component: Snapchat },
+  { id: "instagram", label: "Instagram", accent: "#e1306c", Component: Instagram, android: InstagramAndroid },
+  { id: "snapchat", label: "Snapchat", accent: "#fffc00", Component: Snapchat, android: SnapchatAndroid },
   { id: "imessage", label: "iMessage", accent: "#0a7cff", Component: IMessage },
 ];
 
