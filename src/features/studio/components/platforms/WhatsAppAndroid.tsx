@@ -67,7 +67,7 @@
  *    are generated from `whatsappAndroidMotion.enterStyle`, so preview == export.
  */
 
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, type CSSProperties, type ReactNode } from "react";
 
 import type { DeliveryStatus, Message, Person } from "../../types";
 import { Avatar, dirOf, SystemBottomBar, useChatScroll } from "../shared";
@@ -200,6 +200,7 @@ const STYLE = `
 ${ENTER_KEYFRAMES}
 .wa-android-enter{animation:wa-android-enter ${ENTER_MS}ms linear both}
 @keyframes wa-android-typing{0%{opacity:.4;transform:translateY(0)}12.5%{opacity:.7;transform:translateY(-1px)}25%{opacity:1;transform:translateY(-2px)}37.5%{opacity:.7;transform:translateY(-1px)}50%,100%{opacity:.4;transform:translateY(0)}}
+.wa-android-down{display:none}[data-up="1"]>.wa-android-down{display:flex}
 .wa-android-typing-dot{animation:wa-android-typing ${TYPING_PERIOD}ms ease-in-out infinite}
 `;
 
@@ -498,14 +499,17 @@ export function WhatsAppAndroid({ scenario, playback, lang, rtl }: PlatformProps
   const live = playback.isLive;
   const clock = playback.clockMs;
   const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}`);
-  const [scrolledUp, setScrolledUp] = useState(false);
-
   // The scroll-to-bottom button only appears once the user has scrolled up.
   // Re-evaluate on scroll AND when the content grows (images decoding, new rows).
+  // Toggled through a data attribute in the same task as the scroll, so the
+  // button can never be painted one frame late over a list that is at the bottom.
   useEffect(() => {
     const el = scrollRef.current;
-    if (!el) return;
-    const check = () => { el.dataset.dist = String(el.scrollHeight - el.scrollTop - el.clientHeight); setScrolledUp(el.scrollHeight - el.scrollTop - el.clientHeight > 160); };
+    const host = el?.parentElement;
+    if (!el || !host) return;
+    const check = () => {
+      host.dataset.up = el.scrollHeight - el.scrollTop - el.clientHeight > 160 ? "1" : "0";
+    };
     check();
     el.addEventListener("scroll", check, { passive: true });
     const ro = new ResizeObserver(check);
@@ -618,8 +622,12 @@ export function WhatsAppAndroid({ scenario, playback, lang, rtl }: PlatformProps
 
             {messages.map((m, i) => {
               const { firstOfGroup } = groupInfo(messages, i);
+              const prev = messages[i - 1];
+              // A bubble right after a bare big-emoji message of the same sender gets its tail back.
+              const afterBare = !!prev && !firstOfGroup && prev.type === "text" && bigEmojiCount(prev.text) > 0;
               return (
                 <AndroidRow
+                  afterBare={afterBare}
                   key={m.id}
                   m={m}
                   p={p}
@@ -679,11 +687,11 @@ export function WhatsAppAndroid({ scenario, playback, lang, rtl }: PlatformProps
         </div>
 
         {/* Scroll-to-bottom: bottom-end corner, only after scrolling up */}
-        {!live && scrolledUp && (
+        {!live && (
           <button
             onClick={scrollToBottom}
             aria-label="scroll to bottom"
-            className="absolute flex items-center justify-center rounded-full"
+            className="wa-android-down absolute items-center justify-center rounded-full"
             style={{
               bottom: 48 + 5.5 + 14,
               insetInlineEnd: 13,
@@ -750,6 +758,7 @@ function AndroidRow({
   rtl,
   uiDir,
   firstOfGroup,
+  afterBare,
   status,
   person,
   live,
@@ -759,6 +768,7 @@ function AndroidRow({
   rtl: boolean;
   uiDir: "rtl" | "ltr";
   firstOfGroup: boolean;
+  afterBare: boolean;
   status: DeliveryStatus;
   person: Person;
   live: boolean;
@@ -787,7 +797,7 @@ function AndroidRow({
   );
 
   // Physical corner radii: square only under the tail.
-  const tail = firstOfGroup && m.type !== "image" && emojiCount === 0;
+  const tail = (firstOfGroup || afterBare) && m.type !== "image" && emojiCount === 0;
   const radius: CSSProperties = { borderRadius: RADIUS };
   if (tail) {
     if (onRight) radius.borderTopRightRadius = 0;
