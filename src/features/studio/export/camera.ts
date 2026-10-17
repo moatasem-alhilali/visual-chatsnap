@@ -94,20 +94,24 @@ function union(a: Rect, b: Rect): Rect {
 }
 
 /**
- * Frame `focus`; when `context` is given and both fit at ≥ 80 % of the target
- * zoom, frame them together (less panning, the reply stays readable).
+ * Frame `focus`; when `context` is given and both fit at the target zoom,
+ * frame them together (less panning, the reply stays readable).
  */
 export function focusState(
   focus: Rect | null,
   scene: CameraScene,
   opts: CameraOptions,
   context?: Rect | null,
+  /** hold this zoom (pan only) instead of picking a new one */
+  lockScale?: number,
 ): CameraState {
   if (!focus) return WIDE(scene);
+  if (lockScale) opts = { ...opts, maxZoom: lockScale };
   if (context) {
     const u = union(focus, context);
     const fitU = Math.min((scene.W * 0.9) / Math.max(1, u.w), (scene.H * 0.55) / Math.max(1, u.h));
-    if (fitU >= opts.maxZoom * 0.8) {
+    // context never lowers the zoom (that would pump in and out between messages)
+    if (fitU >= opts.maxZoom) {
       return focusState(u, scene, { ...opts, maxZoom: Math.min(opts.maxZoom, fitU) });
     }
   }
@@ -177,7 +181,18 @@ export function buildCameraPath(
   if (!rawKeys.length || opts.maxZoom <= 1.001) {
     return { at: () => wide, static: true };
   }
-  const targets = rawKeys.map((k) => ({ from: Math.max(0, k.at - CAMERA_LEAD_MS), st: focusState(k.focus, scene, opts, k.context) }));
+  // Consecutive shots whose ideal zoom differs by < 20 % keep the same zoom and
+  // only pan: no zoom "pumping" between messages that sit close together.
+  const targets: { from: number; st: CameraState }[] = [];
+  let held = 1;
+  for (const k of rawKeys) {
+    let st = focusState(k.focus, scene, opts, k.context);
+    if (k.focus && held > 1 && st.scale > 1 && Math.abs(Math.log(st.scale / held)) < Math.log(1.2)) {
+      st = focusState(k.focus, scene, opts, k.context, held);
+    }
+    held = st.scale;
+    targets.push({ from: Math.max(0, k.at - CAMERA_LEAD_MS), st });
+  }
 
   const n = Math.ceil(totalMs / STEP_MS) + 2;
   const S = new Float64Array(n);
