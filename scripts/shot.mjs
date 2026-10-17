@@ -4,9 +4,9 @@
  * locally installed Chrome in headless mode (no extra dependencies).
  *
  *   node scripts/shot.mjs <out.png> platform=whatsapp device=iphone theme=light \
- *        lang=en presence=online typing=0 scroll=bottom fixture=full [port=3002] [scale=2]
+ *        lang=en presence=online typing=0 scroll=bottom fixture=full [port=3000] [scale=2]
  *
- * Requires the dev server (`npm run dev`, port from .claude/launch.json = 3002).
+ * Requires the dev server (`npm run dev`, port 3000 — override with port=… or PORT).
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
@@ -18,7 +18,7 @@ if (!outArg) {
   process.exit(1);
 }
 const opts = Object.fromEntries(pairs.map((p) => p.split("=")));
-const port = opts.port ?? "3002";
+const port = opts.port ?? process.env.PORT ?? "3000";
 const lang = opts.lang ?? "en";
 const scale = opts.scale ?? "2";
 const device = opts.device ?? "iphone";
