@@ -1,0 +1,78 @@
+name: 🐞 Bug report
+description: Something is broken in the studio, playback or video export.
+title: "bug: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this! If the problem is that a mockup **doesn't look like the real app**, please use the *Platform accuracy* template instead.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: A clear description of the bug and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open /ar
+        2. Pick Telegram + Samsung, dark theme
+        3. Export video (9:16, auto-zoom Medium)
+        4. …
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Studio / editor
+        - Playback / recording mode
+        - Video export
+        - Platform template
+        - Device frame / status bar
+        - Localization (Arabic / English)
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: App template (if relevant)
+      multiple: true
+      options:
+        - WhatsApp
+        - Telegram
+        - Instagram
+        - Snapchat
+        - iMessage / Samsung Messages
+  - type: dropdown
+    id: device
+    attributes:
+      label: Device mockup (if relevant)
+      multiple: true
+      options:
+        - iPhone
+        - Samsung
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and OS
+      placeholder: Chrome 141 on Windows 11 / Safari 26 on iOS 26
+    validations:
+      required: true
+  - type: textarea
+    id: scenario
+    attributes:
+      label: Scenario JSON (optional)
+      description: Use *File → Export JSON* in the studio and paste it here (remove anything private).
+      render: json
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshots, video or console errors
+      description: Drag files here. For export bugs, the exported file or a screen recording helps a lot.

@@ -1,7 +1,36 @@
 {
-  "name": "next-enterprise-template",
+  "name": "visual-chatsnap",
   "version": "0.1.0",
   "private": true,
+  "description": "Scenora — pixel-accurate WhatsApp, Telegram, Instagram, Snapchat and iMessage chat mockups on real iPhone and Samsung frames, with in-browser MP4 export and an auto-zoom camera.",
+  "homepage": "https://visual-chatsnap.vercel.app",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moatasem-alhilali/visual-chatsnap.git"
+  },
+  "bugs": {
+    "url": "https://github.com/moatasem-alhilali/visual-chatsnap/issues"
+  },
+  "license": "MIT",
+  "author": "Moatasem Alhilali (https://github.com/moatasem-alhilali)",
+  "keywords": [
+    "chat-mockup",
+    "fake-chat-generator",
+    "whatsapp",
+    "telegram",
+    "instagram",
+    "snapchat",
+    "imessage",
+    "video-export",
+    "webcodecs",
+    "nextjs",
+    "react",
+    "rtl",
+    "arabic"
+  ],
+  "engines": {
+    "node": ">=20.9.0"
+  },
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",
