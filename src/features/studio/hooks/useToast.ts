@@ -1,18 +1,13 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { toast, type ToastInput } from "@/shared/components/ui/toast";
 
-const DEFAULT_TOAST_MS = 1800;
-
-export function useToast(timeoutMs = DEFAULT_TOAST_MS) {
-  const [msg, setMsg] = useState<string | null>(null);
-  const timer = useRef<number | null>(null);
-
-  const show = (message: string) => {
-    setMsg(message);
-    if (timer.current) window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => setMsg(null), timeoutMs);
-  };
-
-  return { msg, show };
+/**
+ * Studio toast helper. `show(msg)` keeps the old one-liner API; `notify`
+ * exposes the full toast options (variant, undo action, …).
+ */
+export function useToast() {
+  const show = (message: string, variant: ToastInput["variant"] = "success") =>
+    toast({ title: message, variant });
+  return { show, notify: toast };
 }
