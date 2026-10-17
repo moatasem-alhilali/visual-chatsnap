@@ -25,7 +25,15 @@ import { PLATFORM_MAP, PlatformView, preloadPlatform } from "./platforms";
 import { deviceFontFamily } from "../data/fonts";
 import { buildTimeline, type FrameState } from "../export/schedule";
 import { canExportVideo, exportToMp4, ExportAbortedError, pickVideoCodec, type PickedCodec } from "../export/exportVideo";
-import { computeLayout, estimateBytes, PRESETS, type PhoneSize, type PresetId } from "../export/layout";
+import {
+  computeLayout,
+  estimateBytes,
+  FALLBACK_DEVICE,
+  PRESETS,
+  type DeviceGeometry,
+  type PhoneSize,
+  type PresetId,
+} from "../export/layout";
 import { BACKGROUNDS, paintBackground, ScreenBackdrop, type BackgroundId, type PaintOptions } from "../export/backgrounds";
 import {
   captureStage,
@@ -649,7 +657,7 @@ export function ExportDialog({
   const [errKey, setErrKey] = useState<string>("");
   const [errDetail, setErrDetail] = useState("");
   const [result, setResult] = useState<ExportResult | null>(null);
-  const [device, setDevice] = useState<{ w: number; h: number; radius: number } | null>(null);
+  const [device, setDevice] = useState<DeviceGeometry | null>(null);
   const [previewPhone, setPreviewPhone] = useState<{ canvas: HTMLCanvasElement; scale: number } | null>(null);
   const [audioCodec, setAudioCodec] = useState<AudioCodec | null | undefined>(undefined);
 
@@ -674,7 +682,7 @@ export function ExportDialog({
   const accent = PLATFORM_MAP[scenario.platform]?.accent ?? "#25d366";
   const paint = useMemo<PaintOptions>(() => ({ accent, custom: prefs.custom }), [accent, prefs.custom]);
   const layout = useMemo(
-    () => computeLayout(preset, device ?? { w: 393, h: 852, radius: 68 }, prefs.size),
+    () => computeLayout(preset, device ?? FALLBACK_DEVICE, prefs.size),
     [preset, device, prefs.size],
   );
   const bitrate = bitrateFor(layout.W, layout.H, prefs.fps, prefs.quality);
@@ -1302,7 +1310,7 @@ export function ExportDialog({
                   <div className="space-y-2 border-t border-border p-4">
                     <div className="flex items-center justify-between text-[11px] text-muted-foreground tabular-nums">
                       <span dir="ltr">{summary}</span>
-                      <span>~{fmtMB(estimateBytes(bitrate, totalMs), lang)}</span>
+                      <span>~{fmtMB(estimateBytes(bitrate, totalMs, prefs.zoom), lang)}</span>
                     </div>
                     <Button className="h-11 w-full gap-2 text-sm" onClick={runExport} disabled={!device} data-export-start="">
                       {device ? <Download className="size-4" /> : <Loader2 className="size-4 animate-spin" />}

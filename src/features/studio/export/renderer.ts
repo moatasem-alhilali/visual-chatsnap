@@ -13,7 +13,7 @@ import {
   type CameraState,
   type Rect,
 } from "./camera";
-import { DEVICE_MARGIN, type FrameLayout } from "./layout";
+import { DEVICE_MARGIN, FALLBACK_DEVICE, type DeviceGeometry, type FrameLayout } from "./layout";
 import type { FrameState, Timeline } from "./schedule";
 
 /** Imperative handle onto the off-screen stage that renders the phone. */
@@ -24,12 +24,48 @@ export interface StageController {
   render: (state: FrameState | null, clockMs?: number) => void;
 }
 
-/** Physical phone size (CSS px) and corner radius, measured from the stage. */
-export function measureDevice(stage: StageController): { w: number; h: number; radius: number } {
-  const phone = stage.node.firstElementChild as HTMLElement | null;
-  if (!phone) return { w: 393, h: 852, radius: 68 };
-  const radius = parseFloat(getComputedStyle(phone).borderTopLeftRadius) || 0;
-  return { w: phone.offsetWidth, h: phone.offsetHeight, radius };
+/**
+ * The phone's rounded body: the largest element (the frame root or one of its
+ * first two levels of children) with a border-radius. Independent of how
+ * DeviceFrame nests its rail / side keys.
+ */
+function findBody(root: HTMLElement): HTMLElement {
+  let best: HTMLElement = root;
+  let bestArea = 0;
+  const consider = (el: HTMLElement) => {
+    const r = parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0;
+    const area = el.offsetWidth * el.offsetHeight;
+    if (r > 8 && area > bestArea) {
+      best = el;
+      bestArea = area;
+    }
+  };
+  consider(root);
+  for (const c of Array.from(root.children) as HTMLElement[]) {
+    consider(c);
+    for (const g of Array.from(c.children) as HTMLElement[]) consider(g);
+  }
+  return best;
+}
+
+/** Physical phone footprint and its rounded body (CSS px), measured from the stage. */
+export function measureDevice(stage: StageController): DeviceGeometry {
+  const root = stage.node.firstElementChild as HTMLElement | null;
+  if (!root) return FALLBACK_DEVICE;
+  const body = findBody(root);
+  const rr = root.getBoundingClientRect();
+  const br = body.getBoundingClientRect();
+  return {
+    w: rr.width,
+    h: rr.height,
+    body: {
+      x: br.left - rr.left,
+      y: br.top - rr.top,
+      w: br.width,
+      h: br.height,
+      r: parseFloat(getComputedStyle(body).borderTopLeftRadius) || 0,
+    },
+  };
 }
 
 /** Yield to the event loop without timers (timers are throttled in background tabs). */
@@ -64,8 +100,14 @@ export async function waitForTemplate(stage: StageController, timeoutMs = 8000):
  * are kept so the rail still looks machined.
  */
 export function stripOuterShadow(stage: StageController): void {
-  const phone = stage.node.firstElementChild as HTMLElement | null;
-  if (!phone) return;
+  const root = stage.node.firstElementChild as HTMLElement | null;
+  if (!root) return;
+  stripShadowOf(root);
+  const body = findBody(root);
+  if (body !== root) stripShadowOf(body);
+}
+
+function stripShadowOf(phone: HTMLElement): void {
   const parts = getComputedStyle(phone).boxShadow.split(/,(?![^(]*\))/).map((s) => s.trim());
   const keep = parts.filter((p) => {
     if (p === "none" || !p) return false;
@@ -192,7 +234,7 @@ export class FrameRenderer {
         this.shadowLayer = document.createElement("canvas");
         this.shadowLayer.width = W;
         this.shadowLayer.height = H;
-        paintPhoneShadow(this.shadowLayer.getContext("2d")!, phone, light);
+        paintPhoneShadow(this.shadowLayer.getContext("2d")!, W, H, phone, light);
       }
     } else {
       this.base = document.createElement("canvas");
@@ -200,7 +242,7 @@ export class FrameRenderer {
       this.base.height = H;
       const b = this.base.getContext("2d", { alpha: false })!;
       paintBackground(b, W, H, this.o.background, this.o.paint);
-      if (framed) paintPhoneShadow(b, phone, light);
+      if (framed) paintPhoneShadow(b, W, H, phone, light);
     }
   }
 
@@ -249,7 +291,13 @@ export class FrameRenderer {
     ].sort((a, b) => a.at - b.at);
 
     for (const ev of events) {
-      stage.render(timeline.stateAt(ev.at + 1), ev.at + 1);
+      const st = timeline.stateAt(ev.at + 1);
+      if (ev.kind === "typing") {
+        // render once without the indicator so we can tell which nodes it adds
+        stage.render({ ...st, typing: false }, ev.at + 1);
+        this.before = new Set(node.querySelectorAll("*"));
+      }
+      stage.render(st, ev.at + 1);
       this.scrollAllToBottom();
       if (ev.kind === "reveal") {
         const rect = measureRow(ev.id);
@@ -261,7 +309,8 @@ export class FrameRenderer {
           }
         }
       } else {
-        keys.push({ at: introMs + ev.at, focus: this.measureTyping(themSide ?? (rtl ? "right" : "left")) });
+        const lastReveal = [...keys].reverse().find((k) => k.focus)?.focus ?? null;
+        keys.push({ at: introMs + ev.at, focus: this.measureTyping(themSide ?? (rtl ? "right" : "left"), lastReveal) });
       }
     }
     await yieldToEventLoop();
@@ -274,28 +323,46 @@ export class FrameRenderer {
     this.first = true;
   }
 
+  private before: Set<Element> | null = null;
+
   /**
-   * Typing indicator focus: templates don't expose the indicator, so use the
-   * strip between the last message row and the bottom of the thread (where
-   * every app draws it) on the other party's side.
+   * Typing indicator focus. Templates don't tag the indicator, so diff the DOM
+   * with and without it: the nodes it adds inside the thread are the bubble.
+   * If the app only shows "typing…" in the header, keep framing the latest
+   * message (or the bottom of the thread on the other party's side).
    */
-  private measureTyping(side: "left" | "right"): Rect {
+  private measureTyping(side: "left" | "right", fallback: Rect | null): Rect {
     const node = this.o.stage.node;
     const nodeRect = node.getBoundingClientRect();
-    const scroller = node.querySelector<HTMLElement>(".rcss-scroll");
-    const { phone, scale } = this.o.layout;
-    if (!scroller) {
-      return { x: side === "left" ? phone.x : phone.x + phone.w * 0.55, y: phone.y + phone.h * 0.78, w: phone.w * 0.45, h: 60 * scale };
+    const before = this.before ?? new Set<Element>();
+    this.before = null;
+    let left = Infinity;
+    let top = Infinity;
+    let right = -Infinity;
+    let bottom = -Infinity;
+    node.querySelectorAll(".rcss-scroll *").forEach((el) => {
+      // only the top-most nodes the indicator added
+      if (before.has(el) || (el.parentElement && !before.has(el.parentElement))) return;
+      const r = el.getBoundingClientRect();
+      if (r.width < 1 || r.height < 1) return;
+      left = Math.min(left, r.left);
+      top = Math.min(top, r.top);
+      right = Math.max(right, r.right);
+      bottom = Math.max(bottom, r.bottom);
+    });
+    if (Number.isFinite(left)) {
+      // the indicator row may be full width: keep only the speaker's side
+      const sr = node.querySelector(".rcss-scroll")?.getBoundingClientRect();
+      let rect = new DOMRect(left, top, right - left, bottom - top);
+      if (sr && rect.width > sr.width * 0.8) {
+        const w = Math.min(rect.width, sr.width * 0.4);
+        rect = new DOMRect(side === "left" ? rect.left : rect.right - w, rect.top, w, rect.height);
+      }
+      return this.toScene(rect, nodeRect);
     }
-    const sr = scroller.getBoundingClientRect();
-    const rows = scroller.querySelectorAll<HTMLElement>("[data-mid]");
-    const last = rows[rows.length - 1];
-    const lastBottom = last ? Math.min(sr.bottom, last.getBoundingClientRect().bottom) : sr.top;
-    const bottom = Math.min(sr.bottom, scroller.getBoundingClientRect().top + scroller.scrollHeight - scroller.scrollTop);
-    const h = Math.max(44, Math.min(90, bottom - lastBottom));
-    const w = sr.width * 0.42;
-    const css = new DOMRect(side === "left" ? sr.left + 8 : sr.right - 8 - w, Math.max(sr.top, bottom - h), w, h);
-    return this.toScene(css, nodeRect);
+    if (fallback) return fallback;
+    const { phone, scale } = this.o.layout;
+    return { x: side === "left" ? phone.x : phone.x + phone.w * 0.55, y: phone.y + phone.h * 0.78, w: phone.w * 0.45, h: 60 * scale };
   }
 
   /* ------------------------------------------------------------ frames */
@@ -481,7 +548,7 @@ export function paintPreview(
   } else {
     paintBackground(ctx, layout.W, layout.H, background, paint);
   }
-  if (layout.framed) paintPhoneShadow(ctx, layout.phone, light);
+  if (layout.framed) paintPhoneShadow(ctx, layout.W, layout.H, layout.phone, light);
   if (phone) {
     ctx.drawImage(phone, layout.x, layout.y, layout.boxW, layout.boxH);
   } else {
