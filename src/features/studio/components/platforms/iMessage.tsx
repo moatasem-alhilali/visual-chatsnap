@@ -61,7 +61,7 @@
  *    that `imessageIosMotion.enterStyle` uses, so live preview == export.
  */
 
-import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createContext, useContext, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 import type { Message, Person } from "../../types";
 import { Avatar, dirOf, SystemBottomBar, useChatScroll } from "../shared";
@@ -240,6 +240,8 @@ const STYLE = [
   "@keyframes imsg-ios-dot{0%,100%{opacity:.35}22%{opacity:1}44%{opacity:.35}}",
   // screen-fixed outgoing gradient
   `.imsg-ios-out-fill{background:${OUT_FALLBACK}}`,
+  // export frames: same gradient, positioned from JS (see useLayoutEffect in IMessage)
+  `.imsg-ios-out-js{background-color:${OUT_FALLBACK};background-image:${OUT_GRADIENT};background-size:100% var(--imsg-h,852px);background-repeat:no-repeat}`,
   `@supports (animation-timeline: view()){.imsg-ios-out-fill{background-image:${OUT_GRADIENT};background-size:100% var(--imsg-h,852px);background-repeat:no-repeat;animation:imsg-ios-grad 1s linear both;animation-timeline:view();animation-range:cover 0% cover 100%}}`,
   "@keyframes imsg-ios-grad{from{background-position:0 calc(-1 * var(--imsg-h,852px))}to{background-position:0 calc(100% + var(--imsg-h,852px))}}",
 ].join("\n");
@@ -460,8 +462,12 @@ interface FillProps {
 }
 
 /** Bubble background (+ optional tail) behind the content, so the content is never clipped. */
+/** true while the video exporter drives frames: scroll timelines are unreliable inside a snapdom clone. */
+const StaticFill = createContext(false);
+
 function BubbleFill({ mine, color, tail }: FillProps & { tail: "right" | "left" | null }) {
-  const fillClass = mine ? "imsg-ios-out-fill" : undefined;
+  const staticFill = useContext(StaticFill);
+  const fillClass = mine ? (staticFill ? "imsg-ios-out-js" : "imsg-ios-out-fill") : undefined;
   const fillStyle: CSSProperties = mine ? {} : { background: color };
   return (
     <>
@@ -676,10 +682,24 @@ export function IMessage({ scenario, playback, lang, rtl }: PlatformProps) {
   const typingRef = useRef<HTMLDivElement>(null);
   const typingSince = useRef<number | undefined>(undefined);
 
-  // The outgoing gradient is fixed to the screen: give it the real screen height.
+  // The outgoing gradient is fixed to the screen: give it the real screen height,
+  // and in export frames pin each bubble's slice of it from its on-screen position.
   useLayoutEffect(() => {
     const el = rootRef.current;
-    if (el && el.clientHeight) el.style.setProperty("--imsg-h", `${el.clientHeight}px`);
+    if (!el || !el.clientHeight) return;
+    el.style.setProperty("--imsg-h", `${el.clientHeight}px`);
+    if (clockMs === undefined) return;
+    const box = el.getBoundingClientRect();
+    const k = box.height / el.clientHeight || 1; // the studio may scale the phone
+    el.querySelectorAll<HTMLElement>(".imsg-ios-out-js").forEach((f) => {
+      const y = (f.getBoundingClientRect().top - box.top) / k;
+      f.style.backgroundPosition = `0 ${(-y).toFixed(1)}px`;
+    });
+    const dbg = el.querySelector<HTMLElement>(".imsg-ios-out-js");
+    if (dbg) {
+      const cs = getComputedStyle(dbg);
+      el.dataset.dbg = [cs.backgroundImage, cs.backgroundSize, cs.backgroundPosition, cs.backgroundColor].join(" || ");
+    }
   });
 
   // Typing indicator entrance in the exported video (no CSS animations there).
@@ -838,6 +858,7 @@ export function IMessage({ scenario, playback, lang, rtl }: PlatformProps) {
   const typingGap = !last ? 0 : prevHadReceipt ? GAP_AFTER_RECEIPT : last.sender === "them" ? GAP_GROUP : GAP_SENDER;
 
   return (
+    <StaticFill.Provider value={clockMs !== undefined}>
     <div
       ref={rootRef}
       className="relative h-full w-full overflow-hidden"
@@ -979,5 +1000,6 @@ export function IMessage({ scenario, playback, lang, rtl }: PlatformProps) {
         <SystemBottomBar device={scenario.device} bg="transparent" fg={p.label} />
       </div>
     </div>
+    </StaticFill.Provider>
   );
 }
