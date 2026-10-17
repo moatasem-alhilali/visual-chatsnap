@@ -1,0 +1,43 @@
+name: ✨ Feature request
+description: Suggest a new app, device, studio feature or export option.
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Who needs it and why (e.g. "agencies want group chats for testimonial ads").
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How should it work? Mockups and references welcome.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - New app template
+        - New device
+        - Message type / chat feature (replies, reactions, groups…)
+        - Studio / editor
+        - Video export
+        - Localization
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contribution
+      options:
+        - label: I'd like to work on this myself

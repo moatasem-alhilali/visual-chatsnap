@@ -1,0 +1,68 @@
+name: 🎯 Platform accuracy
+description: A mockup differs from the real app (colour, spacing, icon, wording, behaviour, animation…).
+title: "accuracy: "
+labels: ["accuracy", "template"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Scenora aims to be **indistinguishable from a real screenshot**. Small details matter, thank you! A real reference screenshot is the most useful thing you can attach (blur any private data).
+  - type: dropdown
+    id: platform
+    attributes:
+      label: App
+      options:
+        - WhatsApp
+        - Telegram
+        - Instagram
+        - Snapchat
+        - iMessage (iPhone)
+        - Samsung Messages (Samsung)
+    validations:
+      required: true
+  - type: dropdown
+    id: device
+    attributes:
+      label: Device
+      options:
+        - iPhone
+        - Samsung
+    validations:
+      required: true
+  - type: checkboxes
+    id: context
+    attributes:
+      label: Where does it differ?
+      options:
+        - label: Light theme
+        - label: Dark theme
+        - label: Arabic (RTL)
+        - label: English (LTR)
+        - label: Live playback / animation
+        - label: Exported video
+  - type: textarea
+    id: difference
+    attributes:
+      label: What's different?
+      description: Be as precise as you can (e.g. "outgoing bubble radius is ~18pt, Scenora uses 12", "Arabic placeholder is «مراسلة» not «رسالة»").
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Real app version and OS
+      placeholder: WhatsApp 26.35 on iOS 26.1 / Telegram 13.0 on One UI 8
+    validations:
+      required: true
+  - type: textarea
+    id: reference
+    attributes:
+      label: Reference screenshot(s) from the real app + Scenora screenshot
+      description: Side-by-side is ideal.
+    validations:
+      required: true
+  - type: textarea
+    id: sources
+    attributes:
+      label: Sources (optional)
+      description: Links to design specs, source code, release notes or redesign coverage.
