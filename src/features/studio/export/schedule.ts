@@ -12,7 +12,7 @@ export interface RevealEvent {
   sender: Sender;
   at: number;
 }
-interface TypingWindow {
+export interface TypingWindow {
   start: number;
   end: number;
 }
@@ -30,6 +30,8 @@ export interface Timeline {
   revealAt: Map<string, number>;
   /** reveals in order, with sender (used for sound effects) */
   reveals: RevealEvent[];
+  /** windows during which the other party is typing */
+  typings: TypingWindow[];
 }
 
 // Mirrors usePlayback's timing constants exactly so the export matches playback:
@@ -100,5 +102,5 @@ export function buildTimeline(scenario: Scenario): Timeline {
     return { visibleIds, typing, statuses };
   };
 
-  return { contentMs, stateAt, revealAt, reveals };
+  return { contentMs, stateAt, revealAt, reveals, typings };
 }

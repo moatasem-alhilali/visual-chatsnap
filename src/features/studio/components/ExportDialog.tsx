@@ -21,7 +21,7 @@ import {
 import { Button } from "@/shared/components/ui/button";
 import { cn } from "@/shared/lib/utils";
 import { DeviceFrame } from "./devices/DeviceFrame";
-import { PLATFORM_MAP, PlatformView, resolvePlatformMotion } from "./platforms";
+import { PLATFORM_MAP, PlatformView, preloadPlatform } from "./platforms";
 import { deviceFontFamily } from "../data/fonts";
 import { buildTimeline, type FrameState } from "../export/schedule";
 import { canExportVideo, exportToMp4, ExportAbortedError, pickVideoCodec, type PickedCodec } from "../export/exportVideo";
@@ -33,8 +33,11 @@ import {
   measureDevice,
   paintPreview,
   stripOuterShadow,
+  waitForTemplate,
+  yieldToEventLoop,
   type StageController,
 } from "../export/renderer";
+import { ZOOM_LEVELS, type ZoomIntensity } from "../export/camera";
 import { pickAudioCodec, renderSoundTrack, type AudioCodec } from "../export/audio";
 import {
   canShareVideoFile,
@@ -237,6 +240,10 @@ interface Prefs {
   introMs: number;
   outroMs: number;
   sound: boolean;
+  zoom: boolean;
+  zoomLevel: ZoomIntensity;
+  followSides: boolean;
+  zoomOutEnd: boolean;
 }
 
 const DEFAULT_PREFS: Prefs = {
@@ -249,6 +256,10 @@ const DEFAULT_PREFS: Prefs = {
   introMs: 500,
   outroMs: 2000,
   sound: false,
+  zoom: true,
+  zoomLevel: "medium",
+  followSides: true,
+  zoomOutEnd: true,
 };
 
 const PREFS_KEY = "scenora.export.prefs";
@@ -269,6 +280,10 @@ function loadPrefs(): Prefs {
     if (!OUTRO_OPTIONS.includes(p.outroMs)) p.outroMs = DEFAULT_PREFS.outroMs;
     if (!/^#[0-9a-f]{6}$/i.test(p.custom)) p.custom = DEFAULT_PREFS.custom;
     p.sound = !!p.sound;
+    p.zoom = !!p.zoom;
+    p.followSides = !!p.followSides;
+    p.zoomOutEnd = !!p.zoomOutEnd;
+    if (!(p.zoomLevel in ZOOM_LEVELS)) p.zoomLevel = DEFAULT_PREFS.zoomLevel;
     return p;
   } catch {
     return DEFAULT_PREFS;
@@ -304,18 +319,6 @@ function fmtMB(bytes: number, lang: Lang): string {
   const mb = bytes / 1_048_576;
   const v = mb < 10 ? mb.toFixed(1) : String(Math.round(mb));
   return lang === "ar" ? `${Number(v).toLocaleString("ar-EG")} م.ب` : `${v} MB`;
-}
-
-/** Yield to the event loop without timers (timers are throttled in background tabs). */
-function yieldToEventLoop(): Promise<void> {
-  return new Promise((resolve) => {
-    const ch = new MessageChannel();
-    ch.port1.onmessage = () => {
-      ch.port1.close();
-      resolve();
-    };
-    ch.port2.postMessage(0);
-  });
 }
 
 function makeView(scenario: Scenario, st: FrameState | null, clockMs?: number): PlaybackView {
@@ -630,30 +633,20 @@ export function ExportDialog({
     (async () => {
       const ac = await pickAudioCodec();
       if (!cancelled) setAudioCodec(ac);
+      await preloadPlatform(scenario.platform, scenario.device).catch(() => null);
       if (document.fonts?.ready) await document.fonts.ready;
       await yieldToEventLoop();
       const stage = stageRef.current;
       if (!stage || cancelled) return;
       stage.render(null);
+      await waitForTemplate(stage);
+      if (cancelled) return;
       stage.node.querySelectorAll<HTMLElement>(".rcss-scroll").forEach((el) => {
         el.scrollTop = el.scrollHeight;
       });
       stripOuterShadow(stage);
       const dims = measureDevice(stage);
       try {
-        // TEMP-BENCH
-        (window as unknown as { __bench: unknown }).__bench = async (opts: object, n: number, sel?: string) => {
-          const { snapdom } = await import("@zumer/snapdom");
-          const node = sel ? (stage.node.querySelector(sel) as HTMLElement) : stage.node;
-          const times: number[] = [];
-          for (let i = 0; i < n; i++) {
-            const t0 = performance.now();
-            const cv = await snapdom.toCanvas(node, { scale: 1.87, dpr: 1, embedFonts: true, ...opts });
-            times.push(Math.round(performance.now() - t0));
-            cv.width = 0;
-          }
-          return times;
-        };
         const scale = 0.8;
         const canvas = await captureStage(stage, scale);
         if (cancelled) return;
@@ -666,6 +659,8 @@ export function ExportDialog({
     return () => {
       cancelled = true;
     };
+    // the dialog is mounted per export session; the scenario can't change underneath it
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Repaint the layout preview whenever a setting changes (not while rendering:
@@ -715,7 +710,10 @@ export function ExportDialog({
     let renderer: FrameRenderer | null = null;
     const started = performance.now();
     try {
+      const mod = await preloadPlatform(scenario.platform, scenario.device);
       if (document.fonts?.ready) await document.fonts.ready;
+      stage.render(null);
+      await waitForTemplate(stage);
       stripOuterShadow(stage);
       const dims = measureDevice(stage);
       const lay = computeLayout(preset, dims, prefs.size);
@@ -741,15 +739,21 @@ export function ExportDialog({
       renderer = new FrameRenderer({
         stage,
         timeline,
-        motion: resolvePlatformMotion(scenario.platform, scenario.device),
+        motion: mod.motion,
         rtl,
         layout: lay,
         background: bgDef,
         paint,
         fps,
         introMs: prefs.introMs,
+        totalMs: (totalFrames * 1000) / fps,
+        camera: prefs.zoom
+          ? { maxZoom: ZOOM_LEVELS[prefs.zoomLevel], followSides: prefs.followSides, zoomOutAtEnd: prefs.zoomOutEnd }
+          : null,
       });
       const r = renderer;
+      await r.prepareCamera();
+      if (ctrl.signal.aborted) throw new ExportAbortedError();
       const pv = previewRef.current;
       const pctx = pv?.getContext("2d") ?? null;
 
@@ -789,6 +793,9 @@ export function ExportDialog({
           frames: totalFrames,
           captured: r.stats.captured,
           reused: r.stats.reused,
+          cacheHits: r.stats.cacheHits,
+          captureMul: Number(r.captureMul.toFixed(2)),
+          zoom: prefs.zoom ? prefs.zoomLevel : "off",
           msPerCapture: Math.round(r.stats.captureMs / Math.max(1, r.stats.captured)),
           totalMs: Math.round(performance.now() - started),
           bytes: blob.size,
