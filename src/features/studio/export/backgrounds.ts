@@ -92,14 +92,14 @@ function linear(ctx: Ctx, W: number, H: number, angleDeg: number, stops: [number
 }
 
 /** A soft colour glow (radial falloff with a smooth tail, no hard edge). */
-function glow(ctx: Ctx, x: number, y: number, r: number, color: [number, number, number], alpha: number) {
+function glow(ctx: Ctx, W: number, H: number, x: number, y: number, r: number, color: [number, number, number], alpha: number) {
   const g = ctx.createRadialGradient(x, y, 0, x, y, r);
   g.addColorStop(0, rgb(color, alpha));
   g.addColorStop(0.35, rgb(color, alpha * 0.62));
   g.addColorStop(0.7, rgb(color, alpha * 0.18));
   g.addColorStop(1, rgb(color, 0));
   ctx.fillStyle = g;
-  ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+  ctx.fillRect(0, 0, W, H);
 }
 
 function vignette(ctx: Ctx, W: number, H: number, strength: number) {
@@ -145,8 +145,8 @@ export function paintBackground(ctx: Ctx, W: number, H: number, bg: BackgroundDe
         [0.55, "#111a25"],
         [1, "#070b11"],
       ]);
-      glow(ctx, W * 0.2, H * 0.12, m * 0.6, [86, 126, 178], 0.28);
-      glow(ctx, W * 0.9, H * 0.95, m * 0.5, [40, 70, 110], 0.22);
+      glow(ctx, W, H, W * 0.2, H * 0.12, m * 0.6, [86, 126, 178], 0.28);
+      glow(ctx, W, H, W * 0.9, H * 0.95, m * 0.5, [40, 70, 110], 0.22);
       vignette(ctx, W, H, 0.35);
       dither(ctx, W, H);
       break;
@@ -154,10 +154,10 @@ export function paintBackground(ctx: Ctx, W: number, H: number, bg: BackgroundDe
     case "aurora": {
       ctx.fillStyle = "#0b0a1a";
       ctx.fillRect(0, 0, W, H);
-      glow(ctx, W * 0.12, H * 0.18, m * 0.62, [124, 58, 237], 0.85);
-      glow(ctx, W * 0.92, H * 0.3, m * 0.55, [37, 99, 235], 0.75);
-      glow(ctx, W * 0.25, H * 0.92, m * 0.6, [236, 72, 153], 0.6);
-      glow(ctx, W * 0.85, H * 0.88, m * 0.5, [20, 184, 166], 0.55);
+      glow(ctx, W, H, W * 0.12, H * 0.18, m * 0.62, [124, 58, 237], 0.85);
+      glow(ctx, W, H, W * 0.92, H * 0.3, m * 0.55, [37, 99, 235], 0.75);
+      glow(ctx, W, H, W * 0.25, H * 0.92, m * 0.6, [236, 72, 153], 0.6);
+      glow(ctx, W, H, W * 0.85, H * 0.88, m * 0.5, [20, 184, 166], 0.55);
       vignette(ctx, W, H, 0.25);
       dither(ctx, W, H);
       break;
@@ -170,8 +170,8 @@ export function paintBackground(ctx: Ctx, W: number, H: number, bg: BackgroundDe
         [0, rgb(mid)],
         [1, rgb(deep)],
       ]);
-      glow(ctx, W * 0.15, H * 0.1, m * 0.6, mix(a, [255, 255, 255], 0.15), 0.55);
-      glow(ctx, W * 0.95, H * 0.9, m * 0.5, a, 0.35);
+      glow(ctx, W, H, W * 0.15, H * 0.1, m * 0.6, mix(a, [255, 255, 255], 0.15), 0.55);
+      glow(ctx, W, H, W * 0.95, H * 0.9, m * 0.5, a, 0.35);
       vignette(ctx, W, H, 0.3);
       dither(ctx, W, H);
       break;
@@ -182,8 +182,8 @@ export function paintBackground(ctx: Ctx, W: number, H: number, bg: BackgroundDe
         [0.45, "#f0657a"],
         [1, "#5b2a86"],
       ]);
-      glow(ctx, W * 0.8, H * 0.12, m * 0.5, [255, 214, 165], 0.55);
-      glow(ctx, W * 0.1, H * 0.95, m * 0.5, [60, 20, 110], 0.4);
+      glow(ctx, W, H, W * 0.8, H * 0.12, m * 0.5, [255, 214, 165], 0.55);
+      glow(ctx, W, H, W * 0.1, H * 0.95, m * 0.5, [60, 20, 110], 0.4);
       dither(ctx, W, H);
       break;
     }
@@ -192,8 +192,8 @@ export function paintBackground(ctx: Ctx, W: number, H: number, bg: BackgroundDe
         [0, "#f7f8fb"],
         [1, "#dfe5ee"],
       ]);
-      glow(ctx, W * 0.15, H * 0.1, m * 0.55, [255, 255, 255], 0.9);
-      glow(ctx, W * 0.9, H * 0.92, m * 0.5, [196, 208, 226], 0.5);
+      glow(ctx, W, H, W * 0.15, H * 0.1, m * 0.55, [255, 255, 255], 0.9);
+      glow(ctx, W, H, W * 0.9, H * 0.92, m * 0.5, [196, 208, 226], 0.5);
       dither(ctx, W, H);
       break;
     }
@@ -202,7 +202,7 @@ export function paintBackground(ctx: Ctx, W: number, H: number, bg: BackgroundDe
         [0, "#0f766e"],
         [1, "#042f2a"],
       ]);
-      glow(ctx, W * 0.18, H * 0.12, m * 0.6, [45, 212, 191], 0.35);
+      glow(ctx, W, H, W * 0.18, H * 0.12, m * 0.6, [45, 212, 191], 0.35);
       vignette(ctx, W, H, 0.3);
       dither(ctx, W, H);
       break;

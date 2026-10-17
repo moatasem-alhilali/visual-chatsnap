@@ -105,14 +105,19 @@ export function StudioHeader({
   return (
     <header className="relative z-20 flex h-14 shrink-0 items-center gap-1.5 border-b border-border bg-background/85 px-3 backdrop-blur-xl sm:gap-2 sm:px-4">
       <div className="flex min-w-0 items-center gap-2.5">
-        <Image
-          src="/logo.png"
-          alt="Scenora"
-          width={720}
-          height={480}
-          priority
-          className="h-8 w-auto shrink-0 sm:h-9"
-        />
+        <span className="flex shrink-0 items-center gap-2">
+          <Image
+            src="/favicon/android-chrome-192x192.png"
+            alt=""
+            width={192}
+            height={192}
+            priority
+            className="size-8"
+          />
+          <span className="font-sans text-[17px] font-semibold tracking-tight text-foreground" dir="ltr">
+            Scenora
+          </span>
+        </span>
         <span aria-hidden className="hidden h-5 w-px bg-border md:block" />
         <span className="hidden truncate text-[13px] font-medium text-muted-foreground md:block">
           {t.studioBadge}

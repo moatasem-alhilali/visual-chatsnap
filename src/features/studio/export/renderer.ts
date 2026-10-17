@@ -49,6 +49,7 @@ export async function captureStage(stage: StageController, scale: number): Promi
     fast: true,
     cache: "auto",
     backgroundColor: undefined,
+    ...((window as unknown as { __snapOpts?: object }).__snapOpts ?? {}), // TEMP-BENCH
   });
 }
 

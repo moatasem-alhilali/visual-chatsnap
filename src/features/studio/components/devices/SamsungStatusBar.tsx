@@ -170,7 +170,7 @@ export function SamsungStatusBar({
   lang: Lang;
   time?: string;
 }) {
-  const sb0 = useStudioStore((s) => s.scenario.statusBar) ?? DEFAULT_STATUS_BAR; /*TMPSB*/ const ov = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("sb") : null; const sb = ov ? { wifi: ov.includes("w"), cellular: ov.includes("c"), batteryPct: ov.includes("p") } : sb0;
+  const sb = useStudioStore((s) => s.scenario.statusBar) ?? DEFAULT_STATUS_BAR;
   const androidFont = useStudioStore((s) => s.scenario.androidFont);
   const color = tint === "light" ? "#ffffff" : "#000000";
   const t = time ?? "10:05";

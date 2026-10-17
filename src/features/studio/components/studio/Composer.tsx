@@ -91,7 +91,7 @@ export function Composer({
             size="sm"
             value={sender}
             onChange={setSender}
-            className="w-auto max-w-[70%]"
+            className="w-auto min-w-0 [&>button]:max-w-36 [&>button]:flex-initial"
             options={(["them", "me"] as const).map((s) => {
               const p = s === "me" ? scenario.me : scenario.them;
               return {

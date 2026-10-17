@@ -88,7 +88,7 @@ function MetaChip({
       <button
         type="button"
         onClick={onClick}
-        aria-label={`${label}: ${typeof children === "string" ? children : ""}`}
+        aria-label={typeof children === "string" && children ? `${label}: ${children}` : label}
         className={cn(
           "inline-flex h-6 cursor-pointer items-center gap-1 rounded-md px-1.5 text-[11px] font-medium tabular-nums transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 [&_svg]:size-3",
           active ? "bg-primary/10 text-primary" : "bg-muted/80 text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -291,15 +291,37 @@ function MessageRowImpl({
           <span className="font-mono tabular-nums opacity-70">#{n}</span>
           {m.type === "voice" && <Mic className="size-3" />}
           {m.type === "image" && <ImageIcon className="size-3" />}
-          <span className="ms-auto flex items-center gap-1 tabular-nums" dir="ltr">
+        </button>
+
+        {/* Meta chips (hidden behind the action bar while hovering on desktop) */}
+        <div className="flex shrink-0 items-center gap-1">
+          <MetaChip icon={<Hourglass />} label={t.delay} active={expanded} onClick={() => onToggleExpand(m.id)}>
+            {`${formatSeconds(m.delayMs)}${t.seconds}`}
+          </MetaChip>
+          {!mine ? (
+            <MetaChip icon={<PenLine />} label={t.typingDur} active={expanded} onClick={() => onToggleExpand(m.id)}>
+              {`${formatSeconds(m.typingMs)}${t.seconds}`}
+            </MetaChip>
+          ) : (
+            <MetaChip
+              icon={<StatusIcon status={m.status} />}
+              label={`${t.status}: ${m.status === "sent" ? t.sent : m.status === "delivered" ? t.delivered : t.read}`}
+              active={expanded}
+              onClick={() => onToggleExpand(m.id)}
+            >
+              {""}
+            </MetaChip>
+          )}
+          <span className="w-9 text-end text-[11px] tabular-nums text-muted-foreground" dir="ltr">
             {m.time}
           </span>
-        </button>
+        </div>
 
         <div
           className={cn(
-            "flex items-center transition-opacity duration-150",
-            selected ? "opacity-100" : "opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100 [@media(hover:none)]:opacity-100",
+            "absolute end-1.5 top-1.5 flex items-center rounded-lg bg-card p-px shadow-studio-card ring-1 ring-border transition-[opacity,visibility] duration-150",
+            "invisible opacity-0 group-hover/row:visible group-hover/row:opacity-100 group-focus-within/row:visible group-focus-within/row:opacity-100",
+            "[@media(hover:none)]:visible [@media(hover:none)]:static [@media(hover:none)]:opacity-100 [@media(hover:none)]:shadow-none [@media(hover:none)]:ring-0",
           )}
         >
           <Tooltip content={t.duplicate} shortcut="Ctrl D">
@@ -346,7 +368,7 @@ function MessageRowImpl({
       </div>
 
       {/* Body */}
-      <div className="px-3 pt-0.5 pb-1.5">
+      <div className="px-3 pt-0.5 pb-2">
         {m.type === "voice" ? (
           <div className="flex items-center gap-2.5 rounded-lg bg-muted/70 px-2.5 py-2">
             <span className="flex size-7 items-center justify-center rounded-full bg-studio-me/15 text-primary">
@@ -420,33 +442,6 @@ function MessageRowImpl({
               className="studio-field-auto block max-h-44 min-h-7 w-full resize-none rounded-md bg-transparent px-1 py-1 text-[13.5px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/70 hover:bg-muted/50 focus-visible:bg-muted/50"
             />
           </>
-        )}
-      </div>
-
-      {/* Meta chips */}
-      <div className="flex flex-wrap items-center gap-1 px-3 pb-2.5">
-        <MetaChip
-          icon={<Hourglass />}
-          label={t.delay}
-          active={expanded}
-          onClick={() => onToggleExpand(m.id)}
-        >
-          {`${formatSeconds(m.delayMs)}${t.seconds}`}
-        </MetaChip>
-        {!mine && (
-          <MetaChip icon={<PenLine />} label={t.typingDur} active={expanded} onClick={() => onToggleExpand(m.id)}>
-            {`${formatSeconds(m.typingMs)}${t.seconds}`}
-          </MetaChip>
-        )}
-        {mine && (
-          <MetaChip
-            icon={<StatusIcon status={m.status} />}
-            label={t.status}
-            active={expanded}
-            onClick={() => onToggleExpand(m.id)}
-          >
-            {m.status === "sent" ? t.sent : m.status === "delivered" ? t.delivered : t.read}
-          </MetaChip>
         )}
       </div>
 

@@ -67,6 +67,7 @@ const COPY: Record<
     quality: string;
     qualities: Record<Quality, string>;
     timing: string;
+
     intro: string;
     outro: string;
     sec: (n: number) => string;
@@ -124,7 +125,7 @@ const COPY: Record<
     fps: "Frame rate",
     quality: "Quality",
     qualities: { standard: "Standard", high: "High", max: "Max" },
-    timing: "Timing",
+    timing: "Output",
     intro: "Hold at start",
     outro: "Hold at end",
     sec: (n) => `${n}s`,
@@ -187,7 +188,7 @@ const COPY: Record<
     fps: "معدل الإطارات",
     quality: "الجودة",
     qualities: { standard: "عادية", high: "عالية", max: "قصوى" },
-    timing: "التوقيت",
+    timing: "الإخراج",
     intro: "ثبات في البداية",
     outro: "ثبات في النهاية",
     sec: (n) => `${n.toLocaleString("ar-EG")} ث`,
@@ -768,7 +769,7 @@ export function ExportDialog({
       });
 
       if (process.env.NODE_ENV !== "production") {
-        console.info("[export]", {
+        console.info("[export] " + JSON.stringify({
           codec: codec.codec,
           audio: audio?.codec ?? null,
           size: `${lay.W}x${lay.H}@${fps}`,
@@ -778,7 +779,7 @@ export function ExportDialog({
           msPerCapture: Math.round(r.stats.captureMs / Math.max(1, r.stats.captured)),
           totalMs: Math.round(performance.now() - started),
           bytes: blob.size,
-        });
+        }));
       }
 
       const file = createVideoFile(blob, scenario.platform, scenario.device);
@@ -1104,48 +1105,48 @@ export function ExportDialog({
                       </div>
                     </Section>
 
-                    <div className="grid grid-cols-2 gap-3">
-                      <Section title={c.fps}>
-                        <Segmented
-                          attr="fps"
-                          value={prefs.fps}
-                          onChange={(v) => update({ fps: v })}
-                          options={[
-                            { value: 30, label: lang === "ar" ? "٣٠" : "30" },
-                            { value: 60, label: lang === "ar" ? "٦٠" : "60" },
-                          ]}
-                        />
-                      </Section>
-                      <Section title={c.quality}>
-                        <Segmented
-                          attr="quality"
-                          value={prefs.quality}
-                          onChange={(v) => update({ quality: v })}
-                          options={(["standard", "high", "max"] as Quality[]).map((v) => ({ value: v, label: c.qualities[v] }))}
-                        />
-                      </Section>
-                    </div>
-
                     <Section title={c.timing}>
                       <div className="space-y-2">
-                        <div className="grid grid-cols-[88px_1fr] items-center gap-2">
-                          <span className="text-xs text-muted-foreground">{c.intro}</span>
-                          <Segmented
-                            attr="intro"
-                            value={prefs.introMs}
-                            onChange={(v) => update({ introMs: v })}
-                            options={INTRO_OPTIONS.map((v) => ({ value: v, label: c.sec(v / 1000) }))}
-                          />
-                        </div>
-                        <div className="grid grid-cols-[88px_1fr] items-center gap-2">
-                          <span className="text-xs text-muted-foreground">{c.outro}</span>
-                          <Segmented
-                            attr="outro"
-                            value={prefs.outroMs}
-                            onChange={(v) => update({ outroMs: v })}
-                            options={OUTRO_OPTIONS.map((v) => ({ value: v, label: c.sec(v / 1000) }))}
-                          />
-                        </div>
+                        {(
+                          [
+                            [c.fps, <Segmented
+                              key="fps"
+                              attr="fps"
+                              value={prefs.fps}
+                              onChange={(v) => update({ fps: v })}
+                              options={[
+                                { value: 30 as const, label: lang === "ar" ? "٣٠" : "30" },
+                                { value: 60 as const, label: lang === "ar" ? "٦٠" : "60" },
+                              ]}
+                            />],
+                            [c.quality, <Segmented
+                              key="quality"
+                              attr="quality"
+                              value={prefs.quality}
+                              onChange={(v) => update({ quality: v })}
+                              options={(["standard", "high", "max"] as Quality[]).map((v) => ({ value: v, label: c.qualities[v] }))}
+                            />],
+                            [c.intro, <Segmented
+                              key="intro"
+                              attr="intro"
+                              value={prefs.introMs}
+                              onChange={(v) => update({ introMs: v })}
+                              options={INTRO_OPTIONS.map((v) => ({ value: v, label: c.sec(v / 1000) }))}
+                            />],
+                            [c.outro, <Segmented
+                              key="outro"
+                              attr="outro"
+                              value={prefs.outroMs}
+                              onChange={(v) => update({ outroMs: v })}
+                              options={OUTRO_OPTIONS.map((v) => ({ value: v, label: c.sec(v / 1000) }))}
+                            />],
+                          ] as [string, React.ReactNode][]
+                        ).map(([label, control]) => (
+                          <div key={label} className="grid grid-cols-[96px_1fr] items-center gap-2">
+                            <span className="text-xs text-muted-foreground">{label}</span>
+                            {control}
+                          </div>
+                        ))}
                       </div>
                     </Section>
 

@@ -58,7 +58,7 @@ export function StageToolbar({ scenario, t, dir }: { scenario: Scenario; t: Stud
         size="sm"
         value={scenario.device}
         onChange={setDevice}
-        className="w-auto bg-transparent ring-0"
+        className="w-auto bg-transparent ring-0 [&>button]:flex-none"
         options={[
           { value: "iphone", label: t.iphone },
           { value: "android", label: t.android },
@@ -72,7 +72,7 @@ export function StageToolbar({ scenario, t, dir }: { scenario: Scenario; t: Stud
         size="sm"
         value={scenario.theme}
         onChange={setTheme}
-        className="w-auto bg-transparent ring-0"
+        className="w-auto bg-transparent ring-0 [&>button]:flex-none"
         options={[
           { value: "light", label: "", icon: <Sun />, ariaLabel: t.light, title: t.light },
           { value: "dark", label: "", icon: <Moon />, ariaLabel: t.dark, title: t.dark },
