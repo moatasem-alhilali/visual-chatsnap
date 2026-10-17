@@ -301,16 +301,23 @@ export class FrameRenderer {
       this.scrollAllToBottom();
       if (ev.kind === "reveal") {
         const rect = measureRow(ev.id);
+        const idx = timeline.reveals.findIndex((r) => r.id === ev.id);
+        const context = idx > 0 ? measureRow(timeline.reveals[idx - 1].id) : null;
         if (rect) {
-          keys.push({ at: introMs + ev.at, focus: rect });
+          keys.push({ at: introMs + ev.at, focus: rect, context });
           if (ev.sender === "them" && !themSide) {
             const { phone } = this.o.layout;
             themSide = rect.x + rect.w / 2 < phone.x + phone.w / 2 ? "left" : "right";
           }
         }
       } else {
-        const lastReveal = [...keys].reverse().find((k) => k.focus)?.focus ?? null;
-        keys.push({ at: introMs + ev.at, focus: this.measureTyping(themSide ?? (rtl ? "right" : "left"), lastReveal) });
+        const prev = [...timeline.reveals].reverse().find((r) => r.at <= ev.at);
+        const lastReveal = prev ? measureRow(prev.id) : null;
+        keys.push({
+          at: introMs + ev.at,
+          focus: this.measureTyping(themSide ?? (rtl ? "right" : "left"), lastReveal),
+          context: lastReveal,
+        });
       }
     }
     await yieldToEventLoop();
