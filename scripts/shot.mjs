@@ -28,7 +28,7 @@ delete opts.scale;
 
 // deviceOuter() footprint (iPhone 432×886, Samsung 389×804) + the 8px preview margin each side
 const size = device === "android" ? { w: 405, h: 820 } : { w: 448, h: 902 };
-const qs = new URLSearchParams({ device, ...opts }).toString(); // sb=wcp (dev-only status-bar override)
+const qs = new URLSearchParams({ device, ...opts }).toString();
 const url = `http://localhost:${port}/${lang}/preview?${qs}`;
 
 const candidates = [

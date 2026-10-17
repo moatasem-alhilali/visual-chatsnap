@@ -113,21 +113,49 @@ const GRAD_DARK = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADwAAABQCAIAAAD
 const SVC_LIGHT = "data:image/png;base64,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";
 const SVC_DARK = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADwAAABQCAIAAADKqIEEAAAFiklEQVR42uXZ63KiShQFYF5HwfmRowJGiDHj/QKZJL7/o5zqC7B3995No8Q451Stn5Oqr1YtmsYJBtOFzJLJm8owfhtOf1dZq4TxRmYrsw/jfZQcqhxlzqP0JFPglLckqNAOusO9MdxRsrs/2uUWaMv9IOg296OiF35lw4U8KNoum0CHyf4H0Yu/FL3oMuv/Prp8LLTfg/i9aMLdCR2mfzG6eDB0Qp7TahvH73gKu6KpI8+F/pZtdEfHTvRdjo5RWtyKRncPjP6ep7BoRVODhugEovce6B7EbvTSWTNE+x8dPYhvQRs1q2006DA99r2NdrR/zfcZdNGKtu53MbFm49yA6DDtF42P+eQc+IjNmhNcc0psoz+0KbbRHmKvmnt8F8I/P3mga7E5DLZmJWZqLnoRR8kx6CKmh1HXHKZudA/DUE954CtODPFGiEHNQFxv4xZ0YdccYTTkeohTl7iPbRTcMGQOwY1iySWHgdDRrIhmZTTrQRzFEG2LEyxOW8XNMKTSSAnjK9bD0Bf0KD5E8T64UpwS4mh2qtIiptwFL0Y1V2i3GHLT7XC2M8XPIk5xK7qDOIy3gRQvLfHaFisuENvcDmKAZsUjQrwPp7sAiVHBq1o8nGHx815xbxFLdMGK0ZSBON6G003AiDdQjLl7kzs/Rc9nlDaujPg3XmKB3keVWKB5MS4YcQ8COqe4ImUTp9hCt4p3Er0OWsXe3JINI8boU3NckmJd83o4WQec2Cg4mlPc7BxmRZgVo7nMMxHK7S8+YPFG3NgmK4VeD6rHTha8ldxKLLiHhpvpaCgZks7WzIgTUyxrXik0KaYKznS1lvKdCte3ga7F8vXUiHecOJy8BfUqTDEs2Gg3L6K8tEPQzbILjL5GHI6XARTjSVjcnOXydAfaQxxXYokW4snbUKFpcXZ0cbM/dAg6XEh9hJ8qdHVv8ROH4+Vw/BoY4sgQG9yXMnp5j17eR1Z+WXQftClOdm3iCk2KUcGcNf8QIekQPVfo+mVp1NxNLND1k4fEsGApNqFkoNsq20Lz4rgST39r8aQRD/9ZBC6xwV38YcO4KbS6sRwsNCGuagbiyUuFbhUT0E8Zii7/BJctFmKglVii65q1OHSKJdoWC27JcD+ZAHddNos+SDQQp6x4MDXFg3EeeIsr3+uHDumGZdvoOapZXG+0WKFXWsxMWSaXaFK8eDe5EvrLCtajssFCitH8jNF1zVtYMyvWNQuxQp9H+cklJrhfJh26MVrUgdB6G6Bm9evPylM8GGeBFue22OZ+UTHcTdmRXIiNFo++Rtc1V8OI3xxThmgf8ZczcCc0Wrxf1WVGoqvvt624+cQrXPNS1lyJrZoHT1nQnG5Y7MfFbnshJhpuo6lZ/5TV1LzghlGh6/P4evEXsRAGjbcBaiaHIdA5HMbgSaO9xKPlJwzpRgtB6LNG19uYbeptiE8njW4fhkaj85gSG1yeXpftiQaHhjEMUozQQDzCYgeXcrvRR4SutwFq9hkGRreILzisG6PLBq2fwr1Co23IH178ax48zYM28YUJgxZujY4sNNpGCrextNCcWKGvEXPuLmhzG0jsqFmjKfHFI75oeN5BNL8NV80CDY+LLuLr0cagm20ocYPOyJprdKdVdEDryyM+7xo0sw13zQp9nfji8yBah3T9FK7a0KxYo68S22jznAboY3XeAXTLoH3Rl/7Q7y3o2EK3bGOO0NeKO6PlZ7+Nfr0afbkaTQ/aAz38H6AzA33pH03clvzQk7uiPyx0eRXa8WbJfh4der7Dydf4z6DTx0Fzl2kOTb4RJ3mr++fQ6DVOzhqgzS+Xe6Hxa5x6Ft1lj38Qne7E/z1Q92mm7Py+aOPu4fxyscpm3OPe0cbL5QV/ipvfiCu6bHokyP0vK974dXslZKsAAAAASUVORK5CYII=";
 
-const patternUrl = (fill: "black" | "white", opacity: number) =>
-  `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 2960' preserveAspectRatio='xMidYMid slice'><path fill='${fill}' fill-opacity='${opacity}' d='${PATTERN_D}'/></svg>")`;
+/**
+ * The whole wallpaper as ONE self-contained SVG image (screen-sized, 360×780): the generateGradient() bitmap
+ * cover-scaled, then default_pattern.svg cover-scaled and composited with soft-light inside the image, exactly like
+ * MotionBackgroundDrawable (paint2 BlendMode.SOFT_LIGHT, alpha = intensity). Blending inside the image keeps it
+ * isolated from the DOM (no CSS blend modes leaking into the bubbles, and the exporter sees a plain image).
+ */
+const WALL_W = 360;
+const WALL_H = 780;
+function wallpaperUrl(dark: boolean): string {
+  const gs = Math.max(WALL_W / 60, WALL_H / 80);
+  const gw = 60 * gs;
+  const gh = 80 * gs;
+  const ps = Math.max(WALL_W / 1440, WALL_H / 2960);
+  const pw = 1440 * ps;
+  const ph = 2960 * ps;
+  const svg =
+    `<svg xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink' width='${WALL_W}' height='${WALL_H}' viewBox='0 0 ${WALL_W} ${WALL_H}'>` +
+    `<image preserveAspectRatio='none' x='${(WALL_W - gw) / 2}' y='${(WALL_H - gh) / 2}' width='${gw}' height='${gh}' href='${dark ? GRAD_DARK : GRAD_LIGHT}' xlink:href='${dark ? GRAD_DARK : GRAD_LIGHT}'/>` +
+    `<path style='mix-blend-mode:soft-light' fill='${dark ? "white" : "black"}' fill-opacity='${dark ? 0.38 : 0.34}' transform='translate(${(WALL_W - pw) / 2} ${(WALL_H - ph) / 2}) scale(${ps})' d='${PATTERN_D}'/>` +
+    `</svg>`;
+  return `url("data:image/svg+xml;utf8,${svg}")`;
+}
 
-const PATTERN_LIGHT = patternUrl("black", 0.34);
-const PATTERN_DARK = patternUrl("white", 0.38);
+const WALL_LIGHT = wallpaperUrl(false);
+const WALL_DARK = wallpaperUrl(true);
 
 function wallpaperStyle(dark: boolean): CSSProperties {
   return {
     backgroundColor: dark ? "#121a24" : "#a9c38f",
-    backgroundImage: `${dark ? PATTERN_DARK : PATTERN_LIGHT}, url("${dark ? GRAD_DARK : GRAD_LIGHT}")`,
-    backgroundSize: "cover, cover",
-    backgroundPosition: "center, center",
-    backgroundRepeat: "no-repeat, no-repeat",
-    backgroundBlendMode: "soft-light, normal",
+    backgroundImage: dark ? WALL_DARK : WALL_LIGHT,
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
   };
+}
+
+/** Background geometry of a wallpaper copy that must line up with the full-screen wallpaper (cover, centred). */
+function wallGeometry(W: number, H: number, zone: "top" | "bottom"): CSSProperties {
+  const k = Math.max(W / WALL_W, H / WALL_H);
+  const w = WALL_W * k;
+  const h = WALL_H * k;
+  const dy = zone === "top" ? 0 : H - FADE_BOTTOM;
+  return { backgroundSize: `${w}px ${h}px`, backgroundPosition: `${(W - w) / 2}px ${(H - h) / 2 - dy}px` };
 }
 
 /* ------------------------------------------------------------------ */
@@ -188,9 +216,9 @@ const LIGHT: Pal = {
   inTime: "#a1aab3",
   outTime: "#70b15c",
   outCheck: "#5db050",
-  // MessageDrawable shadow: #5F6569 (8–16%) × chat_in/outBubbleShadow, 1px ring + 1px drop
-  inShadow: "drop-shadow(0 0.5px 0.4px rgba(11, 22, 34, 0.2))",
-  outShadow: "drop-shadow(0 0.5px 0.4px rgba(11, 43, 5, 0.2))",
+  // MessageDrawable shadow: #5F6569 (8–16%) × chat_in/outBubbleShadow — a hairline darker bottom edge (box-shadow, no CSS filter)
+  inShadow: "0 0.6px 0.6px rgba(11, 22, 34, 0.2)",
+  outShadow: "0 0.6px 0.6px rgba(11, 46, 5, 0.2)",
   title: "#1a1d21",
   icon: "#1a1d21",
   subtitle: "#79817e",
@@ -222,7 +250,7 @@ const DARK: Pal = {
   inTime: "rgba(128, 145, 160, 0.851)",
   outTime: "#ffffff",
   outCheck: "#ffffff",
-  inShadow: "drop-shadow(0 0.5px 0.4px rgba(0, 0, 0, 0.2))",
+  inShadow: "0 0.6px 0.6px rgba(0, 0, 0, 0.25)",
   outShadow: "none",
   title: "#ffffff",
   icon: "#ffffff",
@@ -770,6 +798,11 @@ function syncBackgrounds(root: HTMLElement, sc: HTMLElement) {
   const bh = 80 * s;
   const ox = (W - bw) / 2;
   const oy = (H - bh) / 2;
+  root.querySelectorAll<HTMLElement>("[data-tga-wall]").forEach((el) => {
+    const g = wallGeometry(W, H, el.dataset.tgaWall === "bottom" ? "bottom" : "top");
+    el.style.backgroundSize = String(g.backgroundSize);
+    el.style.backgroundPosition = String(g.backgroundPosition);
+  });
   sc.querySelectorAll<HTMLElement>("[data-tga-bg]").forEach((el) => {
     const { x, y } = offsetIn(el, sc);
     const sx = x - sc.scrollLeft;
@@ -945,11 +978,11 @@ export function TelegramAndroid({ scenario, playback, lang, rtl }: PlatformProps
                 ? { borderTopLeftRadius: 15, borderBottomLeftRadius: 15, borderTopRightRadius: pinnedTop ? 3 : 15, borderBottomRightRadius: pinnedBottom ? 3 : 15 }
                 : { borderTopRightRadius: 15, borderBottomRightRadius: 15, borderTopLeftRadius: pinnedTop ? 3 : 15, borderBottomLeftRadius: pinnedBottom ? 3 : 15 };
               body = (
-                <div className="relative" style={{ filter: mine ? t.outShadow : t.inShadow }}>
+                <div className="relative">
                   <div
                     data-tga-bg={grad ? "grad" : undefined}
                     className="relative"
-                    style={{ padding: 2, background: fill, backgroundColor: grad ? "#258de5" : undefined, ...r }}
+                    style={{ padding: 2, background: fill, backgroundColor: grad ? "#258de5" : undefined, boxShadow: mine ? t.outShadow : t.inShadow, ...r }}
                   >
                     <div className="relative overflow-hidden" style={{ width: PHOTO_W, ...pr }}>
                       {m.imageSrc ? (
@@ -966,12 +999,12 @@ export function TelegramAndroid({ scenario, playback, lang, rtl }: PlatformProps
             } else {
               const onRight = mine;
               body = (
-                <div className="relative" style={{ filter: mine ? t.outShadow : t.inShadow }}>
+                <div className="relative">
                   {tail && <Tail side={onRight ? "right" : "left"} bg={fill} grad={grad} />}
                   <div
                     data-tga-bg={grad ? "grad" : undefined}
                     className="relative"
-                    style={{ background: fill, backgroundColor: grad ? "#258de5" : undefined, ...bubbleRadii(onRight, pinnedTop, pinnedBottom, tail) }}
+                    style={{ background: fill, backgroundColor: grad ? "#258de5" : undefined, boxShadow: mine ? t.outShadow : t.inShadow, ...bubbleRadii(onRight, pinnedTop, pinnedBottom, tail) }}
                   >
                     {isVoice ? (
                       <VoiceBody m={m} ctx={ctx} />
@@ -1032,15 +1065,21 @@ export function TelegramAndroid({ scenario, playback, lang, rtl }: PlatformProps
       </div>
 
       {/* ChatActivityFadeView: wallpaper copy fading the list out under the header and above the input */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0"
-        style={{
-          ...wallpaperStyle(t.dark),
-          WebkitMaskImage: FADE_MASK,
-          maskImage: FADE_MASK,
-        }}
-      />
+      {(["top", "bottom"] as const).map((zone) => (
+        <div
+          key={zone}
+          aria-hidden
+          data-tga-wall={zone}
+          className={`pointer-events-none absolute inset-x-0 ${zone === "top" ? "top-0" : "bottom-0"}`}
+          style={{
+            height: zone === "top" ? FADE_TOP : FADE_BOTTOM,
+            ...wallpaperStyle(t.dark),
+            ...wallGeometry(360, 780, zone),
+            WebkitMaskImage: zone === "top" ? FADE_MASK_TOP : FADE_MASK_BOTTOM,
+            maskImage: zone === "top" ? FADE_MASK_TOP : FADE_MASK_BOTTOM,
+          }}
+        />
+      ))}
 
       {/* Status bar (system UI follows the OS locale) */}
       <div className="absolute inset-x-0 top-0" dir={rtl ? "rtl" : "ltr"}>
@@ -1146,20 +1185,8 @@ export function TelegramAndroid({ scenario, playback, lang, rtl }: PlatformProps
 
 const TITLE_MASK = "linear-gradient(to right, #000 calc(100% - 14px), transparent)";
 
-const FADE_MASK = [
-  "linear-gradient(to bottom",
-  `rgba(0,0,0,0.814) 0px`,
-  `rgba(0,0,0,0.814) ${FADE_TOP - 48}px`,
-  `rgba(0,0,0,0.618) ${FADE_TOP - 32}px`,
-  `rgba(0,0,0,0.337) ${FADE_TOP - 16}px`,
-  `rgba(0,0,0,0) ${FADE_TOP}px`,
-  `rgba(0,0,0,0) calc(100% - ${FADE_BOTTOM}px)`,
-  `rgba(0,0,0,0.337) calc(100% - ${FADE_BOTTOM - 16}px)`,
-  `rgba(0,0,0,0.618) calc(100% - ${FADE_BOTTOM - 32}px)`,
-  `rgba(0,0,0,0.814) calc(100% - ${FADE_BOTTOM - 48}px)`,
-  `rgba(0,0,0,0.814) 100%)`,
-].join(", ");
-
+const FADE_MASK_TOP = `linear-gradient(to bottom, rgba(0,0,0,0.814) 0px, rgba(0,0,0,0.814) ${FADE_TOP - 48}px, rgba(0,0,0,0.618) ${FADE_TOP - 32}px, rgba(0,0,0,0.337) ${FADE_TOP - 16}px, rgba(0,0,0,0) 100%)`;
+const FADE_MASK_BOTTOM = `linear-gradient(to top, rgba(0,0,0,0.814) 0px, rgba(0,0,0,0.814) ${FADE_BOTTOM - 48}px, rgba(0,0,0,0.618) ${FADE_BOTTOM - 32}px, rgba(0,0,0,0.337) ${FADE_BOTTOM - 16}px, rgba(0,0,0,0) 100%)`;
 const TGA_CSS = `
 @keyframes tga-enter { from { transform: translateY(100%); } to { transform: none; } }
 .tga-enter { animation: tga-enter ${ENTER_MS}ms cubic-bezier(${ENTER_BEZIER.join(", ")}) both; }

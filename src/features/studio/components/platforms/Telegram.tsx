@@ -317,12 +317,35 @@ function gradientAt(colors: number[], x: number, y: number): [number, number, nu
   return [acc[0] / s, acc[1] / s, acc[2] / s];
 }
 
-/** Service fill (black .2) composited over the blurred light wallpaper at a screen point. */
-function serviceFillAt(x: number, y: number): string {
-  const [r, g, b] = gradientAt(LIGHT_COLORS, x, y);
-  // ~3% extra darkening for the blurred-in soft-light pattern lines
-  const k = 0.8 * 0.97;
-  return `rgb(${Math.round(r * k)}, ${Math.round(g * k)}, ${Math.round(b * k)})`;
+const DARK_COLORS = [0x598bf6, 0x7a5eef, 0xd67cff, 0xf38b58];
+
+/** adjustSaturationInContext(1.7) — the "dimmed" gradient clone behind service and translucent bubbles. */
+function saturate([r, g, b]: [number, number, number], s = 1.7): [number, number, number] {
+  // vImage matrix applied to BGRA bytes: luminance weights land on B, G, R in that order
+  const l = 0.3086 * b + 0.6094 * g + 0.082 * r;
+  const c = (v: number) => Math.max(0, Math.min(255, l + s * (v - l)));
+  return [c(r), c(g), c(b)];
+}
+
+const rgb = (c: [number, number, number]) => `rgb(${Math.round(c[0])}, ${Math.round(c[1])}, ${Math.round(c[2])})`;
+
+/**
+ * Free/service background (WallpaperBackgroundNode BubbleBackgroundNodeImpl .free): saturated gradient clone,
+ * covered by the incoming fill (#1d1d1d @ .9) on inverted wallpapers, then dateFillStatic black .2.
+ */
+function serviceFillAt(dark: boolean, x: number, y: number): string {
+  if (dark) {
+    const g = saturate(gradientAt(DARK_COLORS, x, y));
+    return rgb([(0.9 * 29 + 0.1 * g[0]) * 0.8, (0.9 * 29 + 0.1 * g[1]) * 0.8, (0.9 * 29 + 0.1 * g[2]) * 0.8]);
+  }
+  const g = saturate(gradientAt(LIGHT_COLORS, x, y));
+  return rgb([g[0] * 0.8, g[1] * 0.8, g[2] * 0.8]);
+}
+
+/** Dark incoming bubble: #1d1d1d @ .9 over the saturated gradient clone (needsCleanBackground). */
+function darkIncomingAt(x: number, y: number): string {
+  const g = saturate(gradientAt(DARK_COLORS, x, y));
+  return rgb([0.9 * 29 + 0.1 * g[0], 0.9 * 29 + 0.1 * g[1], 0.9 * 29 + 0.1 * g[2]]);
 }
 
 let patternCache: { light: string; dark: string } | null = null;
@@ -803,7 +826,10 @@ function imageTailPath(w: number, h: number, onRight: boolean, dx: number): stri
 
 type DarkGradRef = RefObject<HTMLDivElement | null>;
 
-/** Paints the dark outgoing gradient in screen space (#61bcf9 at the top → #0088ff at the bottom). */
+/**
+ * Dark theme only: paints the outgoing gradient in screen space (outgoingBubbleGradientImage, #61bcf9 at the
+ * top → #0088ff at the bottom) and tints incoming bubbles with the gradient clone under them.
+ */
 function useScreenGradient(rootRef: DarkGradRef, scrollRef: RefObject<HTMLDivElement | null>, enabled: boolean, dep: unknown) {
   useLayoutEffect(() => {
     const root = rootRef.current;
@@ -820,6 +846,12 @@ function useScreenGradient(rootRef: DarkGradRef, scrollRef: RefObject<HTMLDivEle
         const t = Math.max(0, Math.min(1, bottom / SCREEN_H));
         const mix = (a: number, b: number) => Math.round(a + (b - a) * t);
         el.style.setProperty("--tgi-tail", `rgb(${mix(0x61, 0x00)}, ${mix(0xbc, 0x88)}, ${mix(0xf9, 0xff)})`);
+      });
+      root.querySelectorAll<HTMLElement>("[data-tgi-in]").forEach((el) => {
+        const r = el.getBoundingClientRect();
+        const cx = (r.left + r.width / 2 - rr.left) / k / SCREEN_W;
+        const cy = (r.top + r.height / 2 - rr.top) / k / SCREEN_H;
+        el.style.setProperty("--tgi-in", darkIncomingAt(Math.max(0, Math.min(1, cx)), Math.max(0, Math.min(1, cy))));
       });
     };
     paint();
@@ -855,6 +887,7 @@ interface RowCtx {
 }
 
 function fillsFor(ctx: RowCtx): { fill: string; tailFill: string; gradient: boolean } {
+  if (!ctx.mine && ctx.t.dark) return { fill: "var(--tgi-in, #1f1d22)", tailFill: "var(--tgi-in, #1f1d22)", gradient: false };
   if (!ctx.mine) return { fill: ctx.t.inFill, tailFill: ctx.t.inFill, gradient: false };
   if (ctx.t.dark) return { fill: "transparent", tailFill: "var(--tgi-tail, #0a8dff)", gradient: true };
   return { fill: ctx.t.outFill, tailFill: ctx.t.outFill, gradient: false };
@@ -878,6 +911,7 @@ function BubbleShell({
     <div
       className="relative"
       data-tgi-grad={f.gradient ? "" : undefined}
+      data-tgi-in={!ctx.mine && ctx.t.dark ? "" : undefined}
       style={{ margin: "1px 0", ...style }}
     >
       <BubbleBack radius={radius} fill={f.fill} stroke={ctx.t.stroke} tail={tail} onRight={ctx.mine} tailFill={f.tailFill} />
@@ -1208,8 +1242,8 @@ export function Telegram({ scenario, playback, lang, rtl }: PlatformProps) {
   const showTyping = typing || scenario.presence === "typing";
   const online = scenario.presence === "online";
   const subtitle = online ? s.online : scenario.lastSeenText.trim() || s.lastSeenRecently;
-  const dateChipBg = dark ? "rgba(0, 0, 0, 0.2)" : serviceFillAt(0.5, (LIST_TOP + 17) / SCREEN_H);
-  const freeBg = dark ? "rgba(0, 0, 0, 0.2)" : serviceFillAt(0.5, 0.55);
+  const dateChipBg = serviceFillAt(dark, 0.5, (LIST_TOP + 17) / SCREEN_H);
+  const freeBg = serviceFillAt(dark, 0.3, 0.6);
 
   return (
     <div

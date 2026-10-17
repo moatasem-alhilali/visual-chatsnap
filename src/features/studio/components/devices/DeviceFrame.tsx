@@ -1,7 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
-
 import type { Device } from "../../types";
 
 /**
@@ -213,7 +211,6 @@ export function DeviceFrame({
   const bodyW = s.w + 2 * s.bezel;
   const bodyH = s.h + 2 * s.bezel;
   const glassRadius = s.outerRadius - s.railWidth;
-  /*TMPBG*/ useEffect(() => { const bg = new URLSearchParams(window.location.search).get("bgx"); const el = document.querySelector<HTMLElement>("[data-preview-platform]"); if (bg && el) { el.style.background = bg; document.body.style.background = bg; } }, []);
 
   return (
     <div

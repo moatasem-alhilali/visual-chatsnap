@@ -5,7 +5,7 @@ import { createElement } from "react";
 import type { Device, Platform } from "../../types";
 import type { PlatformMotion, PlatformProps } from "./types";
 import { WhatsApp, whatsappIosMotion } from "./WhatsApp";
-import { WhatsAppAndroid } from "./WhatsAppAndroid";
+import { WhatsAppAndroid, whatsappAndroidMotion } from "./WhatsAppAndroid";
 import { Telegram } from "./Telegram";
 import { TelegramAndroid } from "./TelegramAndroid";
 import { Instagram, instagramIosMotion } from "./Instagram";
@@ -34,7 +34,7 @@ export interface PlatformMeta {
 }
 
 export const PLATFORMS: PlatformMeta[] = [
-  { id: "whatsapp", label: "WhatsApp", accent: "#25d366", Component: WhatsApp, android: WhatsAppAndroid, motion: whatsappIosMotion },
+  { id: "whatsapp", label: "WhatsApp", accent: "#25d366", Component: WhatsApp, android: WhatsAppAndroid, motion: whatsappIosMotion, androidMotion: whatsappAndroidMotion },
   { id: "telegram", label: "Telegram", accent: "#2aabee", Component: Telegram, android: TelegramAndroid },
   { id: "instagram", label: "Instagram", accent: "#e1306c", Component: Instagram, android: InstagramAndroid, motion: instagramIosMotion, androidMotion: instagramAndroidMotion },
   { id: "snapchat", label: "Snapchat", accent: "#fffc00", Component: Snapchat, android: SnapchatAndroid, motion: snapchatIosMotion, androidMotion: snapchatAndroidMotion },
