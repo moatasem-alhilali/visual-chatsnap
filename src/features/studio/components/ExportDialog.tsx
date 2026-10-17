@@ -77,6 +77,11 @@ const COPY: Record<
     sound: string;
     soundHint: string;
     soundUnsupported: string;
+    zoom: string;
+    zoomHint: string;
+    zoomLevels: Record<ZoomIntensity, string>;
+    followSides: string;
+    zoomOutEnd: string;
     start: string;
     rendering: string;
     frameOf: (a: number, b: number) => string;
@@ -134,6 +139,11 @@ const COPY: Record<
     sec: (n) => `${n}s`,
     sound: "Message sounds",
     soundHint: "Subtle send and receive sounds",
+    zoom: "Auto-zoom",
+    zoomHint: "The camera glides to each new message",
+    zoomLevels: { subtle: "Subtle", medium: "Medium", strong: "Strong" },
+    followSides: "Follow both sides",
+    zoomOutEnd: "Zoom out at the end",
     soundUnsupported: "This browser can't encode audio",
     start: "Export video",
     rendering: "Rendering video…",
@@ -197,6 +207,11 @@ const COPY: Record<
     sec: (n) => `${n.toLocaleString("ar-EG")} ث`,
     sound: "أصوات الرسائل",
     soundHint: "صوت خفيف عند الإرسال والاستلام",
+    zoom: "تكبير تلقائي",
+    zoomHint: "الكاميرا تنتقل بسلاسة إلى كل رسالة جديدة",
+    zoomLevels: { subtle: "خفيف", medium: "متوسط", strong: "قوي" },
+    followSides: "تتبّع الطرفين",
+    zoomOutEnd: "تصغير في النهاية",
     soundUnsupported: "المتصفح لا يدعم ترميز الصوت",
     start: "تصدير الفيديو",
     rendering: "جارٍ توليد الفيديو…",
@@ -544,6 +559,49 @@ function BackgroundSwatch({
         </span>
       )}
     </button>
+  );
+}
+
+function Switch({ on, disabled }: { on: boolean; disabled?: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "relative h-5 w-9 shrink-0 rounded-full transition-colors",
+        on && !disabled ? "bg-primary" : "bg-muted-foreground/30",
+      )}
+    >
+      <span
+        className={cn(
+          "absolute top-0.5 size-4 rounded-full bg-white shadow transition-[inset-inline-start]",
+          on && !disabled ? "start-[18px]" : "start-0.5",
+        )}
+      />
+    </span>
+  );
+}
+
+/** Tiny looping illustration of the auto-zoom camera (pure CSS, no JS timers). */
+function ZoomIllustration({ active }: { active: boolean }) {
+  return (
+    <span className="relative block h-[60px] w-[44px] shrink-0 overflow-hidden rounded-[9px] bg-foreground/[0.06] ring-1 ring-border" dir="ltr">
+      <style>{`
+        @keyframes scx-cam { 0%,12% { transform: translate(0,0) scale(1); }
+          22%,40% { transform: translate(-7px,-3px) scale(1.55); }
+          52%,70% { transform: translate(7px,-12px) scale(1.55); }
+          82%,100% { transform: translate(0,0) scale(1); } }
+        @media (prefers-reduced-motion: reduce) { .scx-cam { animation: none !important; } }
+      `}</style>
+      <span
+        className="scx-cam absolute inset-0 origin-center"
+        style={{ animation: active ? "scx-cam 4.2s cubic-bezier(.45,0,.2,1) infinite" : "none" }}
+      >
+        <span className="absolute left-[5px] top-[30px] h-[7px] w-[20px] rounded-[3px] bg-muted-foreground/45" />
+        <span className="absolute right-[5px] top-[39px] h-[7px] w-[22px] rounded-[3px] bg-primary/80" />
+        <span className="absolute left-[5px] top-[48px] h-[7px] w-[16px] rounded-[3px] bg-muted-foreground/45" />
+        <span className="absolute left-[5px] top-[18px] h-[7px] w-[24px] rounded-[3px] bg-muted-foreground/30" />
+      </span>
+    </span>
   );
 }
 
@@ -1125,6 +1183,53 @@ export function ExportDialog({
                       </div>
                     </Section>
 
+                    <section className="space-y-2.5 rounded-xl border border-border p-3">
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={prefs.zoom}
+                        data-export-zoom={prefs.zoom ? "on" : "off"}
+                        onClick={() => update({ zoom: !prefs.zoom })}
+                        className="flex w-full items-center gap-3 text-start"
+                      >
+                        <ZoomIllustration active={prefs.zoom} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-xs font-semibold">{c.zoom}</span>
+                          <span className="block text-[11px] leading-snug text-muted-foreground">{c.zoomHint}</span>
+                        </span>
+                        <Switch on={prefs.zoom} />
+                      </button>
+                      {prefs.zoom && (
+                        <div className="space-y-2">
+                          <Segmented
+                            attr="zoomlevel"
+                            value={prefs.zoomLevel}
+                            onChange={(v) => update({ zoomLevel: v })}
+                            options={(["subtle", "medium", "strong"] as ZoomIntensity[]).map((v) => ({ value: v, label: c.zoomLevels[v] }))}
+                          />
+                          <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                            {(
+                              [
+                                ["followSides", c.followSides],
+                                ["zoomOutEnd", c.zoomOutEnd],
+                              ] as const
+                            ).map(([key, label]) => (
+                              <label key={key} className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground">
+                                <input
+                                  type="checkbox"
+                                  className="size-3.5 accent-[var(--primary)]"
+                                  checked={prefs[key]}
+                                  data-export-opt={key}
+                                  onChange={(e) => update({ [key]: e.target.checked })}
+                                />
+                                {label}
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </section>
+
                     <Section title={c.timing}>
                       <div className="space-y-2">
                         {(
@@ -1190,19 +1295,7 @@ export function ExportDialog({
                           {audioCodec === null ? c.soundUnsupported : c.soundHint}
                         </span>
                       </span>
-                      <span
-                        className={cn(
-                          "relative h-5 w-9 shrink-0 rounded-full transition-colors",
-                          prefs.sound && audioCodec ? "bg-primary" : "bg-muted-foreground/30",
-                        )}
-                      >
-                        <span
-                          className={cn(
-                            "absolute top-0.5 size-4 rounded-full bg-white shadow transition-[inset-inline-start]",
-                            prefs.sound && audioCodec ? "start-[18px]" : "start-0.5",
-                          )}
-                        />
-                      </span>
+                      <Switch on={prefs.sound && !!audioCodec} />
                     </button>
                   </div>
 
