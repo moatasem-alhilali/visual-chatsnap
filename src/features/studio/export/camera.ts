@@ -59,7 +59,7 @@ export interface CameraKey {
 }
 
 /** Start moving this long before the event, so the camera "anticipates" it. */
-export const CAMERA_LEAD_MS = 160;
+export const CAMERA_LEAD_MS = 260;
 /** Gaps longer than this zoom out in between (no zoom-pumping for closer messages). */
 const LONG_PAUSE_MS = 4200;
 const PAUSE_WIDE_AFTER_MS = 1800;
@@ -67,8 +67,8 @@ const PAUSE_WIDE_AFTER_MS = 1800;
 const END_WIDE_AFTER_MS = 650;
 
 // spring stiffness (rad/s). Critically damped: settles in ≈ 4.7/ω seconds.
-const OMEGA_PAN = 7;
-const OMEGA_ZOOM_IN = 6;
+const OMEGA_PAN = 8.5;
+const OMEGA_ZOOM_IN = 6.5;
 const OMEGA_ZOOM_OUT = 4.2;
 const STEP_MS = 1000 / 240;
 
