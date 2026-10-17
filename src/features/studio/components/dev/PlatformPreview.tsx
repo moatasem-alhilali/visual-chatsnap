@@ -2,7 +2,7 @@
 
 import { useSearchParams } from "next/navigation";
 import { useLocale } from "next-intl";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 import type { PlaybackView } from "../../playback/usePlayback";
 import { usePlayback } from "../../playback/usePlayback";
@@ -139,13 +139,13 @@ export function PlatformPreview() {
   );
 
   const { play: startPlay } = live;
-  const [started, setStarted] = useState(false);
+  const started = useRef(false);
   useEffect(() => {
-    if (play && !started) {
-      setStarted(true);
+    if (play && !started.current) {
+      started.current = true;
       startPlay();
     }
-  }, [play, started, startPlay]);
+  }, [play, startPlay]);
 
   // Pin the chat body to top/bottom once layout settles (after useChatScroll's smooth scroll).
   useEffect(() => {

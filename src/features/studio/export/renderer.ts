@@ -2,6 +2,17 @@ import { snapdom } from "@zumer/snapdom";
 
 import type { PlatformMotion } from "../components/platforms/types";
 import { isLightBackground, paintBackground, paintPhoneShadow, ScreenBackdrop, type BackgroundDef, type PaintOptions } from "./backgrounds";
+import {
+  buildCameraPath,
+  cameraView,
+  contentRect,
+  planCameraKeys,
+  type CameraKey,
+  type CameraOptions,
+  type CameraPath,
+  type CameraState,
+  type Rect,
+} from "./camera";
 import { DEVICE_MARGIN, type FrameLayout } from "./layout";
 import type { FrameState, Timeline } from "./schedule";
 
@@ -19,6 +30,32 @@ export function measureDevice(stage: StageController): { w: number; h: number; r
   if (!phone) return { w: 393, h: 852, radius: 68 };
   const radius = parseFloat(getComputedStyle(phone).borderTopLeftRadius) || 0;
   return { w: phone.offsetWidth, h: phone.offsetHeight, radius };
+}
+
+/** Yield to the event loop without timers (timers are throttled in background tabs). */
+export function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => {
+    const ch = new MessageChannel();
+    ch.port1.onmessage = () => {
+      ch.port1.close();
+      resolve();
+    };
+    ch.port2.postMessage(0);
+  });
+}
+
+/**
+ * Wait until the (code-split) platform template has actually mounted in the
+ * stage — never snapshot the Suspense fallback.
+ */
+export async function waitForTemplate(stage: StageController, timeoutMs = 8000): Promise<boolean> {
+  const t0 = performance.now();
+  while (performance.now() - t0 < timeoutMs) {
+    if (stage.node.querySelector(".rcss-scroll, [data-mid]")) return true;
+    await new Promise<void>((r) => setTimeout(r, 30));
+    await yieldToEventLoop();
+  }
+  return false;
 }
 
 /**
@@ -49,7 +86,6 @@ export async function captureStage(stage: StageController, scale: number): Promi
     fast: true,
     cache: "auto",
     backgroundColor: undefined,
-    ...((window as unknown as { __snapOpts?: object }).__snapOpts ?? {}), // TEMP-BENCH
   });
 }
 
@@ -71,6 +107,20 @@ function release(c: HTMLCanvasElement | null) {
   }
 }
 
+/** 32-bit FNV-1a over a string (fast enough for a few MB per frame). */
+function fnv(str: string, h = 0x811c9dc5): number {
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+/** Longest side (px) of the high-res phone capture used when zooming. */
+const MAX_CAPTURE_SIDE = 3200;
+/** Memory budget for re-usable phone captures (looping typing dots repeat). */
+const CACHE_BYTES = 160 * 1024 * 1024;
+
 export interface FrameRendererOptions {
   stage: StageController;
   timeline: Timeline;
@@ -81,13 +131,17 @@ export interface FrameRendererOptions {
   paint: PaintOptions;
   fps: number;
   introMs: number;
+  totalMs: number;
+  /** null = no auto-zoom */
+  camera: CameraOptions | null;
 }
 
 /**
  * Renders frame i of the video into one reusable output canvas:
  * state → React (sync) → per-platform entrance motion → eased auto-scroll →
- * snapdom capture of the phone (skipped when nothing changed) → composite
- * over the pre-painted background + shadow.
+ * snapdom capture of the phone (skipped / reused when the DOM is unchanged or
+ * repeats) → composite over the pre-painted background + shadow through the
+ * auto-zoom camera.
  */
 export class FrameRenderer {
   readonly canvas: HTMLCanvasElement;
@@ -100,16 +154,30 @@ export class FrameRenderer {
   private scroll = new Map<HTMLElement, ScrollTween>();
   private styled = new Set<HTMLElement>();
   private first = true;
-  stats = { captured: 0, reused: 0, captureMs: 0 };
+  private cache = new Map<string, HTMLCanvasElement>();
+  private cacheMax = 2;
+  private path: CameraPath | null = null;
+  private lastCam: CameraState | null = null;
+  /** phone capture resolution relative to layout.scale (>1 when zooming) */
+  readonly captureMul: number;
+  stats = { captured: 0, reused: 0, cacheHits: 0, captureMs: 0 };
 
   constructor(private o: FrameRendererOptions) {
-    const { W, H } = o.layout;
+    const { W, H, boxW, boxH } = o.layout;
     this.canvas = document.createElement("canvas");
     this.canvas.width = W;
     this.canvas.height = H;
     const ctx = this.canvas.getContext("2d", { alpha: false });
     if (!ctx) throw new Error("CANVAS_UNAVAILABLE");
     this.ctx = ctx;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+
+    const zoom = o.camera ? o.camera.maxZoom : 1;
+    this.captureMul = Math.max(1, Math.min(zoom, MAX_CAPTURE_SIDE / Math.max(boxW, boxH)));
+    const capBytes = boxW * boxH * this.captureMul * this.captureMul * 4;
+    this.cacheMax = Math.max(2, Math.min(24, Math.floor(CACHE_BYTES / capBytes)));
+
     this.observer = new MutationObserver(() => {});
     this.observer.observe(o.stage.node, { subtree: true, childList: true, attributes: true, characterData: true });
     this.prepareLayers();
@@ -136,6 +204,102 @@ export class FrameRenderer {
     }
   }
 
+  /* ------------------------------------------------------------ camera */
+
+  /** CSS rect inside the stage → scene px. */
+  private toScene(r: DOMRect, nodeRect: DOMRect): Rect {
+    const { x, y, scale } = this.o.layout;
+    return {
+      x: x + (r.left - nodeRect.left) * scale,
+      y: y + (r.top - nodeRect.top) * scale,
+      w: r.width * scale,
+      h: r.height * scale,
+    };
+  }
+
+  private scrollAllToBottom() {
+    this.o.stage.node.querySelectorAll<HTMLElement>(".rcss-scroll").forEach((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+  }
+
+  /**
+   * Measure where every focus target settles (after its entrance and the
+   * auto-scroll) by rendering those states once without capturing, then
+   * integrate the camera path. Must run before frame(0).
+   */
+  async prepareCamera(): Promise<void> {
+    const cam = this.o.camera;
+    if (!cam) return;
+    const { stage, timeline, introMs, rtl } = this.o;
+    const node = stage.node;
+    const keys: CameraKey[] = [];
+    let themSide: "left" | "right" | null = null;
+
+    const measureRow = (id: string): Rect | null => {
+      const row = node.querySelector<HTMLElement>(`[data-mid="${CSS.escape(id)}"]`);
+      if (!row) return null;
+      const r = contentRect(row);
+      return r ? this.toScene(r, node.getBoundingClientRect()) : null;
+    };
+
+    const events = [
+      ...timeline.reveals.map((r) => ({ at: r.at, kind: "reveal" as const, id: r.id, sender: r.sender })),
+      ...timeline.typings.map((w) => ({ at: w.start, kind: "typing" as const, id: "", sender: "them" as const })),
+    ].sort((a, b) => a.at - b.at);
+
+    for (const ev of events) {
+      stage.render(timeline.stateAt(ev.at + 1), ev.at + 1);
+      this.scrollAllToBottom();
+      if (ev.kind === "reveal") {
+        const rect = measureRow(ev.id);
+        if (rect) {
+          keys.push({ at: introMs + ev.at, focus: rect });
+          if (ev.sender === "them" && !themSide) {
+            const { phone } = this.o.layout;
+            themSide = rect.x + rect.w / 2 < phone.x + phone.w / 2 ? "left" : "right";
+          }
+        }
+      } else {
+        keys.push({ at: introMs + ev.at, focus: this.measureTyping(themSide ?? (rtl ? "right" : "left")) });
+      }
+    }
+    await yieldToEventLoop();
+
+    const { W, H, phone } = this.o.layout;
+    const planned = planCameraKeys(keys, this.o.totalMs, introMs + timeline.contentMs, cam);
+    this.path = buildCameraPath(planned, { W, H, phone }, cam, this.o.totalMs);
+    // reset so frame 0 starts from a clean scroll state
+    this.scroll.clear();
+    this.first = true;
+  }
+
+  /**
+   * Typing indicator focus: templates don't expose the indicator, so use the
+   * strip between the last message row and the bottom of the thread (where
+   * every app draws it) on the other party's side.
+   */
+  private measureTyping(side: "left" | "right"): Rect {
+    const node = this.o.stage.node;
+    const nodeRect = node.getBoundingClientRect();
+    const scroller = node.querySelector<HTMLElement>(".rcss-scroll");
+    const { phone, scale } = this.o.layout;
+    if (!scroller) {
+      return { x: side === "left" ? phone.x : phone.x + phone.w * 0.55, y: phone.y + phone.h * 0.78, w: phone.w * 0.45, h: 60 * scale };
+    }
+    const sr = scroller.getBoundingClientRect();
+    const rows = scroller.querySelectorAll<HTMLElement>("[data-mid]");
+    const last = rows[rows.length - 1];
+    const lastBottom = last ? Math.min(sr.bottom, last.getBoundingClientRect().bottom) : sr.top;
+    const bottom = Math.min(sr.bottom, scroller.getBoundingClientRect().top + scroller.scrollHeight - scroller.scrollTop);
+    const h = Math.max(44, Math.min(90, bottom - lastBottom));
+    const w = sr.width * 0.42;
+    const css = new DOMRect(side === "left" ? sr.left + 8 : sr.right - 8 - w, Math.max(sr.top, bottom - h), w, h);
+    return this.toScene(css, nodeRect);
+  }
+
+  /* ------------------------------------------------------------ frames */
+
   /** timeline time (ms) of output frame i */
   timeOf(i: number): number {
     return (i * 1000) / this.o.fps - this.o.introMs;
@@ -157,7 +321,6 @@ export class FrameRenderer {
         seen.add(el);
       }
     });
-    // settle rows that just finished their entrance
     for (const el of this.styled) {
       if (seen.has(el)) continue;
       el.style.opacity = "";
@@ -190,7 +353,18 @@ export class FrameRenderer {
     return changed;
   }
 
+  private signature(): string {
+    const node = this.o.stage.node;
+    let s = "";
+    node.querySelectorAll<HTMLElement>(".rcss-scroll").forEach((el) => {
+      s += `${el.scrollTop.toFixed(2)},`;
+    });
+    const html = node.innerHTML;
+    return `${fnv(html).toString(36)}:${fnv(html, 0x12345678).toString(36)}:${html.length}:${s}`;
+  }
+
   async frame(i: number): Promise<HTMLCanvasElement> {
+    const tOut = (i * 1000) / this.o.fps;
     const t = this.timeOf(i);
     const tl = Math.max(0, t);
     const { stage, timeline, layout } = this.o;
@@ -200,34 +374,73 @@ export class FrameRenderer {
     const scrolled = this.applyScroll(tl);
     const mutated = this.observer.takeRecords().length > 0;
 
+    let phoneChanged = false;
     if (this.first || mutated || scrolled || !this.phone) {
       this.first = false;
-      const t0 = performance.now();
-      const next = await captureStage(stage, layout.scale);
-      this.stats.captureMs += performance.now() - t0;
-      this.stats.captured++;
-      release(this.phone);
-      this.phone = next;
-      this.composite();
+      const sig = this.signature();
+      const hit = this.cache.get(sig);
+      if (hit) {
+        // LRU bump
+        this.cache.delete(sig);
+        this.cache.set(sig, hit);
+        if (hit !== this.phone) phoneChanged = true;
+        this.phone = hit;
+        this.stats.cacheHits++;
+      } else {
+        const t0 = performance.now();
+        const next = await captureStage(stage, layout.scale * this.captureMul);
+        this.stats.captureMs += performance.now() - t0;
+        this.stats.captured++;
+        this.cache.set(sig, next);
+        while (this.cache.size > this.cacheMax) {
+          const [k, c] = this.cache.entries().next().value as [string, HTMLCanvasElement];
+          this.cache.delete(k);
+          if (c !== next) release(c);
+        }
+        this.phone = next;
+        phoneChanged = true;
+      }
     } else {
       this.stats.reused++;
     }
+
+    const cam = this.path ? this.path.at(tOut) : null;
+    const camChanged =
+      !!cam &&
+      (!this.lastCam ||
+        Math.abs(cam.scale - this.lastCam.scale) > 1e-5 ||
+        Math.abs(cam.cx - this.lastCam.cx) > 1e-3 ||
+        Math.abs(cam.cy - this.lastCam.cy) > 1e-3);
+    if (phoneChanged || camChanged || i === 0) this.composite(cam);
+    this.lastCam = cam;
     return this.canvas;
   }
 
-  private composite() {
+  private composite(cam: CameraState | null) {
     const { ctx } = this;
-    const { W, H, x, y, scale } = this.o.layout;
+    const { W, H, x, y, boxW, boxH, scale } = this.o.layout;
     const phone = this.phone!;
+    const s = cam?.scale ?? 1;
+    const v = cam ? cameraView(cam, { W, H }) : { x: 0, y: 0, w: W, h: H };
+    const identity = s === 1 && v.x === 0 && v.y === 0;
+
     if (this.backdrop) {
-      // blur only the phone's screen area (skip the transparent margin + bezel)
-      const m = DEVICE_MARGIN * scale;
+      const m = DEVICE_MARGIN * scale * this.captureMul;
       this.backdrop.paint(ctx, W, H, phone, phone.width - m * 2, phone.height - m * 2);
-      if (this.shadowLayer) ctx.drawImage(this.shadowLayer, 0, 0);
+      if (this.shadowLayer) {
+        if (identity) ctx.drawImage(this.shadowLayer, 0, 0);
+        else ctx.drawImage(this.shadowLayer, v.x, v.y, v.w, v.h, 0, 0, W, H);
+      }
     } else if (this.base) {
-      ctx.drawImage(this.base, 0, 0);
+      if (identity) ctx.drawImage(this.base, 0, 0);
+      else ctx.drawImage(this.base, v.x, v.y, v.w, v.h, 0, 0, W, H);
     }
-    ctx.drawImage(phone, x, y);
+
+    if (identity && this.captureMul === 1) {
+      ctx.drawImage(phone, x, y); // 1:1, no resampling
+    } else {
+      ctx.drawImage(phone, (x - v.x) * s, (y - v.y) * s, boxW * s, boxH * s);
+    }
   }
 
   dispose() {
@@ -237,7 +450,8 @@ export class FrameRenderer {
       el.style.transform = "";
       el.style.transformOrigin = "";
     }
-    release(this.phone);
+    for (const c of this.cache.values()) release(c);
+    this.cache.clear();
     release(this.base);
     release(this.shadowLayer);
     release(this.canvas);
