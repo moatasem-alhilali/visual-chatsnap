@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { NextIntlClientProvider, hasLocale } from "next-intl";
-import { Cairo, Geist, Geist_Mono, Inter, Roboto, Tajawal } from "next/font/google";
+import { Cairo, Geist, Geist_Mono, Inter, Noto_Sans_Arabic, Roboto, Tajawal } from "next/font/google";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
@@ -32,11 +32,21 @@ const tajawal = Tajawal({
 
 // iPhone uses an SF-like face (Inter); Samsung uses Roboto; Cairo is an
 // alternative the user can switch the Samsung font to.
-const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
+// No metric-adjusted Arial fallback on the device fonts: Arabic glyphs must fall
+// through to the device Arabic face (see --font-inter / --font-roboto in globals.css).
+const inter = Inter({ variable: "--font-inter-base", subsets: ["latin"], adjustFontFallback: false });
 const roboto = Roboto({
-  variable: "--font-roboto",
+  variable: "--font-roboto-base",
+  adjustFontFallback: false,
   subsets: ["latin"],
   weight: ["400", "500", "700"],
+});
+// Arabic face for the phone mockups — close to SF Arabic / Samsung One Arabic.
+const deviceArabic = Noto_Sans_Arabic({
+  variable: "--font-device-arabic",
+  subsets: ["arabic"],
+  weight: ["400", "500", "600", "700"],
+  adjustFontFallback: false,
 });
 const cairo = Cairo({ variable: "--font-cairo", subsets: ["arabic", "latin"] });
 
@@ -61,7 +71,7 @@ export default async function RootLayout({
     <html
       lang={locale}
       dir={isArabic ? "rtl" : "ltr"}
-      className={`${geistSans.variable} ${geistMono.variable} ${tajawal.variable} ${inter.variable} ${roboto.variable} ${cairo.variable}`}
+      className={`${geistSans.variable} ${geistMono.variable} ${tajawal.variable} ${inter.variable} ${roboto.variable} ${deviceArabic.variable} ${cairo.variable}`}
       suppressHydrationWarning
     >
       <body

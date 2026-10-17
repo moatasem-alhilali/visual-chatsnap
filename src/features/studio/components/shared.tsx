@@ -25,25 +25,24 @@ export function SystemBottomBar({
       </div>
     );
   }
-  // Android / Samsung 3-button navigation
+  // Samsung One UI 3-button navigation, 48dp tall, default order
+  // recents | home | back (mirrors with an RTL locale like the real bar).
   return (
     <div
-      className="flex items-center justify-center gap-16 py-2.5"
-      style={{ background: bg }}
+      className="flex shrink-0 items-center justify-around"
+      style={{ background: bg, height: 48, width: "100%", paddingInline: 44 }}
     >
-      {/* recents (square) */}
-      <span
-        className="block rounded-sm"
-        style={{ width: 13, height: 13, border: `1.8px solid ${fg}` }}
-      />
-      {/* home (circle) */}
-      <span
-        className="block rounded-full"
-        style={{ width: 15, height: 15, border: `1.8px solid ${fg}` }}
-      />
-      {/* back (triangle) */}
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="rtl:-scale-x-100">
-        <path d="M15 5 7 12l8 7z" fill={fg} />
+      {/* recents: three vertical bars */}
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+        <path d="M4.5 4v10M9 4v10M13.5 4v10" stroke={fg} strokeWidth="1.7" strokeLinecap="round" />
+      </svg>
+      {/* home: rounded square */}
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+        <rect x="2.6" y="2.6" width="12.8" height="12.8" rx="4.6" stroke={fg} strokeWidth="1.7" />
+      </svg>
+      {/* back: chevron */}
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" className="rtl:-scale-x-100">
+        <path d="M11.2 3.8 6 9l5.2 5.2" stroke={fg} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     </div>
   );

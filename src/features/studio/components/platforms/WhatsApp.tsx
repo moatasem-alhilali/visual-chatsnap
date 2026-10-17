@@ -1,83 +1,86 @@
 "use client";
 
 /**
- * WhatsApp for iOS: chat screen, matching the post-2024 "fresh new look" app
- * (iOS 17/18-era chrome; neutral bars, green used sparingly, outlined icons).
+ * WhatsApp for iOS: chat screen as it ships in late 2026, i.e. the full
+ * "Liquid Glass" chat interface (App Store build 26.35.72, Sept 10 2026) with
+ * the rounder message bubbles (rolled out July 2026).
  *
- * Values used, and where they come from:
- *  - Bubbles: outgoing #D9FDD3, incoming #FFFFFF (light). In dark mode the 2024
- *    refresh uses a deeper green #144D37 for outgoing and a neutral dark grey
- *    for incoming. Body text uses iOS Body (17/22). Meta is 11pt.
- *    Web palette cross-check (#D9FDD3 / #005C4B / #202C33 / #0B141A / #667781 /
- *    #8696A0, 7px radius): https://www.oppadu.com/tools/design-systems-site/brand/whatsapp.html
- *  - Neutral chrome, rounded outlined icons, darker dark mode, refreshed doodle:
- *    https://www.meta.com/design-at-meta/blog/whatsapp-user-interface-update/
- *  - Dark surfaces deepened (#0b141a to #0a1014), darker incoming bubbles:
- *    https://wabetainfo.com/whatsapp-beta-for-android-2-24-22-4-whats-new/
- *  - Read ticks #53BDEB; tick and lock glyph paths are WhatsApp Web's own
- *    "msg-check" / "msg-dblcheck" icons.
- *  - iOS specifics: the bubble tail sits at the BOTTOM corner of the last bubble
- *    in a group. The composer is "+" | rounded field (sticker icon inside, no
- *    placeholder) | camera | mic. The chat wallpaper stays fixed and does not
- *    scroll.
+ * Sources (all screenshots measured pixel by pixel, scale from the screen width):
+ *  - Full Liquid Glass chat UI on the App Store (26.35.72): transparent nav bar
+ *    with a fade, floating translucent chat bar, glass jump-to-bottom button:
+ *    https://wabetainfo.com/whatsapp-is-widely-rolling-out-the-full-liquid-glass-experience/
+ *    (image WA_FULL_LIQUID_GLASS_CHAT_INTERFACE_EXPERIENCE_IOS.webp)
+ *    https://wabetainfo.com/whatsapp-is-rolling-out-liquid-glass-for-the-chat-interface-on-ios/
+ *    https://wabetainfo.com/whatsapp-to-test-liquid-glass-design-for-the-chat-interface/
+ *  - Rounder bubbles + frameless media:
+ *    https://wabetainfo.com/whatsapp-launches-a-new-design-for-message-bubbles-on-ios/
+ *    https://wabetainfo.com/whatsapp-beta-for-ios-26-18-10-71-whats-new/
+ *  - 2024 refresh (neutral chrome, darker dark mode, redrawn doodle, greens
+ *    #1DAA61 / #21C063): https://www.meta.com/design-at-meta/blog/whatsapp-user-interface-update/
+ *
+ * Measured values (393pt device, standard text size):
+ *  - Header: no bar. Glass circle back button 38pt (chevron only, it shows an
+ *    unread count when there is one), 38pt avatar, name 17 semibold + subtitle
+ *    13 regular grey, glass capsule (video | phone) 84×38, 16pt side insets,
+ *    centred ~21pt below the status bar. Soft fade of the wallpaper behind it.
+ *  - Composer floats 39pt above the screen bottom: glass "+" circle 38 |
+ *    glass capsule field 38 tall (sticker glyph at its end, no placeholder) |
+ *    glass camera circle 38 | green mic circle 38 (white glyph). Insets 14, gaps
+ *    10 / 8 / 6.
+ *  - Bubbles: radius 18 (was ~7–12), single-line height ~37 (17/22 text, insets
+ *    7/12/8), 16pt from the screen edge, ~3pt inside a run, 8pt between senders.
+ *    Tail: iMessage-like flare on the bottom corner of the LAST bubble of a run
+ *    (tip ~6.5pt out on the baseline, notch ~6pt in, 2.5pt up).
+ *  - Meta: 11pt (cap height 7.9pt measured), baseline ~6.7pt above the bubble
+ *    bottom, 4pt between time and ticks; single tick 10pt wide, left-aligned in
+ *    the 16pt tick slot (WhatsApp Web msg-check / msg-dblcheck paths).
+ *  - Media: frameless, radius 18, time overlaid in white bottom-right; ~280pt
+ *    wide (≈72% of the screen).
+ *  - Date chip: pill ~18pt tall, 12 semibold, wide (min ~96pt) glass fill.
+ *  - Palette: light wallpaper #F4F1EB (sampled) with doodle ~#E9E5DD, bubbles
+ *    #D9FDD3 / #FFFFFF; dark wallpaper #0A0A0A (sampled) with doodle ~#1F1F1F,
+ *    bubbles #144D37 / #242626, read ticks #53BDEB.
+ *  - Typing: header subtitle "typing…" plus the in-chat typing bubble (2025).
+ *  - Motion: an outgoing bubble rises out of the composer (≈46pt, 340ms, decel);
+ *    an incoming one fades + grows from its tail corner (260ms).
  *
  * Shared WhatsApp helpers (doodle wallpaper, ticks, waveform, E2E notice
- * strings) are exported from here and reused by WhatsAppAndroid.tsx.
+ * strings) are exported from here; WhatsAppAndroid.tsx may still import them.
  */
 
 import type { CSSProperties, ReactNode } from "react";
 
 import type { DeliveryStatus, Message, Person } from "../../types";
-import { Avatar, dirOf, SystemBottomBar, useChatScroll } from "../shared";
+import { dirOf, SystemBottomBar, useChatScroll } from "../shared";
 import { StatusBar } from "../devices/StatusBar";
 import { CHROME, type Lang } from "./chrome";
-import { groupInfo, type PlatformProps } from "./types";
+import { groupInfo, type PlatformMotion, type PlatformProps } from "./types";
 
 /* ======================================================================
-   Shared WhatsApp helpers (also used by WhatsAppAndroid.tsx)
+   Shared WhatsApp helpers (kept exported for WhatsAppAndroid.tsx)
    ====================================================================== */
 
 /** Line-art glyphs for the doodle wallpaper, each drawn in a 24×24 box. */
 const DOODLE_GLYPHS: string[] = [
-  // heart
   "M12 20s-7-4.4-7-9.6A4 4 0 0 1 12 8a4 4 0 0 1 7 2.4C19 15.6 12 20 12 20z",
-  // star
   "M12 3.5l2.5 5.3 5.8.7-4.3 4 1.1 5.8L12 16.4l-5.1 2.9 1.1-5.8-4.3-4 5.8-.7z",
-  // cloud
   "M7 18h10a4 4 0 0 0 .4-8 6 6 0 0 0-11.2 1.7A3.2 3.2 0 0 0 7 18z",
-  // phone handset
   "M7 3.5l2 3.6-1.6 1.8a10 10 0 0 0 7.7 7.7l1.8-1.6 3.6 2-.9 3.1c-.2.6-.8 1-1.4.9C10.1 20.3 3.7 13.9 3.1 5.8c0-.6.3-1.2.9-1.4z",
-  // camera
   "M4 8.5h3.2L9 6h6l1.8 2.5H20V19H4zM12 10.5a3.4 3.4 0 1 0 0 6.8 3.4 3.4 0 0 0 0-6.8z",
-  // music note
   "M9 17.5V6.5l10-2.2v11M9 17.5a2.4 2.4 0 1 1-4.8 0 2.4 2.4 0 0 1 4.8 0zM19 15.3a2.4 2.4 0 1 1-4.8 0 2.4 2.4 0 0 1 4.8 0z",
-  // smiley
   "M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16zM9.3 10h.01M14.7 10h.01M8.6 13.8c1.9 2.1 4.9 2.1 6.8 0",
-  // coffee cup
   "M5 10h11v4.5A4.5 4.5 0 0 1 11.5 19h-2A4.5 4.5 0 0 1 5 14.5zM16 11h1.4a2.3 2.3 0 0 1 0 4.6H16M8.5 3.5c-.9 1.3.9 2.2 0 3.6M12 3.5c-.9 1.3.9 2.2 0 3.6",
-  // umbrella
   "M3.5 12a8.5 8.5 0 0 1 17 0zM12 12v6.2a1.8 1.8 0 0 1-3.6 0",
-  // light bulb
   "M9.5 18h5M10.3 20.6h3.4M12 3.5a5.8 5.8 0 0 0-3.4 10.5v1.9h6.8V14A5.8 5.8 0 0 0 12 3.5z",
-  // chat bubble
   "M4.5 5.5h15v10h-9.2l-4.3 3.6V15.5H4.5z",
-  // gift
   "M4.5 10.5h15V20h-15zM3.5 7.5h17v3h-17zM12 7.5V20M12 7.5c-1.6-3.6-5.6-2.8-3.8 0M12 7.5c1.6-3.6 5.6-2.8 3.8 0",
-  // moon
   "M19.5 14.6A7.6 7.6 0 0 1 9.4 4.5a7.6 7.6 0 1 0 10.1 10.1z",
-  // paper plane
   "M3.5 11.2 20.5 4l-6.6 16.6-2.8-6.6zM11.1 14 20.5 4",
-  // clock
   "M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16zM12 7.6V12l2.9 1.9",
-  // leaf
   "M5 19C5 10.5 10 5.5 19 5c-.4 8.6-5.4 14-14 14zM5 19l8.5-8.5",
-  // sun
   "M12 8.6a3.4 3.4 0 1 0 0 6.8 3.4 3.4 0 0 0 0-6.8zM12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M5.6 18.4l1.6-1.6M16.8 7.2l1.6-1.6",
-  // envelope
   "M3.5 6.5h17v11h-17zM3.5 6.5l8.5 6.6 8.5-6.6",
-  // balloon
   "M12 3.5a5 5 0 0 1 5 5c0 3.6-2.8 6-5 6s-5-2.4-5-6a5 5 0 0 1 5-5zM12 14.5l-.9 1.6h1.8zM12 16.1c0 1.8-1.8 2.7-.9 4.4",
-  // pizza slice
   "M12 20.5 4.5 6.4a15 15 0 0 1 15 0zM9.6 10.3h.01M14 12.4h.01M11.6 15.4h.01",
 ];
 
@@ -154,7 +157,7 @@ export const WA_E2E: Record<Lang, { body: string; more: string }> = {
     more: "Learn more",
   },
   ar: {
-    body: "الرسائل والمكالمات مشفرة تمامًا بين الطرفين. لا يمكن لأحد خارج هذه الدردشة قراءتها أو الاستماع إليها أو مشاركتها.",
+    body: "الرسائل والمكالمات مشفرة تمامًا بين الطرفين. يمكن فقط للأشخاص في هذه الدردشة قراءتها أو الاستماع إليها أو مشاركتها.",
     more: "معرفة المزيد",
   },
 };
@@ -195,187 +198,359 @@ export function waPresence(
 }
 
 /* ======================================================================
-   iOS palette
+   Metrics + palette
    ====================================================================== */
 
-interface IosPalette {
-  bar: string;
-  barLine: string;
+const R = 18; // bubble corner radius
+const SIDE = 16; // bubble inset from the screen edge
+const CTL = 38; // glass control size (header + composer)
+const STATUS_H = 54;
+const HEADER_H = 42;
+const COMPOSER_BOTTOM = 39; // composer bottom edge above the screen bottom
+const TOP_PAD = STATUS_H + HEADER_H + 10;
+const BOTTOM_PAD = COMPOSER_BOTTOM + CTL + 16;
+const IMG_W = 280;
+
+interface Pal {
   ink: string;
   sub: string;
   wall: string;
+  wallRgb: string;
   doodle: string;
   inBubble: string;
   outBubble: string;
   text: string;
-  meta: string;
+  metaIn: string;
   metaOut: string;
   read: string;
-  shadow: string;
-  field: string;
-  fieldLine: string;
+  bubbleShadow: string;
+  glass: CSSProperties;
+  icon: string;
+  green: string;
   chip: string;
   chipText: string;
   e2e: string;
   e2eText: string;
   dot: string;
-  voiceIn: string;
-  voiceOut: string;
+  playIn: string;
+  playOut: string;
   waveIn: string;
   waveOut: string;
-  unplayed: string;
+  voiceUnplayed: string;
+  voiceIdle: string;
+  avatarBg: string;
+  avatarFg: string;
   home: string;
+  link: string;
 }
 
-const LIGHT: IosPalette = {
-  bar: "#f6f6f6",
-  barLine: "rgba(0,0,0,0.14)",
+/** Denser doodle tile for iOS (the 2024 redrawn pattern is tighter than the old one). */
+function iosDoodle(stroke: string, opacity: number): string {
+  const cell = 40;
+  const parts: string[] = [];
+  for (let r = 0; r < 6; r++) {
+    for (let c = 0; c < 6; c++) {
+      const k = r * 6 + c;
+      const x = c * cell + (r % 2 ? 20 : 2) + ((k * 5) % 7) - 3;
+      const y = r * cell + ((c * 11) % 7) - 2;
+      const rot = ((k * 41) % 70) - 35;
+      const s = 0.72 + ((k * 13) % 5) * 0.04;
+      const glyph = DOODLE_GLYPHS[(k * 7 + r * 3) % DOODLE_GLYPHS.length];
+      parts.push(
+        `<g transform='translate(${x} ${y}) rotate(${rot} 12 12) scale(${s.toFixed(2)})'><path d='${glyph}'/></g>`,
+      );
+    }
+  }
+  const svg =
+    `<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240' viewBox='0 0 240 240'>` +
+    `<g fill='none' stroke='${stroke}' stroke-opacity='${opacity}' stroke-width='1.25' stroke-linecap='round' stroke-linejoin='round'>` +
+    parts.join("") +
+    `</g></svg>`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+}
+
+const LIGHT: Pal = {
   ink: "#000000",
-  sub: "#8e8e93",
-  wall: "#efeae2",
-  doodle: waDoodle("#5c4a2e", 0.11),
+  sub: "rgba(60,60,67,0.6)",
+  wall: "#f4f1eb",
+  wallRgb: "244,241,235",
+  doodle: iosDoodle("#7a6a52", 0.13),
   inBubble: "#ffffff",
   outBubble: "#d9fdd3",
   text: "#000000",
-  meta: "rgba(0,0,0,0.45)",
+  metaIn: "rgba(0,0,0,0.45)",
   metaOut: "rgba(0,0,0,0.45)",
   read: "#53bdeb",
-  shadow: "0 1px 0.5px rgba(11,20,26,0.13)",
-  field: "#ffffff",
-  fieldLine: "rgba(0,0,0,0.12)",
-  chip: "#ffffff",
-  chipText: "#54656f",
+  bubbleShadow: "drop-shadow(0 0.5px 0.5px rgba(11,20,26,0.13))",
+  glass: {
+    background: "rgba(255,255,255,0.88)",
+    boxShadow:
+      "inset 0 0.5px 0 rgba(255,255,255,0.95), 0 0 0 0.5px rgba(0,0,0,0.05), 0 3px 12px rgba(0,0,0,0.07)",
+  },
+  icon: "#000000",
+  green: "#1daa61",
+  chip: "rgba(255,255,255,0.9)",
+  chipText: "#000000",
   e2e: "#ffeecd",
   e2eText: "#54656f",
   dot: "#8e8e93",
-  voiceIn: "#8696a0",
-  voiceOut: "#6d8a69",
-  waveIn: "#c3c8cc",
-  waveOut: "#a9c8a3",
-  unplayed: "#1daa61",
+  playIn: "#8696a0",
+  playOut: "#6b8a67",
+  waveIn: "#c5cbcf",
+  waveOut: "#a6c8a0",
+  voiceUnplayed: "#1daa61",
+  voiceIdle: "#8696a0",
+  avatarBg: "#d1d7db",
+  avatarFg: "#ffffff",
   home: "#000000",
+  link: "#027eb5",
 };
 
-const DARK: IosPalette = {
-  bar: "#161616",
-  barLine: "rgba(255,255,255,0.1)",
+const DARK: Pal = {
   ink: "#ffffff",
-  sub: "#8d8d93",
-  wall: "#0b0f10",
-  doodle: waDoodle("#ffffff", 0.07),
-  inBubble: "#262628",
+  sub: "rgba(235,235,245,0.6)",
+  wall: "#0a0a0a",
+  wallRgb: "10,10,10",
+  doodle: iosDoodle("#ffffff", 0.085),
+  inBubble: "#242626",
   outBubble: "#144d37",
   text: "#ffffff",
-  meta: "rgba(235,235,245,0.55)",
-  metaOut: "rgba(235,245,240,0.6)",
+  metaIn: "rgba(255,255,255,0.55)",
+  metaOut: "rgba(255,255,255,0.6)",
   read: "#53bdeb",
-  shadow: "0 1px 0.5px rgba(0,0,0,0.3)",
-  field: "#262628",
-  fieldLine: "rgba(255,255,255,0.08)",
-  chip: "#1f1f21",
-  chipText: "#a1a1a6",
-  e2e: "#1f1f21",
+  bubbleShadow: "none",
+  glass: {
+    background: "rgba(34,34,34,0.82)",
+    boxShadow:
+      "inset 0 0.5px 0 rgba(255,255,255,0.16), 0 0 0 0.5px rgba(255,255,255,0.05), 0 3px 12px rgba(0,0,0,0.4)",
+  },
+  icon: "#ffffff",
+  green: "#21c063",
+  chip: "rgba(28,28,28,0.92)",
+  chipText: "rgba(255,255,255,0.78)",
+  e2e: "#1c1c1c",
   e2eText: "#ffd279",
   dot: "#8d8d93",
-  voiceIn: "#a1a1a6",
-  voiceOut: "#b5d9c3",
-  waveIn: "#56565c",
+  playIn: "#aeb4b8",
+  playOut: "#c7e3d2",
+  waveIn: "#55595b",
   waveOut: "#4f8a70",
-  unplayed: "#21c063",
+  voiceUnplayed: "#21c063",
+  voiceIdle: "#aeb4b8",
+  avatarBg: "#3b3f42",
+  avatarFg: "#9ba1a5",
   home: "#ffffff",
+  link: "#53bdeb",
 };
 
 /* ======================================================================
-   iOS glyphs (SF Symbols look)
+   Motion (shared by the live CSS and the exporter)
    ====================================================================== */
 
-function IosChevron({ color }: { color: string }) {
+/** CSS cubic-bezier(x1,y1,x2,y2) evaluated in JS (Newton + bisection). */
+function cubicBezier(x1: number, y1: number, x2: number, y2: number) {
+  const bx = (t: number) => 3 * x1 * t * (1 - t) ** 2 + 3 * x2 * t * t * (1 - t) + t ** 3;
+  const by = (t: number) => 3 * y1 * t * (1 - t) ** 2 + 3 * y2 * t * t * (1 - t) + t ** 3;
+  const dx = (t: number) => 3 * x1 * (1 - t) ** 2 + 6 * (x2 - x1) * t * (1 - t) + 3 * (1 - x2) * t * t;
+  return (x: number) => {
+    if (x <= 0) return 0;
+    if (x >= 1) return 1;
+    let t = x;
+    for (let i = 0; i < 6; i++) {
+      const d = dx(t);
+      if (Math.abs(d) < 1e-6) break;
+      t -= (bx(t) - x) / d;
+    }
+    if (t < 0 || t > 1 || Math.abs(bx(t) - x) > 1e-4) {
+      let lo = 0;
+      let hi = 1;
+      t = x;
+      for (let i = 0; i < 30; i++) {
+        if (bx(t) < x) lo = t;
+        else hi = t;
+        t = (lo + hi) / 2;
+      }
+    }
+    return by(t);
+  };
+}
+
+const OUT_MS = 340;
+const IN_MS = 260;
+const easeOut = cubicBezier(0.2, 0.85, 0.25, 1);
+const easeIn = cubicBezier(0.25, 0.8, 0.3, 1);
+
+/**
+ * WhatsApp iOS entrance: a sent bubble is born at the chat bar and rises
+ * ~46pt into place while it fades in quickly (it looks like it leaves the input
+ * field); a received bubble fades in and grows slightly from its tail corner.
+ * The exporter drives the outgoing curve over OUT_MS; enterMs is that longer one,
+ * the incoming curve completes at IN_MS/OUT_MS of the progress.
+ */
+export const whatsappIosMotion: PlatformMotion = {
+  enterMs: OUT_MS,
+  enterStyle: (p, mine, rtl) => {
+    const onRight = mine ? !rtl : rtl;
+    const transformOrigin = `${onRight ? "right" : "left"} bottom`;
+    if (mine) {
+      const e = easeOut(p);
+      return {
+        opacity: Math.min(1, p / 0.22),
+        transform: `translateY(${((1 - e) * 46).toFixed(2)}px) scale(${(0.96 + 0.04 * e).toFixed(4)})`,
+        transformOrigin,
+      };
+    }
+    const q = Math.min(1, p * (OUT_MS / IN_MS));
+    const e = easeIn(q);
+    return {
+      opacity: Math.min(1, q / 0.55),
+      transform: `translateY(${((1 - e) * 8).toFixed(2)}px) scale(${(0.9 + 0.1 * e).toFixed(4)})`,
+      transformOrigin,
+    };
+  },
+};
+
+/** Typing-bubble dots: 1.2s cycle, each dot 0.2s behind; pulses opacity + scale. */
+const DOT_MS = 1200;
+function dotAt(phase: number): { opacity: number; scale: number } {
+  const t = ((phase % 1) + 1) % 1;
+  const k = t < 0.5 ? Math.sin((t / 0.5) * Math.PI) : 0;
+  return { opacity: 0.35 + 0.65 * k, scale: 0.85 + 0.15 * k };
+}
+
+/** Keyframes generated from the very functions the exporter calls → preview == export. */
+const MOTION_CSS = (() => {
+  const steps = 20;
+  let css = "";
+  for (const mine of [true, false]) {
+    for (const rtl of [false, true]) {
+      const name = `wa-ios-in-${mine ? "me" : "them"}-${rtl ? "rtl" : "ltr"}`;
+      let frames = "";
+      for (let i = 0; i <= steps; i++) {
+        const p = i / steps;
+        const st = whatsappIosMotion.enterStyle(p, mine, rtl);
+        frames += `${(p * 100).toFixed(2)}%{opacity:${st.opacity};transform:${st.transform};transform-origin:${st.transformOrigin}}`;
+      }
+      css += `@keyframes ${name}{${frames}}.${name}{animation:${name} ${OUT_MS}ms linear both}`;
+    }
+  }
+  let dot = "";
+  for (let i = 0; i <= 20; i++) {
+    const d = dotAt(i / 20);
+    dot += `${i * 5}%{opacity:${d.opacity.toFixed(3)};transform:scale(${d.scale.toFixed(3)})}`;
+  }
+  css += `@keyframes wa-ios-dot{${dot}}.wa-ios-dot{animation:wa-ios-dot ${DOT_MS}ms linear infinite}`;
+  return css;
+})();
+
+/** iOS 26 scroll-edge effect, approximated with a smooth (smoothstep) alpha ramp. */
+function edgeFade(rgb: string, to: string, max: number): string {
+  const stops: string[] = [];
+  for (let i = 0; i <= 10; i++) {
+    const t = i / 10;
+    const u = Math.min(1, Math.max(0, (t - 0.35) / 0.65));
+    const a = max * (1 - u * u * (3 - 2 * u));
+    stops.push(`rgba(${rgb},${a.toFixed(3)}) ${(t * 100).toFixed(0)}%`);
+  }
+  return `linear-gradient(${to}, ${stops.join(", ")})`;
+}
+
+function enterClass(live: boolean, mine: boolean, rtl: boolean): string {
+  return live ? `wa-ios-in-${mine ? "me" : "them"}-${rtl ? "rtl" : "ltr"}` : "";
+}
+
+/* ======================================================================
+   Glyphs (SF Symbols look; drawn inline)
+   ====================================================================== */
+
+function Chevron({ color }: { color: string }) {
   return (
-    <svg width="13" height="22" viewBox="0 0 13 22" fill="none" className="shrink-0 rtl:-scale-x-100">
-      <path d="M11 2 2 11l9 9" stroke={color} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+    <svg width="12" height="20" viewBox="0 0 12 20" fill="none" className="shrink-0 rtl:-scale-x-100">
+      <path d="M10 1.8 1.9 10l8.1 8.2" stroke={color} strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
 
-function IosVideo({ color }: { color: string }) {
+/** SF "video" outline (does not mirror in RTL). */
+function VideoGlyph({ color }: { color: string }) {
   return (
-    <svg width="27" height="20" viewBox="0 0 27 20" fill="none" className="rtl:-scale-x-100">
-      <rect x="1.2" y="2.6" width="16.6" height="14.8" rx="3.8" stroke={color} strokeWidth="1.8" />
+    <svg width="25" height="17" viewBox="0 0 25 17" fill="none">
+      <rect x="0.9" y="1.4" width="15.6" height="14.2" rx="3.6" stroke={color} strokeWidth="1.7" />
       <path
-        d="M17.8 8.1l5.6-3.4c.7-.4 1.5.1 1.5.9v8.8c0 .8-.8 1.3-1.5.9l-5.6-3.4"
-        stroke={color}
-        strokeWidth="1.8"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function IosPhone({ color }: { color: string }) {
-  return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" className="rtl:-scale-x-100">
-      <path
-        d="M6.9 2.6c.5 0 .9.3 1.1.7l1.6 3.6c.2.5.1 1-.3 1.4L7.6 9.9c1.2 2.6 3.4 4.8 6 6l1.6-1.7c.4-.4.9-.5 1.4-.3l3.6 1.6c.4.2.7.6.7 1.1v2.8c0 1.1-.9 2-2 2C10.3 21.4 2.6 13.7 2.6 4.6c0-1.1.9-2 2-2z"
-        stroke={color}
-        strokeWidth="1.75"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function IosPlus({ color }: { color: string }) {
-  return (
-    <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
-      <path d="M13 4.5v17M4.5 13h17" stroke={color} strokeWidth="2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function IosSticker({ color }: { color: string }) {
-  return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" className="rtl:-scale-x-100">
-      <path
-        d="M20.5 13.2V8A4.5 4.5 0 0 0 16 3.5H8A4.5 4.5 0 0 0 3.5 8v8A4.5 4.5 0 0 0 8 20.5h5.2z"
+        d="M16.5 6.4l5.4-3.3c.7-.4 1.6.1 1.6.9v9c0 .8-.9 1.3-1.6.9l-5.4-3.3"
         stroke={color}
         strokeWidth="1.7"
         strokeLinejoin="round"
       />
-      <path d="M13.2 20.5v-2.8a4.5 4.5 0 0 1 4.5-4.5h2.8" stroke={color} strokeWidth="1.7" strokeLinejoin="round" />
-      <path d="M8.3 13.4c.9 1.2 2.3 1.8 3.8 1.6" stroke={color} strokeWidth="1.6" strokeLinecap="round" />
-      <circle cx="9.2" cy="9.4" r="1.05" fill={color} />
-      <circle cx="14.8" cy="9.4" r="1.05" fill={color} />
     </svg>
   );
 }
 
-function IosCamera({ color }: { color: string }) {
+/** SF "phone" outline (does not mirror in RTL). */
+function PhoneGlyph({ color }: { color: string }) {
   return (
-    <svg width="26" height="22" viewBox="0 0 26 22" fill="none">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
       <path
-        d="M4.6 5.8h3.1l1.6-2.2c.3-.4.8-.7 1.3-.7h4.8c.5 0 1 .3 1.3.7l1.6 2.2h3.1A2.6 2.6 0 0 1 24 8.4v9a2.6 2.6 0 0 1-2.6 2.6H4.6A2.6 2.6 0 0 1 2 17.4v-9a2.6 2.6 0 0 1 2.6-2.6z"
+        d="M6.9 2.6c.5 0 .9.3 1.1.7l1.6 3.6c.2.5.1 1-.3 1.4L7.6 9.9c1.2 2.6 3.4 4.8 6 6l1.6-1.7c.4-.4.9-.5 1.4-.3l3.6 1.6c.4.2.7.6.7 1.1v2.8c0 1.1-.9 2-2 2C10.3 21.4 2.6 13.7 2.6 4.6c0-1.1.9-2 2-2z"
         stroke={color}
-        strokeWidth="1.75"
+        strokeWidth="1.9"
         strokeLinejoin="round"
       />
-      <circle cx="13" cy="12.6" r="3.9" stroke={color} strokeWidth="1.75" />
     </svg>
   );
 }
 
-function IosMic({ color, size = 24 }: { color: string; size?: number }) {
+function PlusGlyph({ color }: { color: string }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <rect x="8.4" y="2.6" width="7.2" height="12" rx="3.6" stroke={color} strokeWidth="1.75" />
-      <path d="M5.2 11.2a6.8 6.8 0 0 0 13.6 0M12 18v3.4" stroke={color} strokeWidth="1.75" strokeLinecap="round" />
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+      <path d="M10 1.8v16.4M1.8 10h16.4" stroke={color} strokeWidth="1.9" strokeLinecap="round" />
     </svg>
   );
 }
 
-/** Filled mic glyph used as the voice-note badge on the avatar. */
+/** WhatsApp sticker glyph: rounded square with a peeled bottom corner. */
+function StickerGlyph({ color }: { color: string }) {
+  return (
+    <svg width="21" height="21" viewBox="0 0 22 22" fill="none">
+      <path
+        d="M19.5 12.4V7A4.5 4.5 0 0 0 15 2.5H7A4.5 4.5 0 0 0 2.5 7v8A4.5 4.5 0 0 0 7 19.5h5.4z"
+        stroke={color}
+        strokeWidth="1.7"
+        strokeLinejoin="round"
+      />
+      <path d="M12.4 19.5v-2.6a4.5 4.5 0 0 1 4.5-4.5h2.6" stroke={color} strokeWidth="1.7" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function CameraGlyph({ color }: { color: string }) {
+  return (
+    <svg width="23" height="19" viewBox="0 0 24 20" fill="none">
+      <path
+        d="M3.6 4.6h2.9l1.5-2c.3-.4.8-.7 1.3-.7h5.4c.5 0 1 .3 1.3.7l1.5 2h2.9A2.3 2.3 0 0 1 22.7 6.9v8.9a2.3 2.3 0 0 1-2.3 2.3H3.6a2.3 2.3 0 0 1-2.3-2.3V6.9a2.3 2.3 0 0 1 2.3-2.3z"
+        stroke={color}
+        strokeWidth="1.7"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="11" r="3.7" stroke={color} strokeWidth="1.7" />
+      <circle cx="18.6" cy="7.6" r="0.95" fill={color} />
+    </svg>
+  );
+}
+
+function MicGlyph({ color }: { color: string }) {
+  return (
+    <svg width="16" height="22" viewBox="0 0 16 22" fill="none">
+      <rect x="4.4" y="1" width="7.2" height="12.4" rx="3.6" fill={color} />
+      <path d="M1.6 9.6a6.4 6.4 0 0 0 12.8 0M8 16.2v4" stroke={color} strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Small filled mic used as the voice-note badge on the avatar. */
 function MicBadge({ color, ring }: { color: string; ring: string }) {
   return (
-    <svg width="16" height="18" viewBox="0 0 16 18" style={{ display: "block" }}>
+    <svg width="15" height="18" viewBox="0 0 16 18" style={{ display: "block" }}>
       <path
         d="M8 1.2a3 3 0 0 0-3 3v4.6a3 3 0 0 0 6 0V4.2a3 3 0 0 0-3-3zM3 8.3a5 5 0 0 0 10 0M8 13.4v3"
         fill="none"
@@ -389,25 +564,31 @@ function MicBadge({ color, ring }: { color: string; ring: string }) {
   );
 }
 
-/** Curled iOS bubble tail, attached to the bottom corner on `side`. */
-function IosTail({ side, color }: { side: "left" | "right"; color: string }) {
+/**
+ * Bubble tail for the new (2026) rounder bubbles: the body edge runs straight
+ * down, flares out ~6.5pt to a point on the baseline, and the underside curls
+ * back up into a small notch before joining the bottom edge. It covers the
+ * bubble's rounded bottom corner on that side.
+ */
+function Tail({ side, color }: { side: "left" | "right"; color: string }) {
   const style: CSSProperties = {
     position: "absolute",
     bottom: 0,
-    width: 11,
-    height: 16,
+    width: 20,
+    height: R,
     display: "block",
     pointerEvents: "none",
+    overflow: "visible",
   };
-  if (side === "right") style.right = -6;
+  if (side === "right") style.right = -7;
   else {
-    style.left = -6;
+    style.left = -7;
     style.transform = "scaleX(-1)";
   }
   return (
-    <svg viewBox="0 0 11 16" style={style}>
+    <svg viewBox={`0 0 20 ${R}`} style={style}>
       <path
-        d="M0 0h5c0 6.1 1.5 11.2 5.3 14.5.4.35.2.95-.3 1.05C7.6 16 5.6 15.4 4 14.3 2.8 15.4 1.4 16 0 16z"
+        d={`M13 0C13 8.5 14.6 14.6 19.7 17.75C19.95 17.9 19.9 18.15 19.6 18.15C16.2 18.3 11.2 17.6 7.6 15.5C5.6 17.1 3 17.9 0 18L0 0Z`}
         fill={color}
       />
     </svg>
@@ -415,10 +596,55 @@ function IosTail({ side, color }: { side: "left" | "right"; color: string }) {
 }
 
 /* ======================================================================
-   Component
+   Small helpers
    ====================================================================== */
 
-const BUBBLE_RADIUS = 12;
+/** WhatsApp's default profile photo (grey silhouette) unless the user set one. */
+function WaAvatar({ person, size, pal }: { person: Person; size: number; pal: Pal }) {
+  if (person.avatar) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={person.avatar}
+        alt={person.name}
+        width={size}
+        height={size}
+        draggable={false}
+        className="shrink-0 rounded-full object-cover"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
+  return (
+    <svg width={size} height={size} viewBox="0 0 40 40" className="shrink-0" style={{ display: "block" }}>
+      <circle cx="20" cy="20" r="20" fill={pal.avatarBg} />
+      <circle cx="20" cy="15.6" r="6.6" fill={pal.avatarFg} />
+      <path d="M7.6 33.2c1.9-5.6 6.7-8.6 12.4-8.6s10.5 3 12.4 8.6A19.9 19.9 0 0 1 20 40a19.9 19.9 0 0 1-12.4-6.8z" fill={pal.avatarFg} />
+    </svg>
+  );
+}
+
+/** Count of emoji if the text is 1–3 emoji only (WhatsApp shows those big, bubble-less). */
+function jumboCount(text: string): number {
+  const t = text.trim();
+  if (!t || t.length > 32) return 0;
+  if (!/^[\p{Extended_Pictographic}\p{Emoji_Component}‍️⃣\s]+$/u.test(t)) return 0;
+  if (!/\p{Extended_Pictographic}/u.test(t)) return 0;
+  const Seg = (Intl as unknown as { Segmenter?: new (l?: string, o?: { granularity: string }) => { segment: (s: string) => Iterable<{ segment: string }> } }).Segmenter;
+  let n = 0;
+  if (Seg) {
+    for (const s of new Seg(undefined, { granularity: "grapheme" }).segment(t)) if (s.segment.trim()) n++;
+  } else {
+    n = (t.match(/\p{Extended_Pictographic}/gu) ?? []).length;
+  }
+  return n >= 1 && n <= 3 ? n : 0;
+}
+
+const JUMBO_SIZE = [0, 52, 44, 38];
+
+/* ======================================================================
+   Component
+   ====================================================================== */
 
 export function WhatsApp({ scenario, playback, lang, rtl }: PlatformProps) {
   const dark = scenario.theme === "dark";
@@ -428,173 +654,225 @@ export function WhatsApp({ scenario, playback, lang, rtl }: PlatformProps) {
   const uiDir = rtl ? "rtl" : "ltr";
   const { messages, typing } = playback;
   const live = playback.isLive;
+  const clockMs = playback.clockMs;
   const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}`);
 
   const subtitle = waPresence(typing, scenario.presence, scenario.lastSeenText, c.online, c.typing);
   const lastSender = messages.length ? messages[messages.length - 1].sender : null;
 
+  const glassCircle: CSSProperties = {
+    ...p.glass,
+    width: CTL,
+    height: CTL,
+    borderRadius: CTL / 2,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  };
+
   return (
-    <div className="flex h-full w-full flex-col" style={{ background: p.bar, color: p.text }}>
-      <StatusBar device={scenario.device} tint={dark ? "light" : "dark"} background={p.bar} />
+    <div
+      className="relative h-full w-full overflow-hidden"
+      style={{
+        backgroundColor: p.wall,
+        backgroundImage: p.doodle,
+        backgroundSize: "240px 240px",
+        color: p.text,
+      }}
+    >
+      <style>{MOTION_CSS}</style>
 
-      {/* Navigation bar */}
+      {/* Scrolling thread (runs under the transparent header and the floating chat bar) */}
       <div
-        className="relative z-10 flex shrink-0 items-center"
-        style={{
-          height: 50,
-          paddingInlineStart: 8,
-          paddingInlineEnd: 16,
-          background: p.bar,
-          borderBottom: `0.5px solid ${p.barLine}`,
-        }}
+        ref={scrollRef}
+        className="rcss-scroll absolute inset-0 overflow-y-auto"
+        style={{ paddingTop: TOP_PAD, paddingBottom: BOTTOM_PAD }}
       >
-        <div className="flex items-center" style={{ paddingInlineEnd: 8 }}>
-          <IosChevron color={p.ink} />
+        {/* Date chip */}
+        <div className="flex justify-center" style={{ padding: "4px 0 8px" }}>
+          <span
+            style={{
+              background: p.chip,
+              color: p.chipText,
+              fontSize: 12,
+              fontWeight: 600,
+              lineHeight: "18px",
+              height: 18,
+              minWidth: 96,
+              textAlign: "center",
+              padding: "0 14px",
+              borderRadius: 9,
+              letterSpacing: -0.1,
+              boxShadow: dark ? "0 0 0 0.5px rgba(255,255,255,0.06)" : "0 0.5px 1px rgba(0,0,0,0.08)",
+            }}
+          >
+            {c.today}
+          </span>
         </div>
-        <Avatar person={scenario.them} size={36} />
-        <div className="min-w-0 flex-1" style={{ paddingInlineStart: 10, lineHeight: 1.15 }}>
-          <div className="truncate" style={{ fontSize: 16.5, fontWeight: 600, color: p.ink, letterSpacing: -0.2 }}>
-            {scenario.them.name}
-          </div>
-          <div className="truncate" style={{ fontSize: 12.5, color: p.sub, marginTop: 1 }}>
-            {subtitle}
-          </div>
-        </div>
-        <div className="flex items-center" style={{ gap: 24, paddingInlineStart: 8 }}>
-          <IosVideo color={p.ink} />
-          <IosPhone color={p.ink} />
-        </div>
-      </div>
 
-      {/* Chat area: fixed wallpaper behind a scrolling list */}
-      <div
-        className="relative min-h-0 flex-1"
-        style={{ backgroundColor: p.wall, backgroundImage: p.doodle, backgroundSize: "240px 240px" }}
-      >
-        <div ref={scrollRef} className="rcss-scroll h-full overflow-y-auto" style={{ padding: "8px 0 10px" }}>
-          {/* Date chip */}
-          <div className="flex justify-center" style={{ padding: "4px 0 8px" }}>
-            <span
-              style={{
-                background: p.chip,
-                color: p.chipText,
-                fontSize: 12.5,
-                fontWeight: 500,
-                lineHeight: "16px",
-                padding: "4px 10px",
-                borderRadius: 8,
-                boxShadow: dark ? "none" : "0 1px 0.5px rgba(11,20,26,0.1)",
-              }}
-            >
-              {c.today}
+        {/* End-to-end encryption notice */}
+        <div className="flex justify-center" style={{ padding: "0 36px 10px" }}>
+          <div
+            className="text-center"
+            style={{
+              background: p.e2e,
+              color: p.e2eText,
+              fontSize: 12.5,
+              lineHeight: "16px",
+              padding: "6px 12px 7px",
+              borderRadius: 10,
+              boxShadow: dark ? "none" : "0 0.5px 1px rgba(11,20,26,0.08)",
+            }}
+          >
+            <span style={{ display: "inline-block", marginInlineEnd: 4, verticalAlign: "-1px" }}>
+              <WaLock color={p.e2eText} size={9} />
             </span>
+            {e2e.body} <span style={{ fontWeight: 600 }}>{e2e.more}</span>
           </div>
+        </div>
 
-          {/* End-to-end encryption notice */}
-          <div className="flex justify-center" style={{ padding: "0 40px 10px" }}>
+        <div className="flex flex-col">
+          {messages.map((m, i) => {
+            const { firstOfGroup, lastOfGroup } = groupInfo(messages, i);
+            // the typing bubble continues the incoming run, so it takes the tail
+            const tail = lastOfGroup && !(typing && m.sender === "them" && i === messages.length - 1);
+            return (
+              <Row
+                key={m.id}
+                m={m}
+                p={p}
+                rtl={rtl}
+                uiDir={uiDir}
+                firstOfGroup={firstOfGroup}
+                tail={tail}
+                status={playback.statusOf(m)}
+                person={m.sender === "me" ? scenario.me : scenario.them}
+                live={live}
+              />
+            );
+          })}
+
+          {typing && (
             <div
-              className="text-center"
+              className={`flex justify-start ${enterClass(live, false, rtl)}`}
               style={{
-                background: p.e2e,
-                color: p.e2eText,
-                fontSize: 12.5,
-                lineHeight: "17px",
-                padding: "6px 12px 7px",
-                borderRadius: 8,
-                boxShadow: dark ? "none" : "0 1px 0.5px rgba(11,20,26,0.1)",
+                padding: `0 ${SIDE}px`,
+                marginTop: lastSender === "them" ? 3 : 8,
+                transformOrigin: `${rtl ? "right" : "left"} bottom`,
               }}
             >
-              <span style={{ display: "inline-block", marginInlineEnd: 4, verticalAlign: "-1px" }}>
-                <WaLock color={p.e2eText} size={9} />
-              </span>
-              {e2e.body} <span style={{ fontWeight: 600 }}>{e2e.more}</span>
-            </div>
-          </div>
-
-          <div className="flex flex-col">
-            {messages.map((m, i) => {
-              const { firstOfGroup, lastOfGroup } = groupInfo(messages, i);
-              // the typing bubble continues the incoming group
-              const tail = lastOfGroup && !(typing && m.sender === "them" && i === messages.length - 1);
-              return (
-                <IosRow
-                  key={m.id}
-                  m={m}
-                  p={p}
-                  rtl={rtl}
-                  uiDir={uiDir}
-                  firstOfGroup={firstOfGroup}
-                  tail={tail}
-                  status={playback.statusOf(m)}
-                  person={m.sender === "me" ? scenario.me : scenario.them}
-                  live={live}
-                />
-              );
-            })}
-
-            {typing && (
-              <div
-                className={`flex justify-start ${live ? "rcss-anim-fade" : ""}`}
-                style={{ padding: "0 14px", marginTop: lastSender === "them" ? 2 : 8 }}
-              >
+              <div className="relative" style={{ filter: p.bubbleShadow }}>
+                <Tail side={rtl ? "right" : "left"} color={p.inBubble} />
                 <div
                   className="relative flex items-center"
-                  style={{
-                    background: p.inBubble,
-                    borderRadius: BUBBLE_RADIUS,
-                    borderBottomLeftRadius: rtl ? BUBBLE_RADIUS : 0,
-                    borderBottomRightRadius: rtl ? 0 : BUBBLE_RADIUS,
-                    boxShadow: p.shadow,
-                    height: 36,
-                    padding: "0 14px",
-                    gap: 4,
-                  }}
+                  style={{ background: p.inBubble, borderRadius: R, height: 37, padding: "0 14px", gap: 4 }}
                 >
-                  <IosTail side={rtl ? "right" : "left"} color={p.inBubble} />
-                  {[0, 1, 2].map((d) => (
-                    <span
-                      key={d}
-                      className="rcss-typing-dot block rounded-full"
-                      style={{ width: 7, height: 7, background: p.dot, animationDelay: `${d * 0.18}s` }}
-                    />
-                  ))}
+                  {[0, 1, 2].map((d) => {
+                    const s =
+                      clockMs !== undefined ? dotAt((clockMs - d * 200) / DOT_MS) : null;
+                    return (
+                      <span
+                        key={d}
+                        className={`block rounded-full ${s ? "" : "wa-ios-dot"}`}
+                        style={{
+                          width: 8,
+                          height: 8,
+                          background: p.dot,
+                          animationDelay: s ? undefined : `${d * 0.2}s`,
+                          opacity: s ? s.opacity : undefined,
+                          transform: s ? `scale(${s.scale})` : undefined,
+                        }}
+                      />
+                    );
+                  })}
                 </div>
               </div>
-            )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Top: scroll-edge fade + status bar + floating header */}
+      <div className="pointer-events-none absolute inset-x-0 top-0" style={{ zIndex: 10 }}>
+        <div
+          className="absolute inset-x-0 top-0"
+          style={{
+            height: STATUS_H + HEADER_H + 30,
+            background: edgeFade(p.wallRgb, "to bottom", 0.98),
+          }}
+        />
+        <div className="relative">
+          <StatusBar device={scenario.device} tint={dark ? "light" : "dark"} background="transparent" />
+          <div className="flex items-center" style={{ height: HEADER_H, paddingInline: SIDE }}>
+            <div style={glassCircle}>
+              <Chevron color={p.icon} />
+            </div>
+            <div style={{ marginInlineStart: 10 }}>
+              <WaAvatar person={scenario.them} size={CTL} pal={p} />
+            </div>
+            <div className="min-w-0 flex-1" style={{ paddingInline: "9px 6px" }}>
+              <div
+                className="truncate"
+                style={{ fontSize: 17, lineHeight: "21px", fontWeight: 600, color: p.ink, letterSpacing: -0.43 }}
+              >
+                {scenario.them.name}
+              </div>
+              {subtitle && (
+                <div
+                  className="truncate"
+                  style={{ fontSize: 13, lineHeight: "16px", color: p.sub, letterSpacing: -0.15 }}
+                >
+                  {subtitle}
+                </div>
+              )}
+            </div>
+            <div
+              className="flex items-center justify-between"
+              style={{ ...p.glass, height: CTL, width: 84, borderRadius: CTL / 2, paddingInline: 13, flexShrink: 0 }}
+            >
+              <VideoGlyph color={p.icon} />
+              <PhoneGlyph color={p.icon} />
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Composer */}
-      <div
-        className="flex shrink-0 items-center"
-        style={{
-          background: p.bar,
-          borderTop: `0.5px solid ${p.barLine}`,
-          padding: "7px 12px 4px",
-          gap: 12,
-        }}
-      >
-        <IosPlus color={p.ink} />
+      {/* Bottom: scroll-edge fade + floating chat bar + home indicator */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0" style={{ zIndex: 10 }}>
         <div
-          className="flex flex-1 items-center justify-end"
+          className="absolute inset-x-0 bottom-0"
           style={{
-            height: 34,
-            borderRadius: 17,
-            background: p.field,
-            border: `0.5px solid ${p.fieldLine}`,
-            paddingInline: 7,
+            height: COMPOSER_BOTTOM + CTL + 30,
+            background: edgeFade(p.wallRgb, "to top", 0.85),
           }}
-        >
-          <IosSticker color={p.ink} />
+        />
+        <div className="relative flex items-center" style={{ height: CTL, paddingInline: 14, marginBottom: 20 }}>
+          <div style={glassCircle}>
+            <PlusGlyph color={p.icon} />
+          </div>
+          <div
+            className="flex min-w-0 flex-1 items-center justify-end"
+            style={{ ...p.glass, height: CTL, borderRadius: CTL / 2, marginInline: "10px 8px", paddingInline: 10 }}
+          >
+            <StickerGlyph color={p.icon} />
+          </div>
+          <div style={glassCircle}>
+            <CameraGlyph color={p.icon} />
+          </div>
+          <div
+            style={{
+              ...glassCircle,
+              ...{ background: p.green, boxShadow: "0 3px 10px rgba(0,0,0,0.12)" },
+              marginInlineStart: 6,
+            }}
+          >
+            <MicGlyph color="#ffffff" />
+          </div>
         </div>
-        <div className="flex items-center" style={{ gap: 16 }}>
-          <IosCamera color={p.ink} />
-          <IosMic color={p.ink} />
+        <div className="relative">
+          <SystemBottomBar device={scenario.device} bg="transparent" fg={p.home} />
         </div>
-      </div>
-      <div style={{ background: p.bar, paddingTop: 8 }}>
-        <SystemBottomBar device={scenario.device} bg={p.bar} fg={p.home} />
       </div>
     </div>
   );
@@ -604,7 +882,7 @@ export function WhatsApp({ scenario, playback, lang, rtl }: PlatformProps) {
    Message row
    ====================================================================== */
 
-function IosRow({
+function Row({
   m,
   p,
   rtl,
@@ -616,7 +894,7 @@ function IosRow({
   live,
 }: {
   m: Message;
-  p: IosPalette;
+  p: Pal;
   rtl: boolean;
   uiDir: "rtl" | "ltr";
   firstOfGroup: boolean;
@@ -628,93 +906,118 @@ function IosRow({
   const mine = m.sender === "me";
   const onRight = mine ? !rtl : rtl;
   const bg = mine ? p.outBubble : p.inBubble;
-  const metaColor = mine ? p.metaOut : p.meta;
+  const metaColor = mine ? p.metaOut : p.metaIn;
   const isImage = m.type === "image";
   const isVoice = m.type === "voice";
   const caption = isImage ? m.text.trim() : "";
   const textDir = dirOf(m.text);
+  const jumbo = !isImage && !isVoice ? jumboCount(m.text) : 0;
 
-  const radius: CSSProperties = { borderRadius: BUBBLE_RADIUS };
-  if (tail) {
-    if (onRight) radius.borderBottomRightRadius = 0;
-    else radius.borderBottomLeftRadius = 0;
-  }
-
-  const meta = (overlay: boolean) => (
+  const meta = (overlay: boolean, color = metaColor) => (
     <span
       className="inline-flex items-center whitespace-nowrap"
       style={{
         fontSize: 11,
-        lineHeight: "14px",
-        gap: 3,
-        color: overlay ? "#ffffff" : metaColor,
+        lineHeight: "13px",
+        gap: 4,
+        color: overlay ? "#ffffff" : color,
         fontVariantNumeric: "tabular-nums",
+        textShadow: overlay ? "0 0 4px rgba(0,0,0,0.35)" : undefined,
+        direction: "ltr",
       }}
     >
       {m.time}
-      {mine && <WaTicks status={status} color={overlay ? "#ffffff" : metaColor} readColor={p.read} width={16} />}
+      {mine && <WaTicks status={status} color={overlay ? "#ffffff" : color} readColor={p.read} width={16} />}
     </span>
   );
-  const reserve = waMetaWidth(m.time, mine, 6.4, 16);
+  // spacer reserved at the end of the last text line for the meta block
+  const reserve = waMetaWidth(m.time, mine, 6.6, 16) + (mine ? 0 : 2);
+  const metaEnd = mine ? 9 : 12;
+
+  const rowStyle: CSSProperties = {
+    padding: `0 ${SIDE}px`,
+    marginTop: firstOfGroup ? 8 : 3,
+    transformOrigin: `${onRight ? "right" : "left"} bottom`,
+  };
+  const rowClass = `flex ${mine ? "justify-end" : "justify-start"} ${enterClass(live, mine, rtl)}`;
+
+  /* --- emoji-only: big, no bubble, time in a small pill under it --- */
+  if (jumbo) {
+    return (
+      <div data-mid={m.id} data-sender={m.sender} className={rowClass} style={rowStyle}>
+        <div className="flex flex-col" style={{ alignItems: "flex-end" }}>
+          <span style={{ fontSize: JUMBO_SIZE[jumbo], lineHeight: 1.18, letterSpacing: 2, paddingInline: 2 }}>
+            {m.text.trim()}
+          </span>
+          <span
+            style={{
+              background: bg,
+              borderRadius: 10,
+              padding: "2px 7px",
+              marginTop: 1,
+              filter: p.bubbleShadow,
+            }}
+          >
+            {meta(false)}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  /* --- frameless photo (no caption) --- */
+  if (isImage && !caption) {
+    return (
+      <div data-mid={m.id} data-sender={m.sender} className={rowClass} style={rowStyle}>
+        <div className="relative overflow-hidden" dir={uiDir} style={{ width: IMG_W, borderRadius: R, background: bg }}>
+          <Photo m={m} dark={p === DARK} />
+          <span
+            className="pointer-events-none absolute inset-x-0 bottom-0"
+            style={{ height: 40, background: "linear-gradient(to top, rgba(0,0,0,0.32), rgba(0,0,0,0))" }}
+          />
+          <span className="absolute" style={{ bottom: 6, insetInlineEnd: mine ? 8 : 11 }}>
+            {meta(true)}
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   let body: ReactNode;
-  let padding = "6px 10px 7px";
+  let padding: string | number = "7px 12px 8px";
   let dir: "rtl" | "ltr" = textDir;
 
   if (isVoice) {
     dir = uiDir;
-    padding = "8px 10px 6px 10px";
-    body = <IosVoice m={m} p={p} mine={mine} status={status} person={person} meta={meta(false)} />;
+    padding = "9px 12px 6px 10px";
+    body = <Voice m={m} p={p} mine={mine} status={status} person={person} meta={meta(false)} />;
   } else if (isImage) {
-    padding = "3px";
-    dir = caption ? textDir : uiDir;
+    padding = 0;
+    dir = textDir;
     body = (
-      <div style={{ width: 236 }}>
-        <div className="relative overflow-hidden" style={{ borderRadius: BUBBLE_RADIUS - 3 }}>
-          {m.imageSrc ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={m.imageSrc}
-              alt=""
-              draggable={false}
-              style={{ display: "block", width: "100%", height: "auto", maxHeight: 320, objectFit: "cover" }}
-            />
-          ) : (
-            <ImagePlaceholder dark={p === DARK} />
-          )}
-          {!caption && (
-            <>
-              <span
-                className="pointer-events-none absolute inset-x-0 bottom-0"
-                style={{ height: 32, background: "linear-gradient(to top, rgba(0,0,0,0.38), rgba(0,0,0,0))" }}
-              />
-              <span className="absolute" style={{ bottom: 5, insetInlineEnd: 8 }}>
-                {meta(true)}
-              </span>
-            </>
-          )}
+      <div style={{ width: IMG_W }}>
+        <div className="overflow-hidden" style={{ borderRadius: `${R}px ${R}px 0 0` }}>
+          <Photo m={m} dark={p === DARK} />
         </div>
-        {caption && (
-          <div className="relative" style={{ padding: "5px 7px 4px" }}>
-            <span className="whitespace-pre-wrap break-words" style={{ fontSize: 17, lineHeight: "22px" }}>
-              {caption}
-            </span>
-            <span style={{ display: "inline-block", width: reserve, height: 1 }} />
-            <span className="absolute" style={{ bottom: 3, insetInlineEnd: 7 }}>
-              {meta(false)}
-            </span>
-          </div>
-        )}
+        <div className="relative" style={{ padding: "6px 12px 8px" }}>
+          <span className="whitespace-pre-wrap break-words" style={{ fontSize: 17, lineHeight: "22px", letterSpacing: -0.43 }}>
+            {caption}
+          </span>
+          <span style={{ display: "inline-block", width: reserve, height: 1 }} />
+          <span className="absolute" style={{ bottom: 4, insetInlineEnd: metaEnd }}>
+            {meta(false)}
+          </span>
+        </div>
       </div>
     );
   } else {
     body = (
       <>
-        <span className="whitespace-pre-wrap break-words" style={{ fontSize: 17, lineHeight: "22px" }}>
+        <span className="whitespace-pre-wrap break-words" style={{ fontSize: 17, lineHeight: "22px", letterSpacing: -0.43 }}>
           {m.text}
         </span>
         <span style={{ display: "inline-block", width: reserve, height: 1 }} />
-        <span className="absolute" style={{ bottom: 5, insetInlineEnd: 9 }}>
+        <span className="absolute" style={{ bottom: 4, insetInlineEnd: metaEnd }}>
           {meta(false)}
         </span>
       </>
@@ -722,47 +1025,51 @@ function IosRow({
   }
 
   return (
-    <div
-      data-mid={m.id}
-      className={`flex ${mine ? "justify-end" : "justify-start"}`}
-      style={{ padding: "0 14px", marginTop: firstOfGroup ? 8 : 2 }}
-    >
-      <div
-        className={`relative ${live ? (mine ? "rcss-anim-rise" : "rcss-anim-pop") : ""}`}
-        dir={dir}
-        style={{
-          maxWidth: "78%",
-          background: bg,
-          color: p.text,
-          boxShadow: p.shadow,
-          padding,
-          ...radius,
-        }}
-      >
-        {tail && <IosTail side={onRight ? "right" : "left"} color={bg} />}
-        {body}
+    <div data-mid={m.id} data-sender={m.sender} className={rowClass} style={rowStyle}>
+      <div className="relative" style={{ maxWidth: "calc(100% - 54px)", filter: p.bubbleShadow }}>
+        {/* tail first so the bubble content (meta, ticks) paints over it */}
+        {tail && <Tail side={onRight ? "right" : "left"} color={bg} />}
+        <div
+          className="relative"
+          dir={dir}
+          style={{ background: bg, color: p.text, borderRadius: R, padding, minWidth: 48 }}
+        >
+          {body}
+        </div>
       </div>
     </div>
   );
 }
 
-function ImagePlaceholder({ dark }: { dark: boolean }) {
+function Photo({ m, dark }: { m: Message; dark: boolean }) {
+  if (m.imageSrc) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={m.imageSrc}
+        alt=""
+        draggable={false}
+        style={{ display: "block", width: "100%", height: "auto", maxHeight: 360, objectFit: "cover" }}
+      />
+    );
+  }
+  const fg = dark ? "#5c6063" : "#aeb6bc";
   return (
     <div
       className="flex items-center justify-center"
-      style={{ width: "100%", height: 180, background: dark ? "#2c2c2e" : "#e4e6e8" }}
+      style={{ width: "100%", height: 210, background: dark ? "#1f2123" : "#e4e6e8" }}
     >
-      <svg width="40" height="40" viewBox="0 0 24 24" fill="none">
-        <rect x="3" y="4.5" width="18" height="15" rx="2.5" stroke={dark ? "#636366" : "#aeb6bc"} strokeWidth="1.6" />
-        <circle cx="9" cy="9.5" r="1.7" fill={dark ? "#636366" : "#aeb6bc"} />
-        <path d="M4 17.5l5-5 4 4 3-3 4.5 4.5" stroke={dark ? "#636366" : "#aeb6bc"} strokeWidth="1.6" strokeLinejoin="round" />
+      <svg width="44" height="44" viewBox="0 0 24 24" fill="none">
+        <rect x="3" y="4.5" width="18" height="15" rx="3" stroke={fg} strokeWidth="1.5" />
+        <circle cx="9" cy="9.5" r="1.7" fill={fg} />
+        <path d="M4 17.5l5-5 4 4 3-3 4.5 4.5" stroke={fg} strokeWidth="1.5" strokeLinejoin="round" />
       </svg>
     </div>
   );
 }
 
 /** iOS voice note: play | waveform (duration + meta below) | avatar with mic badge. */
-function IosVoice({
+function Voice({
   m,
   p,
   mine,
@@ -771,45 +1078,44 @@ function IosVoice({
   meta,
 }: {
   m: Message;
-  p: IosPalette;
+  p: Pal;
   mine: boolean;
   status: DeliveryStatus;
   person: Person;
   meta: ReactNode;
 }) {
-  const bars = waWaveform(m.id, 30, 3, 22);
-  // outgoing mic turns blue once played (≈ read); incoming is green until played
-  const badge = mine ? (status === "read" ? p.read : p.voiceIn) : p.unplayed;
+  const bars = waWaveform(m.id, 32, 3, 22);
+  // the mic badge: outgoing turns blue once the recipient played it (≈ read);
+  // incoming is green until you play it
+  const badge = mine ? (status === "read" ? p.read : p.voiceIdle) : p.voiceUnplayed;
   const wave = mine ? p.waveOut : p.waveIn;
-  const play = mine ? p.voiceOut : p.voiceIn;
+  const play = mine ? p.playOut : p.playIn;
   return (
-    <div className="flex items-center" style={{ width: 246, gap: 10 }}>
-      <svg width="20" height="22" viewBox="0 0 20 22" className="shrink-0">
-        <path
-          d="M3 2.6c0-1 1.1-1.6 2-1.1l13.3 8.4c.8.5.8 1.7 0 2.2L5 20.5c-.9.5-2-.1-2-1.1z"
-          fill={play}
-        />
+    <div className="flex items-center" style={{ width: 252, gap: 10 }}>
+      {/* the play glyph keeps pointing right in the Arabic UI */}
+      <svg width="19" height="22" viewBox="0 0 19 22" className="shrink-0" style={{ direction: "ltr" }}>
+        <path d="M2.5 2.4c0-1 1.1-1.6 2-1.1l12.7 8.5c.8.5.8 1.7 0 2.2L4.5 20.6c-.9.5-2-.1-2-1.1z" fill={play} />
       </svg>
       <div className="min-w-0 flex-1">
-        <div className="relative flex items-center" style={{ height: 26, gap: 2 }}>
+        <div className="relative flex items-center" style={{ height: 28, gap: 2 }}>
           {bars.map((h, i) => (
             <span key={i} style={{ width: 2.5, height: h, borderRadius: 2, background: wave, flexShrink: 0 }} />
           ))}
           <span
             className="absolute rounded-full"
-            style={{ width: 11, height: 11, top: 7.5, insetInlineStart: -3, background: badge }}
+            style={{ width: 12, height: 12, top: 8, insetInlineStart: -3, background: badge }}
           />
         </div>
         <div className="flex items-center justify-between" style={{ marginTop: 3 }}>
-          <span style={{ fontSize: 11, lineHeight: "14px", color: mine ? p.metaOut : p.meta }}>
+          <span style={{ fontSize: 11, lineHeight: "13px", color: mine ? p.metaOut : p.metaIn, fontVariantNumeric: "tabular-nums" }}>
             {m.voiceDuration || "0:07"}
           </span>
           {meta}
         </div>
       </div>
       <div className="relative shrink-0">
-        <Avatar person={person} size={46} />
-        <span className="absolute" style={{ bottom: -3, insetInlineStart: -5 }}>
+        <WaAvatar person={person} size={46} pal={p} />
+        <span className="absolute" style={{ bottom: -2, insetInlineStart: -5 }}>
           <MicBadge color={badge} ring={mine ? p.outBubble : p.inBubble} />
         </span>
       </div>

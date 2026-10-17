@@ -8,12 +8,12 @@ import { WhatsApp } from "./WhatsApp";
 import { WhatsAppAndroid } from "./WhatsAppAndroid";
 import { Telegram } from "./Telegram";
 import { TelegramAndroid } from "./TelegramAndroid";
-import { Instagram } from "./Instagram";
-import { InstagramAndroid } from "./InstagramAndroid";
+import { Instagram, instagramIosMotion } from "./Instagram";
+import { InstagramAndroid, instagramAndroidMotion } from "./InstagramAndroid";
 import { Snapchat } from "./Snapchat";
-import { SnapchatAndroid } from "./SnapchatAndroid";
+import { SnapchatAndroid, snapchatAndroidMotion } from "./SnapchatAndroid";
 import { IMessage } from "./iMessage";
-import { SamsungMessages } from "./SamsungMessages";
+import { SamsungMessages, samsungMessagesMotion } from "./SamsungMessages";
 
 type PlatformComponent = (props: PlatformProps) => React.ReactNode;
 
@@ -36,9 +36,9 @@ export interface PlatformMeta {
 export const PLATFORMS: PlatformMeta[] = [
   { id: "whatsapp", label: "WhatsApp", accent: "#25d366", Component: WhatsApp, android: WhatsAppAndroid },
   { id: "telegram", label: "Telegram", accent: "#2aabee", Component: Telegram, android: TelegramAndroid },
-  { id: "instagram", label: "Instagram", accent: "#e1306c", Component: Instagram, android: InstagramAndroid },
-  { id: "snapchat", label: "Snapchat", accent: "#fffc00", Component: Snapchat, android: SnapchatAndroid },
-  { id: "imessage", label: "iMessage", accent: "#0a7cff", Component: IMessage, android: SamsungMessages },
+  { id: "instagram", label: "Instagram", accent: "#e1306c", Component: Instagram, android: InstagramAndroid, motion: instagramIosMotion, androidMotion: instagramAndroidMotion },
+  { id: "snapchat", label: "Snapchat", accent: "#fffc00", Component: Snapchat, android: SnapchatAndroid, androidMotion: snapchatAndroidMotion },
+  { id: "imessage", label: "iMessage", accent: "#0a7cff", Component: IMessage, android: SamsungMessages, androidMotion: samsungMessagesMotion },
 ];
 
 /** Resolve the right renderer for a platform on a given device. */
