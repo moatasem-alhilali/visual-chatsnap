@@ -54,6 +54,8 @@ export interface CameraScene {
 export interface CameraKey {
   at: number;
   focus: Rect | null;
+  /** optional context (e.g. the message being replied to) kept in frame when it fits */
+  context?: Rect | null;
 }
 
 /** Start moving this long before the event, so the camera "anticipates" it. */
@@ -85,8 +87,30 @@ export function clampCamera(st: CameraState, scene: CameraScene): CameraState {
 }
 
 /** The camera state that nicely frames `focus` (or the wide shot). */
-export function focusState(focus: Rect | null, scene: CameraScene, opts: CameraOptions): CameraState {
+function union(a: Rect, b: Rect): Rect {
+  const x = Math.min(a.x, b.x);
+  const y = Math.min(a.y, b.y);
+  return { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y };
+}
+
+/**
+ * Frame `focus`; when `context` is given and both fit at ≥ 80 % of the target
+ * zoom, frame them together (less panning, the reply stays readable).
+ */
+export function focusState(
+  focus: Rect | null,
+  scene: CameraScene,
+  opts: CameraOptions,
+  context?: Rect | null,
+): CameraState {
   if (!focus) return WIDE(scene);
+  if (context) {
+    const u = union(focus, context);
+    const fitU = Math.min((scene.W * 0.9) / Math.max(1, u.w), (scene.H * 0.55) / Math.max(1, u.h));
+    if (fitU >= opts.maxZoom * 0.8) {
+      return focusState(u, scene, { ...opts, maxZoom: Math.min(opts.maxZoom, fitU) });
+    }
+  }
   const { W, H, phone } = scene;
   // zoom in up to maxZoom, but never so far that a big bubble (photo) won't fit
   const fit = Math.min((W * 0.86) / Math.max(1, focus.w), (H * 0.5) / Math.max(1, focus.h));
@@ -153,7 +177,7 @@ export function buildCameraPath(
   if (!rawKeys.length || opts.maxZoom <= 1.001) {
     return { at: () => wide, static: true };
   }
-  const targets = rawKeys.map((k) => ({ from: Math.max(0, k.at - CAMERA_LEAD_MS), st: focusState(k.focus, scene, opts) }));
+  const targets = rawKeys.map((k) => ({ from: Math.max(0, k.at - CAMERA_LEAD_MS), st: focusState(k.focus, scene, opts, k.context) }));
 
   const n = Math.ceil(totalMs / STEP_MS) + 2;
   const S = new Float64Array(n);
