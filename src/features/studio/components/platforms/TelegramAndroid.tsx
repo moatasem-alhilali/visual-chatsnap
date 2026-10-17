@@ -284,7 +284,7 @@ const DARK: Pal = {
 
 const STATUS_H = 30; // SamsungStatusBar
 const BAR_H = 56; // ActionBar.getCurrentActionBarHeight()
-const NAV_H = 35; // shared SystemBottomBar (android)
+const NAV_H = 48; // shared SystemBottomBar (android, One UI 48dp)
 const RAD = 17;
 const NEAR = 6;
 const SIDE = 11; // body inset from the screen edge

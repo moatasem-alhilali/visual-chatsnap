@@ -649,27 +649,29 @@ interface IosPalette {
   imgPlaceholder: string;
 }
 
+/** Meta's current IG design tokens (same as InstagramAndroid; read from the
+ *  CSS variables instagram.com ships): blue-black dark canvas, cool greys. */
 function iosPalette(dark: boolean): IosPalette {
   return dark
     ? {
-        bg: "#000000",
-        fg: "#f5f5f5",
-        sub: "#a8a8a8",
-        inBubble: "#262626",
-        field: "#262626",
-        button: "#363636",
-        dots: "#a8a8a8",
-        imgPlaceholder: "#1c1c1c",
+        bg: "#0c1014",
+        fg: "#f8f9f9",
+        sub: "#a2aab4",
+        inBubble: "#25292e",
+        field: "#25292e",
+        button: "#25292e",
+        dots: "#a2aab4",
+        imgPlaceholder: "#25292e",
       }
     : {
         bg: "#ffffff",
-        fg: "#000000",
-        sub: "#737373",
-        inBubble: "#efefef",
-        field: "#efefef",
+        fg: "#0c1014",
+        sub: "#6a717a",
+        inBubble: "#f3f5f7",
+        field: "#f3f5f7",
         button: "#efefef",
-        dots: "#8e8e8e",
-        imgPlaceholder: "#e4e4e4",
+        dots: "#8e959e",
+        imgPlaceholder: "#e9ecef",
       };
 }
 

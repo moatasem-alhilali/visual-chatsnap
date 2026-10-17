@@ -50,6 +50,7 @@ type RowProps = {
   t: StudioLabels;
   dir: "rtl" | "ltr";
   selected: boolean;
+  live?: boolean;
   expanded: boolean;
   dragging: boolean;
   dropBefore: boolean;
@@ -150,6 +151,7 @@ function MessageRowImpl({
   t,
   dir,
   selected,
+  live = false,
   expanded,
   dragging,
   dropBefore,
@@ -221,6 +223,7 @@ function MessageRowImpl({
         selected
           ? "border-primary/45 shadow-studio-card ring-[3px] ring-primary/10"
           : "border-border hover:border-foreground/15",
+        live && !selected && "border-primary/30 bg-primary/[0.035]",
         dragging && "opacity-40",
       )}
     >
@@ -288,7 +291,14 @@ function MessageRowImpl({
           onClick={() => onToggleExpand(m.id)}
           className="flex h-7 min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-[11px] text-muted-foreground outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
         >
-          <span className="font-mono tabular-nums opacity-70">#{n}</span>
+          {live ? (
+            <span className="relative flex size-2" aria-hidden>
+              <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary/60" />
+              <span className="relative inline-flex size-2 rounded-full bg-primary" />
+            </span>
+          ) : (
+            <span className="font-mono tabular-nums opacity-70">#{n}</span>
+          )}
           {m.type === "voice" && <Mic className="size-3" />}
           {m.type === "image" && <ImageIcon className="size-3" />}
         </button>

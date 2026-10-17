@@ -38,7 +38,21 @@ function EmptyState({ t, onAdd }: { t: StudioLabels; onAdd: (s: Sender) => void 
 }
 
 /** Right zone: the conversation script — compact rows + quick composer. */
-export function MessageEditor({ scenario, t }: { scenario: Scenario; t: StudioLabels }) {
+export function MessageEditor({
+  scenario,
+  t,
+  showHeader = true,
+  liveId = null,
+  following = false,
+}: {
+  scenario: Scenario;
+  t: StudioLabels;
+  /** the tabbed (narrow) layout shows the title + count in its tab instead */
+  showHeader?: boolean;
+  /** message most recently revealed by playback (highlighted + followed) */
+  liveId?: string | null;
+  following?: boolean;
+}) {
   const locale = useLocale();
   const dir = locale === "ar" ? "rtl" : "ltr";
   const addMessage = useStudioStore((s) => s.addMessage);
@@ -55,6 +69,13 @@ export function MessageEditor({ scenario, t }: { scenario: Scenario; t: StudioLa
     const b = stepBounds(messages);
     return b[b.length - 1];
   }, [messages]);
+
+  useEffect(() => {
+    if (!following || !liveId) return;
+    listRef.current
+      ?.querySelector<HTMLElement>(`[data-msg-id="${liveId}"]`)
+      ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [liveId, following]);
 
   const toggleExpand = useCallback((id: string) => {
     setExpanded((prev) => {
@@ -104,6 +125,7 @@ export function MessageEditor({ scenario, t }: { scenario: Scenario; t: StudioLa
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {showHeader && (
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
         <h2 className="text-[13px] font-semibold">{t.messages}</h2>
         <span
@@ -121,6 +143,7 @@ export function MessageEditor({ scenario, t }: { scenario: Scenario; t: StudioLa
           </span>
         </span>
       </div>
+      )}
 
       <div ref={listRef} className="studio-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {messages.length === 0 ? (
@@ -140,6 +163,7 @@ export function MessageEditor({ scenario, t }: { scenario: Scenario; t: StudioLa
                 t={t}
                 dir={dir}
                 selected={selectedId === m.id}
+                live={liveId === m.id}
                 expanded={expanded.has(m.id)}
                 dragging={drag.id === m.id}
                 dropBefore={drag.id !== null && drag.over === i && drag.id !== m.id}

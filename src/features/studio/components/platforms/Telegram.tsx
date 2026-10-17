@@ -813,10 +813,17 @@ function imageTailPath(w: number, h: number, onRight: boolean, dx: number): stri
     return +(onRight ? dx + bx : dx + (w - bx)).toFixed(2);
   };
   const Y = (y: number) => +(h + 1 + (y - 33) - 1).toFixed(2);
-  const sweep = onRight ? 0 : 1;
+  if (onRight) {
+    return (
+      `M${X(16.5)} ${Y(16)}H${X(33)}V${Y(24.5)}A11.5 10.5 0 0 0 ${X(37.74)} ${Y(33)}H${X(37.5)}` +
+      `Q${X(24)} ${Y(33)} ${X(24)} ${Y(24.5)}V${Y(25)}H${X(16.5)}Z`
+    );
+  }
+  // Mirrored: walk the outline backwards so its winding matches the (clockwise) image rect — with nonzero
+  // filling, an opposite winding would punch the overlap out instead of adding the tail.
   return (
-    `M${X(16.5)} ${Y(16)}H${X(33)}V${Y(24.5)}A11.5 10.5 0 0 ${sweep} ${X(37.74)} ${Y(33)}H${X(37.5)}` +
-    `Q${X(24)} ${Y(33)} ${X(24)} ${Y(24.5)}V${Y(25)}H${X(16.5)}Z`
+    `M${X(16.5)} ${Y(16)}V${Y(25)}H${X(24)}V${Y(24.5)}Q${X(24)} ${Y(33)} ${X(37.5)} ${Y(33)}H${X(37.74)}` +
+    `A11.5 10.5 0 0 0 ${X(33)} ${Y(24.5)}V${Y(16)}Z`
   );
 }
 

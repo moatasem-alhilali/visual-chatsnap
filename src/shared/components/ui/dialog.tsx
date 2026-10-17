@@ -42,8 +42,8 @@ function Dialog({
     if (!open) return
     const previous = document.activeElement as HTMLElement | null
     const panel = panelRef.current
-    const first = panel?.querySelector<HTMLElement>("[data-autofocus]") ?? panel?.querySelector<HTMLElement>(FOCUSABLE)
-    first?.focus()
+    const first = panel?.querySelector<HTMLElement>("[data-autofocus]") ?? panel
+    first?.focus({ preventScroll: true })
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -84,10 +84,11 @@ function Dialog({
         ref={panelRef}
         role="dialog"
         aria-modal="true"
+        tabIndex={-1}
         aria-labelledby={titleId}
         aria-describedby={description ? descId : undefined}
         className={cn(
-          "relative w-full max-w-md rounded-xl border border-border bg-popover text-popover-foreground shadow-studio-pop",
+          "relative w-full max-w-md rounded-xl border border-border bg-popover text-popover-foreground shadow-studio-pop outline-none",
           "animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-2 duration-200",
           className,
         )}
