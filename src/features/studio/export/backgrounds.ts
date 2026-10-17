@@ -272,9 +272,16 @@ export class ScreenBackdrop {
   }
 }
 
-/** Natural two-layer phone shadow: a wide ambient shadow + a tight contact shadow. */
+/**
+ * Natural two-layer phone shadow (a wide ambient shadow + a tight contact
+ * shadow) that follows the phone's rounded silhouette. Only the shadow is
+ * painted: the casting shape is punched out again, so nothing opaque can ever
+ * show around the phone's corners.
+ */
 export function paintPhoneShadow(
   ctx: Ctx,
+  W: number,
+  H: number,
   phone: { x: number; y: number; w: number; h: number; r: number },
   light: boolean,
 ): void {
@@ -288,17 +295,25 @@ export function paintPhoneShadow(
         { blur: h * 0.08, dy: h * 0.04, a: 0.55 },
         { blur: h * 0.02, dy: h * 0.01, a: 0.45 },
       ];
-  ctx.save();
+  const layer = new OffscreenCanvas(Math.max(1, Math.round(W)), Math.max(1, Math.round(H)));
+  const l2 = layer.getContext("2d")!;
+  const shape = () => {
+    l2.beginPath();
+    l2.roundRect(x, y, w, h, Math.max(0, Math.min(r, w / 2, h / 2)));
+  };
   for (const l of layers) {
-    ctx.shadowColor = `rgba(0,0,0,${l.a})`;
-    ctx.shadowBlur = l.blur;
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = l.dy;
-    ctx.fillStyle = "#16161a";
-    ctx.beginPath();
-    // inset by 1px so the fill can never peek out from under the phone's anti-aliased edge
-    ctx.roundRect(x + 1, y + 1, w - 2, h - 2, Math.max(0, r - 1));
-    ctx.fill();
+    l2.shadowColor = `rgba(0,0,0,${l.a})`;
+    l2.shadowBlur = l.blur;
+    l2.shadowOffsetX = 0;
+    l2.shadowOffsetY = l.dy;
+    l2.fillStyle = "#000";
+    shape();
+    l2.fill();
   }
-  ctx.restore();
+  // remove the casting shape itself; keep only the shadow outside the silhouette
+  l2.shadowColor = "transparent";
+  l2.globalCompositeOperation = "destination-out";
+  shape();
+  l2.fill();
+  ctx.drawImage(layer, 0, 0);
 }

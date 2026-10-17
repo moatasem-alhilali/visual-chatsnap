@@ -93,10 +93,18 @@ export function focusState(focus: Rect | null, scene: CameraScene, opts: CameraO
   const scale = Math.max(1, Math.min(opts.maxZoom, fit));
   const phoneCx = phone.x + phone.w / 2;
   const fx = focus.x + focus.w / 2;
-  // lean toward the speaker's side without pushing the phone half out of frame
-  const cx = opts.followSides ? fx + (phoneCx - fx) * 0.42 : phoneCx;
+  // stay centred on the phone and lean a little toward the speaker; the pan
+  // below then only moves as far as needed to keep the bubble fully in view
+  let cx = phoneCx + (fx - phoneCx) * (opts.followSides ? 0.3 : 0);
   // put the bubble a little below centre: the context above it stays readable
-  const cy = focus.y + focus.h / 2 - (H / scale) * 0.08;
+  let cy = focus.y + focus.h / 2 - (H / scale) * 0.08;
+  // …but the focused bubble itself must always be fully in view (with margin)
+  const vw = W / scale;
+  const vh = H / scale;
+  const mx = Math.min(vw * 0.06, Math.max(0, (vw - focus.w) / 2));
+  const my = Math.min(vh * 0.06, Math.max(0, (vh - focus.h) / 2));
+  cx = Math.max(Math.min(cx, focus.x - mx + vw / 2), focus.x + focus.w + mx - vw / 2);
+  cy = Math.max(Math.min(cy, focus.y - my + vh / 2), focus.y + focus.h + my - vh / 2);
   return clampCamera({ scale, cx, cy }, scene);
 }
 

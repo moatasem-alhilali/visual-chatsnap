@@ -57,11 +57,17 @@ export function even(n: number): number {
   return r % 2 === 0 ? r : r + 1;
 }
 
-export function computeLayout(
-  preset: Preset,
-  device: { w: number; h: number; radius: number },
-  size: PhoneSize,
-): FrameLayout {
+/** Measured phone: footprint (body + side keys) and the rounded body inside it, in CSS px. */
+export interface DeviceGeometry {
+  w: number;
+  h: number;
+  body: { x: number; y: number; w: number; h: number; r: number };
+}
+
+/** Used until the stage has been measured (iPhone footprint). */
+export const FALLBACK_DEVICE: DeviceGeometry = { w: 432, h: 886, body: { x: 2.5, y: 0, w: 427, h: 886, r: 72 } };
+
+export function computeLayout(preset: Preset, device: DeviceGeometry, size: PhoneSize): FrameLayout {
   const boxCssW = device.w + DEVICE_MARGIN * 2;
   const boxCssH = device.h + DEVICE_MARGIN * 2;
 
@@ -95,13 +101,19 @@ export function computeLayout(
     y,
     boxW,
     boxH,
-    phone: { x: x + m, y: y + m, w: device.w * scale, h: device.h * scale, r: device.radius * scale },
+    phone: {
+      x: x + m + device.body.x * scale,
+      y: y + m + device.body.y * scale,
+      w: device.body.w * scale,
+      h: device.body.h * scale,
+      r: device.body.r * scale,
+    },
     framed: preset.w !== null,
   };
 }
 
-/** Rough upper bound of the encoded size, used for the estimate in the dialog. */
-export function estimateBytes(bitrate: number, durationMs: number): number {
-  // chat frames are mostly static, so VBR lands well below the target bitrate
-  return (bitrate * 0.45 * durationMs) / 1000 / 8;
+/** Expected encoded size, used for the estimate in the dialog. */
+export function estimateBytes(bitrate: number, durationMs: number, moving: boolean): number {
+  // a static chat lands far below the VBR target; a moving camera changes every pixel
+  return (bitrate * (moving ? 0.85 : 0.32) * durationMs) / 1000 / 8;
 }
