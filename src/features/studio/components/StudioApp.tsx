@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocale } from "next-intl";
-import { Settings2, Trash2 } from "lucide-react";
+import { Settings2, Timer, Trash2 } from "lucide-react";
 
 import { Button } from "@/shared/components/ui/button";
 import { Dialog } from "@/shared/components/ui/dialog";
@@ -27,6 +27,7 @@ import { StudioHeader } from "./studio/StudioHeader";
 import { StageToolbar } from "./studio/StageToolbar";
 import { ShortcutsDialog } from "./studio/ShortcutsDialog";
 import { RecordingStage } from "./studio/RecordingStage";
+import { formatSeconds, stepBounds } from "./studio/timing";
 
 /** Centre zone: the phone on a studio backdrop with floating controls. */
 function Stage({
@@ -81,6 +82,7 @@ function PanelTabs({
   count,
   setup,
   messages,
+  trailing,
 }: {
   tab: PanelTab;
   onTab: (tab: PanelTab) => void;
@@ -88,6 +90,7 @@ function PanelTabs({
   count: number;
   setup: React.ReactNode;
   messages: React.ReactNode;
+  trailing?: React.ReactNode;
 }) {
   const tabs: { id: PanelTab; label: string }[] = [
     { id: "messages", label: t.tabMessages },
@@ -120,6 +123,7 @@ function PanelTabs({
             </button>
           );
         })}
+        {trailing && <div className="ms-auto flex items-center">{trailing}</div>}
       </div>
       <div
         role="tabpanel"
@@ -249,7 +253,28 @@ export function StudioApp() {
   }
 
   const setup = <SettingsPanel scenario={scenario} t={t} />;
-  const messages = <MessageEditor scenario={scenario} t={t} />;
+  const tabbed = layout !== "desktop";
+  const liveId = playback.isLive ? (playback.messages[playback.messages.length - 1]?.id ?? null) : null;
+  const messages = (
+    <MessageEditor
+      scenario={scenario}
+      t={t}
+      showHeader={!tabbed}
+      liveId={liveId}
+      following={playback.phase === "playing"}
+    />
+  );
+  const totalMs = stepBounds(scenario.messages).at(-1) ?? 0;
+  const duration = (
+    <span className="flex items-center gap-1 text-xs text-muted-foreground" title={t.totalLength}>
+      <Timer className="size-3.5" />
+      <span className="sr-only">{t.totalLength}:</span>
+      <span className="tabular-nums" dir="ltr">
+        {formatSeconds(totalMs)}
+        {t.seconds}
+      </span>
+    </span>
+  );
   const stage = (
     <Stage scenario={scenario} playback={playback} t={t} dir={dir} compact={layout === "mobile"} onJump={jump} />
   );
@@ -300,14 +325,14 @@ export function StudioApp() {
         <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(340px,44%)]">
           <main className="relative min-h-0 min-w-0">{stage}</main>
           <aside aria-label={t.setup} className="flex min-h-0 flex-col border-s border-border bg-studio-panel">
-            <PanelTabs tab={panelTab} onTab={setPanelTab} t={t} count={scenario.messages.length} setup={setup} messages={messages} />
+            <PanelTabs tab={panelTab} onTab={setPanelTab} t={t} count={scenario.messages.length} setup={setup} messages={messages} trailing={duration} />
           </aside>
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">
-          <main className="relative h-[48dvh] min-h-[320px] shrink-0 border-b border-border">{stage}</main>
+          <main className="relative h-[50dvh] min-h-[320px] shrink-0 border-b border-border">{stage}</main>
           <section aria-label={t.setup} className="flex min-h-0 flex-1 flex-col bg-studio-panel">
-            <PanelTabs tab={panelTab} onTab={setPanelTab} t={t} count={scenario.messages.length} setup={setup} messages={messages} />
+            <PanelTabs tab={panelTab} onTab={setPanelTab} t={t} count={scenario.messages.length} setup={setup} messages={messages} trailing={duration} />
           </section>
         </div>
       )}
