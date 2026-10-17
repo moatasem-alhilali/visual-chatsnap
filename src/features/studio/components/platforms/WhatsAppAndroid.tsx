@@ -508,7 +508,7 @@ export function WhatsAppAndroid({ scenario, playback, lang, rtl }: PlatformProps
     const host = el?.parentElement;
     if (!el || !host) return;
     const check = () => {
-      host.dataset.up = el.scrollHeight - el.scrollTop - el.clientHeight > 160 ? "1" : "0";
+      host.setAttribute("data-up", el.scrollHeight - el.scrollTop - el.clientHeight > 160 ? "1" : "0");
     };
     check();
     el.addEventListener("scroll", check, { passive: true });

@@ -19,30 +19,42 @@ export function SystemBottomBar({
   fg: string;
 }) {
   if (device === "iphone") {
+    // iOS home indicator: 134×5 pt capsule, 8 pt above the bottom edge
+    // (19 pt band in total — templates compensate for exactly this height).
     return (
-      <div className="flex justify-center pb-2 pt-1.5" style={{ background: bg }}>
-        <span className="rounded-full" style={{ width: 134, height: 5, background: fg }} />
+      <div className="flex shrink-0 justify-center" style={{ background: bg, paddingTop: 6, paddingBottom: 8 }}>
+        <span style={{ width: 134, height: 5, borderRadius: 2.5, background: fg }} />
       </div>
     );
   }
-  // Samsung One UI 3-button navigation, 48dp tall, default order
-  // recents | home | back (mirrors with an RTL locale like the real bar).
+  // Samsung One UI 8 3-button navigation: 48 dp tall, default order
+  // recents | home | back, keys centred at 76 / 180 / 284 dp on a 360 dp
+  // screen (the whole bar — and the back chevron — mirror in an RTL locale).
+  // Glyphs: three 13 dp bars, a 15 dp rounded square (r 5), a 7×13 dp chevron,
+  // all ~1.6 dp strokes in the bar's foreground colour.
   return (
     <div
-      className="flex shrink-0 items-center justify-around"
-      style={{ background: bg, height: 48, width: "100%", paddingInline: 44 }}
+      className="grid shrink-0 items-center justify-center"
+      style={{ background: bg, height: 48, width: "100%", gridTemplateColumns: "repeat(3, 104px)" }}
     >
       {/* recents: three vertical bars */}
-      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-        <path d="M4.5 4v10M9 4v10M13.5 4v10" stroke={fg} strokeWidth="1.7" strokeLinecap="round" />
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" className="justify-self-center" style={{ display: "block" }}>
+        <path d="M5.4 3.5v13M10 3.5v13M14.6 3.5v13" stroke={fg} strokeWidth="1.6" strokeLinecap="round" />
       </svg>
       {/* home: rounded square */}
-      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-        <rect x="2.6" y="2.6" width="12.8" height="12.8" rx="4.6" stroke={fg} strokeWidth="1.7" />
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" className="justify-self-center" style={{ display: "block" }}>
+        <rect x="2.5" y="2.5" width="15" height="15" rx="5" stroke={fg} strokeWidth="1.6" />
       </svg>
       {/* back: chevron */}
-      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" className="rtl:-scale-x-100">
-        <path d="M11.2 3.8 6 9l5.2 5.2" stroke={fg} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 20 20"
+        fill="none"
+        className="justify-self-center rtl:-scale-x-100"
+        style={{ display: "block" }}
+      >
+        <path d="M12.6 3.5 6.2 10l6.4 6.5" stroke={fg} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     </div>
   );
