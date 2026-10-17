@@ -611,8 +611,10 @@ export function ExportDialog({
   const bgDef = BACKGROUNDS.find((b) => b.id === prefs.bg) ?? BACKGROUNDS[0];
   const accent = PLATFORM_MAP[scenario.platform]?.accent ?? "#25d366";
   const paint = useMemo<PaintOptions>(() => ({ accent, custom: prefs.custom }), [accent, prefs.custom]);
-  const dev = device ?? { w: 393, h: 852, radius: 68 };
-  const layout = useMemo(() => computeLayout(preset, dev, prefs.size), [preset, dev, prefs.size]);
+  const layout = useMemo(
+    () => computeLayout(preset, device ?? { w: 393, h: 852, radius: 68 }, prefs.size),
+    [preset, device, prefs.size],
+  );
   const bitrate = bitrateFor(layout.W, layout.H, prefs.fps, prefs.quality);
 
   // Preview canvas pixel size: long side 720px (crisp on HiDPI, cheap to paint).
@@ -1037,7 +1039,6 @@ export function ExportDialog({
                       <div className="grid grid-cols-2 gap-1.5">
                         {PRESETS.map((p) => {
                           const active = p.id === prefs.preset;
-                          const res = p.w ? `${p.w}×${p.h}` : "";
                           return (
                             <button
                               key={p.id}
@@ -1067,7 +1068,6 @@ export function ExportDialog({
                                 </span>
                                 <span className="block truncate text-[10px] text-muted-foreground">
                                   {c.presets[p.id].hint}
-                                  {p.id === "device" && res === "" ? "" : ""}
                                 </span>
                               </span>
                             </button>
