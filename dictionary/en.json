@@ -148,6 +148,8 @@
     "quickPlatform": "Platform",
     "quickDevice": "Device",
     "quickTheme": "Chat theme",
+    "autoZoom": "Auto-zoom",
+    "autoZoomHint": "The camera glides to each new message during playback and export",
     "record": "Recording mode",
     "recordShort": "Record",
     "exitRecord": "Exit",

@@ -13,7 +13,7 @@
  * rules as the exporter, and moves with the same critically-damped spring
  * (`springStep`), so the live preview and the exported video feel identical.
  * Everything is applied as one CSS transform on an inner wrapper; the outer
- * box clips, so layout around the rig never changes.
+ * box clips only while zoomed in, so layout and the phone shadow are untouched at rest.
  */
 
 import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
@@ -133,8 +133,10 @@ export function CameraRig({
       const s2 = Math.exp(spring.ls);
       const tx2 = sc.W / 2 - s2 * spring.x;
       const ty2 = sc.H / 2 - s2 * spring.y;
-      inner.style.transform =
-        s2 < 1.0005 ? "" : `translate(${tx2.toFixed(2)}px, ${ty2.toFixed(2)}px) scale(${s2.toFixed(4)})`;
+      const rest = s2 < 1.0005;
+      inner.style.transform = rest ? "" : `translate(${tx2.toFixed(2)}px, ${ty2.toFixed(2)}px) scale(${s2.toFixed(4)})`;
+      // clip only while zoomed, so the phone shadow shows at rest
+      outer.style.overflow = rest ? "" : "hidden";
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
@@ -143,11 +145,12 @@ export function CameraRig({
       cancelAnimationFrame(raf);
       mo.disconnect();
       inner.style.transform = "";
+      outer.style.overflow = "";
     };
   }, [enabled, intensity, followSides, idleZoomOutMs]);
 
   return (
-    <div ref={outerRef} className={className} style={{ position: "relative", overflow: "hidden", ...style }}>
+    <div ref={outerRef} className={className} style={{ position: "relative", ...style }}>
       <div ref={innerRef} style={{ transformOrigin: "0 0", willChange: enabled ? "transform" : undefined }}>
         {children}
       </div>

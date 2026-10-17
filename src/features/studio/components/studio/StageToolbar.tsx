@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronDown, Moon, Sun } from "lucide-react";
+import { Check, ChevronDown, Moon, Sun, ZoomIn } from "lucide-react";
 
 import { Button } from "@/shared/components/ui/button";
 import {
@@ -11,6 +11,8 @@ import {
 } from "@/shared/components/ui/dropdown-menu";
 import { SegmentedControl } from "@/shared/components/ui/segmented";
 import { Tooltip } from "@/shared/components/ui/tooltip";
+import { cn } from "@/shared/lib/utils";
+import { useLiveZoom } from "../../export/zoomPrefs";
 import { useStudioStore } from "../../store";
 import type { ChatTheme, Device, Scenario } from "../../types";
 import { PLATFORMS } from "../platforms";
@@ -23,6 +25,8 @@ export function StageToolbar({ scenario, t, dir }: { scenario: Scenario; t: Stud
   const setPlatform = useStudioStore((s) => s.setPlatform);
   const setDevice = useStudioStore((s) => s.setDevice);
   const setTheme = useStudioStore((s) => s.setTheme);
+  const zoomOn = useLiveZoom((s) => s.hydrated && s.enabled);
+  const setZoom = useLiveZoom((s) => s.setEnabled);
 
   return (
     <div
@@ -78,6 +82,22 @@ export function StageToolbar({ scenario, t, dir }: { scenario: Scenario; t: Stud
           { value: "dark", label: "", icon: <Moon />, ariaLabel: t.dark, title: t.dark },
         ]}
       />
+
+      <span aria-hidden className="h-5 w-px bg-border" />
+
+      <Tooltip content={t.autoZoomHint}>
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-pressed={zoomOn}
+          aria-label={t.autoZoom}
+          onClick={() => setZoom(!zoomOn)}
+          className={cn("h-7 gap-1.5 px-2", zoomOn ? "bg-primary/12 text-primary hover:bg-primary/18" : "text-muted-foreground")}
+        >
+          <ZoomIn className="size-4" />
+          <span className="hidden text-[13px] lg:inline">{t.autoZoom}</span>
+        </Button>
+      </Tooltip>
     </div>
   );
 }

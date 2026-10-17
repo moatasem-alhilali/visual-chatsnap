@@ -148,6 +148,8 @@
     "quickPlatform": "المنصة",
     "quickDevice": "الجهاز",
     "quickTheme": "ثيم المحادثة",
+    "autoZoom": "تكبير تلقائي",
+    "autoZoomHint": "الكاميرا تقترب من كل رسالة جديدة أثناء التشغيل والتصدير",
     "record": "وضع التسجيل",
     "recordShort": "تسجيل",
     "exitRecord": "خروج",

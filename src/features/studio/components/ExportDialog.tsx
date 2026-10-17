@@ -55,6 +55,7 @@ import {
   isTouchDevice,
   saveVideoFile,
 } from "../services/video-file";
+import { syncLiveZoom } from "../export/zoomPrefs";
 import type { PlaybackView } from "../playback/usePlayback";
 import type { Scenario } from "../types";
 import type { StudioLabels } from "./labels";
@@ -320,6 +321,8 @@ function savePrefs(p: Prefs) {
   } catch {
     /* private mode / quota */
   }
+  // keep the live stage's camera in step with the export settings
+  syncLiveZoom(p);
 }
 
 /** Target bitrate: bits per pixel per frame, a bit less per frame at 60 fps. */

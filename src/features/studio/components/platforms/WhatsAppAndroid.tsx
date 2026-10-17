@@ -686,8 +686,9 @@ export function WhatsAppAndroid({ scenario, playback, lang, rtl }: PlatformProps
           </div>
         </div>
 
-        {/* Scroll-to-bottom: bottom-end corner, only after scrolling up */}
-        {!live && (
+        {/* Scroll-to-bottom: bottom-end corner, only after the user scrolls up — never
+            during playback or a video export (auto-scroll would flash it). */}
+        {!playback.isLive && clock === undefined && (
           <button
             onClick={scrollToBottom}
             aria-label="scroll to bottom"
