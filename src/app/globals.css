@@ -43,6 +43,15 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  /* Studio UI tokens (values in :root / .dark below) */
+  --color-studio-canvas: var(--studio-canvas);
+  --color-studio-panel: var(--studio-panel);
+  --color-studio-me: var(--studio-me);
+  --color-studio-them: var(--studio-them);
+  --shadow-studio-card: var(--studio-shadow-card);
+  --shadow-studio-float: var(--studio-shadow-float);
+  --shadow-studio-pop: var(--studio-shadow-pop);
+  --ease-studio: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 :root {
@@ -51,24 +60,36 @@
   --font-inter: var(--font-inter-base), var(--font-device-arabic);
   --font-roboto: var(--font-roboto-base), var(--font-device-arabic);
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  /* Studio identity ("Modern studio"): refined cool-neutral palette with a
+     single teal accent. Radii: sm 6 / md 8 / lg 10 / xl 14. Shadows: card,
+     float (floating bars), pop (menus, dialogs, toasts). Motion: 150–250ms
+     with --ease-studio. */
+  --background: oklch(0.985 0.002 264);
+  --foreground: oklch(0.21 0.008 264);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.21 0.008 264);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
+  --popover-foreground: oklch(0.21 0.008 264);
   --primary: #0f766e;
   --primary-foreground: #FFFFFF;
-  --secondary: #111827;
-  --secondary-foreground: #FFFFFF;
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --secondary: oklch(0.955 0.004 264);
+  --secondary-foreground: oklch(0.21 0.008 264);
+  --muted: oklch(0.962 0.003 264);
+  --muted-foreground: oklch(0.5 0.014 264);
+  --accent: oklch(0.955 0.004 264);
+  --accent-foreground: oklch(0.21 0.008 264);
+  --destructive: oklch(0.577 0.215 27.325);
+  --border: oklch(0.915 0.005 264);
+  --input: oklch(0.895 0.006 264);
+  --ring: oklch(0.6 0.09 186);
+  --studio-canvas: oklch(0.958 0.004 264);
+  --studio-canvas-dot: oklch(0.78 0.008 264 / 0.5);
+  --studio-panel: oklch(1 0 0);
+  --studio-me: #0f766e;
+  --studio-them: oklch(0.6 0.03 264);
+  --studio-shadow-card: 0 1px 2px oklch(0.2 0.02 264 / 0.05);
+  --studio-shadow-float: 0 1px 2px oklch(0.2 0.02 264 / 0.06), 0 10px 28px -8px oklch(0.2 0.02 264 / 0.16);
+  --studio-shadow-pop: 0 2px 6px oklch(0.2 0.02 264 / 0.07), 0 18px 48px -12px oklch(0.2 0.02 264 / 0.28);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
@@ -85,24 +106,32 @@
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
+  --background: oklch(0.165 0.004 264);
+  --foreground: oklch(0.965 0.003 264);
+  --card: oklch(0.2 0.005 264);
+  --card-foreground: oklch(0.965 0.003 264);
+  --popover: oklch(0.215 0.006 264);
+  --popover-foreground: oklch(0.965 0.003 264);
   --primary: #2dd4bf;
-  --primary-foreground: #FFFFFF;
-  --secondary: #f8fafc;
-  --secondary-foreground: #FFFFFF;
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  --primary-foreground: #042f2c;
+  --secondary: oklch(0.255 0.006 264);
+  --secondary-foreground: oklch(0.965 0.003 264);
+  --muted: oklch(0.235 0.006 264);
+  --muted-foreground: oklch(0.71 0.012 264);
+  --accent: oklch(0.255 0.006 264);
+  --accent-foreground: oklch(0.965 0.003 264);
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --border: oklch(1 0 0 / 8.5%);
+  --input: oklch(1 0 0 / 13%);
+  --ring: oklch(0.72 0.12 182);
+  --studio-canvas: oklch(0.135 0.004 264);
+  --studio-canvas-dot: oklch(1 0 0 / 0.075);
+  --studio-panel: oklch(0.18 0.005 264);
+  --studio-me: #2dd4bf;
+  --studio-them: oklch(0.66 0.025 264);
+  --studio-shadow-card: 0 1px 2px oklch(0 0 0 / 0.3);
+  --studio-shadow-float: 0 1px 2px oklch(0 0 0 / 0.35), 0 12px 32px -8px oklch(0 0 0 / 0.55);
+  --studio-shadow-pop: 0 2px 8px oklch(0 0 0 / 0.4), 0 22px 56px -12px oklch(0 0 0 / 0.7);
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
@@ -210,4 +239,74 @@
 }
 .rcss-scroll::-webkit-scrollbar {
   display: none;
+}
+
+/* ============================================================
+   Studio UI (editor chrome) — canvas backdrop, range slider,
+   auto-growing fields. Tokens live in :root / .dark above.
+   ============================================================ */
+.studio-canvas {
+  background-color: var(--studio-canvas);
+  background-image:
+    radial-gradient(ellipse 60% 50% at 50% 45%, color-mix(in oklab, var(--studio-panel) 65%, transparent), transparent 75%),
+    radial-gradient(var(--studio-canvas-dot) 1px, transparent 1.3px);
+  background-size: 100% 100%, 18px 18px;
+  background-position: center, center;
+}
+
+.studio-field-auto {
+  field-sizing: content;
+}
+
+.studio-range {
+  --fill: 0%;
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 9999px;
+  background: linear-gradient(to right, var(--primary) var(--fill), var(--muted) var(--fill));
+  outline: none;
+  cursor: pointer;
+}
+[dir="rtl"] .studio-range {
+  background: linear-gradient(to left, var(--primary) var(--fill), var(--muted) var(--fill));
+}
+.studio-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: var(--card);
+  border: 1.5px solid var(--primary);
+  box-shadow: 0 1px 3px oklch(0 0 0 / 0.2);
+  transition: transform 150ms var(--ease-studio);
+}
+.studio-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: var(--card);
+  border: 1.5px solid var(--primary);
+  box-shadow: 0 1px 3px oklch(0 0 0 / 0.2);
+}
+.studio-range:hover::-webkit-slider-thumb,
+.studio-range:active::-webkit-slider-thumb {
+  transform: scale(1.12);
+}
+.studio-range:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 40%, transparent);
+}
+
+.studio-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--foreground) 16%, transparent) transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .studio-motion *,
+  .studio-motion *::before,
+  .studio-motion *::after {
+    transition-duration: 1ms !important;
+  }
 }
