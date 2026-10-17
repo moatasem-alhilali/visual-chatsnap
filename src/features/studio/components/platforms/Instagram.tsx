@@ -78,14 +78,14 @@ import { groupInfo, type PlatformMotion, type PlatformProps } from "./types";
 /* ------------------------------ tokens ------------------------------ */
 
 /** Default-theme gradient, top of the screen → bottom of the screen. */
-export const IG_OUT_GRADIENT = "linear-gradient(180deg, #a22fe8 0%, #7a3bf3 48%, #4161f6 100%)";
+const IG_OUT_GRADIENT = "linear-gradient(180deg, #a22fe8 0%, #7a3bf3 48%, #4161f6 100%)";
 /** Solid fallback (colour at the bottom of the screen — where new messages land). */
-export const IG_OUT_SOLID = "#4f58f5";
+const IG_OUT_SOLID = "#4f58f5";
 /** Theme accent used for the composer camera button. */
 const IG_ACCENT = "#5b4ff0";
 const IG_ACTIVE_GREEN = "#78de45";
 
-export interface IgPalette {
+interface IgPalette {
   bg: string;
   fg: string;
   sub: string;
@@ -95,7 +95,7 @@ export interface IgPalette {
   imgPlaceholder: string;
 }
 
-export function igPalette(dark: boolean): IgPalette {
+function igPalette(dark: boolean): IgPalette {
   return dark
     ? { bg: "#000000", fg: "#ffffff", sub: "#a8a8a8", inBubble: "#262626", field: "#262626", dots: "#a8a8a8", imgPlaceholder: "#1f1f1f" }
     : { bg: "#ffffff", fg: "#000000", sub: "#737373", inBubble: "#efefef", field: "#efefef", dots: "#8e8e8e", imgPlaceholder: "#e6e6e6" };
@@ -135,7 +135,7 @@ const IG_STRINGS: Record<Lang, {
 };
 
 /** Per-OS differences (status bar, back glyph, metrics). */
-export interface IgSpec {
+interface IgSpec {
   renderStatusBar: (p: { device: Device; dark: boolean; bg: string; lang: Lang }) => ReactNode;
   renderBack: (color: string) => ReactNode;
   /** device used for the OS navigation affordance at the bottom */
@@ -165,7 +165,7 @@ export interface IgSpec {
 
 /* ------------------------------- icons ------------------------------ */
 
-export function IgPhoneIcon({ size }: { size: number }) {
+function IgPhoneIcon({ size }: { size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className="rtl:-scale-x-100">
       <path
@@ -178,7 +178,7 @@ export function IgPhoneIcon({ size }: { size: number }) {
   );
 }
 
-export function IgVideoIcon({ size }: { size: number }) {
+function IgVideoIcon({ size }: { size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className="rtl:-scale-x-100">
       <rect x="1.8" y="5.2" width="14.4" height="13.6" rx="3.6" stroke="currentColor" strokeWidth="1.9" />
@@ -339,7 +339,7 @@ function TypingRow({ person, pal, spec }: { person: Person; pal: IgPalette; spec
 
 /* ------------------------------ thread ------------------------------ */
 
-export function IgThread({ scenario, playback, lang, rtl, spec }: PlatformProps & { spec: IgSpec }) {
+function IgThread({ scenario, playback, lang, rtl, spec }: PlatformProps & { spec: IgSpec }) {
   const dark = scenario.theme === "dark";
   const pal = igPalette(dark);
   const s = IG_STRINGS[lang];

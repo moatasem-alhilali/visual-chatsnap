@@ -1,21 +1,12 @@
 "use client";
 
-import { createElement } from "react";
+import { lazy, Suspense, type ComponentType } from "react";
 
 import type { Device, Platform } from "../../types";
 import type { PlatformMotion, PlatformProps } from "./types";
-import { WhatsApp, whatsappIosMotion } from "./WhatsApp";
-import { WhatsAppAndroid, whatsappAndroidMotion } from "./WhatsAppAndroid";
-import { Telegram, telegramIosMotion } from "./Telegram";
-import { TelegramAndroid, telegramAndroidMotion } from "./TelegramAndroid";
-import { Instagram, instagramIosMotion } from "./Instagram";
-import { InstagramAndroid, instagramAndroidMotion } from "./InstagramAndroid";
-import { Snapchat, snapchatIosMotion } from "./Snapchat";
-import { SnapchatAndroid, snapchatAndroidMotion } from "./SnapchatAndroid";
-import { IMessage, imessageIosMotion } from "./iMessage";
-import { SamsungMessages, samsungMessagesMotion } from "./SamsungMessages";
 
-type PlatformComponent = (props: PlatformProps) => React.ReactNode;
+type PlatformComponent = ComponentType<PlatformProps>;
+type Os = "ios" | "android";
 
 export interface PlatformMeta {
   id: Platform;
@@ -23,30 +14,95 @@ export interface PlatformMeta {
   label: string;
   /** brand accent used for the picker chip */
   accent: string;
-  /** default (iOS) renderer */
-  Component: PlatformComponent;
-  /** optional device-specific renderer for Android/Samsung */
-  android?: PlatformComponent;
-  /** entrance motion of the iOS renderer (used by the video exporter) */
-  motion?: PlatformMotion;
-  /** entrance motion of the Android renderer */
-  androidMotion?: PlatformMotion;
 }
 
 export const PLATFORMS: PlatformMeta[] = [
-  { id: "whatsapp", label: "WhatsApp", accent: "#25d366", Component: WhatsApp, android: WhatsAppAndroid, motion: whatsappIosMotion, androidMotion: whatsappAndroidMotion },
-  { id: "telegram", label: "Telegram", accent: "#2aabee", Component: Telegram, android: TelegramAndroid, motion: telegramIosMotion, androidMotion: telegramAndroidMotion },
-  { id: "instagram", label: "Instagram", accent: "#e1306c", Component: Instagram, android: InstagramAndroid, motion: instagramIosMotion, androidMotion: instagramAndroidMotion },
-  { id: "snapchat", label: "Snapchat", accent: "#fffc00", Component: Snapchat, android: SnapchatAndroid, motion: snapchatIosMotion, androidMotion: snapchatAndroidMotion },
-  { id: "imessage", label: "iMessage", accent: "#0a7cff", Component: IMessage, android: SamsungMessages, motion: imessageIosMotion, androidMotion: samsungMessagesMotion },
+  { id: "whatsapp", label: "WhatsApp", accent: "#25d366" },
+  { id: "telegram", label: "Telegram", accent: "#2aabee" },
+  { id: "instagram", label: "Instagram", accent: "#e1306c" },
+  { id: "snapchat", label: "Snapchat", accent: "#fffc00" },
+  { id: "imessage", label: "iMessage", accent: "#0a7cff" },
 ];
 
-/** Resolve the right renderer for a platform on a given device. */
-export function resolvePlatformComponent(platform: Platform, device: Device): PlatformComponent {
-  const meta = PLATFORM_MAP[platform];
-  if (device === "android" && meta.android) return meta.android;
-  return meta.Component;
+export const PLATFORM_MAP: Record<Platform, PlatformMeta> = PLATFORMS.reduce(
+  (acc, p) => {
+    acc[p.id] = p;
+    return acc;
+  },
+  {} as Record<Platform, PlatformMeta>,
+);
+
+interface PlatformModule {
+  Component: PlatformComponent;
+  /** entrance motion of this renderer (used by the video exporter) */
+  motion: PlatformMotion;
 }
+
+/**
+ * Each app × OS template is its own code-split chunk (some are large, e.g. the
+ * Telegram wallpapers), so the studio only downloads the one being shown.
+ * iMessage on Android renders Samsung Messages (iMessage doesn't exist there).
+ */
+const LOADERS: Record<Platform, Record<Os, () => Promise<PlatformModule>>> = {
+  whatsapp: {
+    ios: () => import("./WhatsApp").then((m) => ({ Component: m.WhatsApp, motion: m.whatsappIosMotion })),
+    android: () =>
+      import("./WhatsAppAndroid").then((m) => ({ Component: m.WhatsAppAndroid, motion: m.whatsappAndroidMotion })),
+  },
+  telegram: {
+    ios: () => import("./Telegram").then((m) => ({ Component: m.Telegram, motion: m.telegramIosMotion })),
+    android: () =>
+      import("./TelegramAndroid").then((m) => ({ Component: m.TelegramAndroid, motion: m.telegramAndroidMotion })),
+  },
+  instagram: {
+    ios: () => import("./Instagram").then((m) => ({ Component: m.Instagram, motion: m.instagramIosMotion })),
+    android: () =>
+      import("./InstagramAndroid").then((m) => ({ Component: m.InstagramAndroid, motion: m.instagramAndroidMotion })),
+  },
+  snapchat: {
+    ios: () => import("./Snapchat").then((m) => ({ Component: m.Snapchat, motion: m.snapchatIosMotion })),
+    android: () =>
+      import("./SnapchatAndroid").then((m) => ({ Component: m.SnapchatAndroid, motion: m.snapchatAndroidMotion })),
+  },
+  imessage: {
+    ios: () => import("./iMessage").then((m) => ({ Component: m.IMessage, motion: m.imessageIosMotion })),
+    android: () =>
+      import("./SamsungMessages").then((m) => ({ Component: m.SamsungMessages, motion: m.samsungMessagesMotion })),
+  },
+};
+
+const osOf = (device: Device): Os => (device === "android" ? "android" : "ios");
+const keyOf = (platform: Platform, device: Device) => `${platform}:${osOf(device)}`;
+
+const loaded = new Map<string, PlatformModule>();
+const pending = new Map<string, Promise<PlatformModule>>();
+
+/** Load (once) the template for a platform/device; resolves when its chunk is ready. */
+export function preloadPlatform(platform: Platform, device: Device): Promise<PlatformModule> {
+  const key = keyOf(platform, device);
+  const done = loaded.get(key);
+  if (done) return Promise.resolve(done);
+  let p = pending.get(key);
+  if (!p) {
+    p = LOADERS[platform][osOf(device)]().then((m) => {
+      loaded.set(key, m);
+      return m;
+    });
+    pending.set(key, p);
+  }
+  return p;
+}
+
+/** One lazy component per app × OS, created once at module level. */
+const VIEWS = Object.fromEntries(
+  PLATFORMS.map((p) => [
+    p.id,
+    {
+      ios: lazy(() => preloadPlatform(p.id, "iphone").then((m) => ({ default: m.Component }))),
+      android: lazy(() => preloadPlatform(p.id, "android").then((m) => ({ default: m.Component }))),
+    },
+  ]),
+) as unknown as Record<Platform, Record<Os, PlatformComponent>>;
 
 /** Generic fallback: slide up 16px + fade, ease-out cubic over 300ms. */
 export const DEFAULT_MOTION: PlatformMotion = {
@@ -61,23 +117,22 @@ export const DEFAULT_MOTION: PlatformMotion = {
   },
 };
 
-/** Resolve the entrance motion for a platform on a given device. */
+/**
+ * Entrance motion for a platform on a given device. The template is always on
+ * screen (and therefore loaded) before an export starts; until then this
+ * falls back to DEFAULT_MOTION — await `preloadPlatform` to be certain.
+ */
 export function resolvePlatformMotion(platform: Platform, device: Device): PlatformMotion {
-  const meta = PLATFORM_MAP[platform];
-  if (device === "android" && meta.android) return meta.androidMotion ?? DEFAULT_MOTION;
-  return meta.motion ?? DEFAULT_MOTION;
+  return loaded.get(keyOf(platform, device))?.motion ?? DEFAULT_MOTION;
 }
 
-/** Stable component that renders the right device/platform template. */
+/** Renders the right app template for the scenario's platform + device. */
 export function PlatformView(props: PlatformProps) {
-  const comp = resolvePlatformComponent(props.scenario.platform, props.scenario.device);
-  return createElement(comp, props);
+  const View = VIEWS[props.scenario.platform][osOf(props.scenario.device)];
+  const blank = props.scenario.theme === "dark" ? "#000" : "#fff";
+  return (
+    <Suspense fallback={<div className="h-full w-full" style={{ background: blank }} />}>
+      <View {...props} />
+    </Suspense>
+  );
 }
-
-export const PLATFORM_MAP: Record<Platform, PlatformMeta> = PLATFORMS.reduce(
-  (acc, p) => {
-    acc[p.id] = p;
-    return acc;
-  },
-  {} as Record<Platform, PlatformMeta>,
-);
