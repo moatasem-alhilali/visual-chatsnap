@@ -1,4 +1,4 @@
-import { snapdom } from "@zumer/snapdom";
+import { snapdom, type SnapdomOptions } from "@zumer/snapdom";
 
 import type { PlatformMotion } from "../components/platforms/types";
 import { isLightBackground, paintBackground, paintPhoneShadow, ScreenBackdrop, type BackgroundDef, type PaintOptions } from "./backgrounds";
@@ -119,16 +119,29 @@ function stripShadowOf(phone: HTMLElement): void {
   phone.style.setProperty("box-shadow", keep.length ? keep.join(", ") : "none", "important");
 }
 
+/**
+ * Computed properties that never change a static snapshot of a chat template
+ * (scrolling, anchor positioning, timelines, print/paged media, ruby, user
+ * interaction…). snapdom reads ~480 properties per element on every capture;
+ * skipping these makes each capture noticeably cheaper. column-gap / row-gap
+ * (flex gaps) and all paint/geometry properties are kept.
+ */
+const SKIP_STYLE_PROPS =
+  /^(scroll-|overscroll-|timeline-|view-timeline|view-transition|trigger-scope|interest-delay|caret-|anchor-|position-anchor|position-area|position-try|position-visibility|break-|orphans$|widows$|column-(count|fill|height|rule|span|width|wrap)|row-rule|rule-overlap|counter-|quotes$|ruby-|-webkit-ruby|math-|text-emphasis|text-combine|-webkit-text-combine|contain-intrinsic|field-sizing|interpolate-size|dynamic-range-limit|frame-sizing|hyphenate-|initial-letter|margin-trim|shape-(image|margin|outside)|buffered-rendering|print-color-adjust|forced-color-adjust|resize$|window-drag|app-region|-webkit-user-|-webkit-tap-highlight|-webkit-locale|-webkit-rtl-ordering|overflow-anchor|text-size-adjust|will-change|caption-side|empty-cells|touch-action|user-select|cursor$|reading-|speak$|interactivity|flex-line-count)/;
+
 /** Snapshot the stage at an exact output scale (dpr pinned to 1 so the size is exact). */
 export async function captureStage(stage: StageController, scale: number): Promise<HTMLCanvasElement> {
-  return snapdom.toCanvas(stage.node, {
+  // `excludeStyleProps` is supported by snapdom 2.x but missing from its typings
+  const opts: SnapdomOptions & { excludeStyleProps?: RegExp } = {
     scale,
     dpr: 1,
     embedFonts: true,
     fast: true,
     cache: "auto",
     backgroundColor: undefined,
-  });
+    excludeStyleProps: SKIP_STYLE_PROPS,
+  };
+  return snapdom.toCanvas(stage.node, opts);
 }
 
 const SCROLL_MS = 340;
@@ -159,7 +172,7 @@ function fnv(str: string, h = 0x811c9dc5): number {
 }
 
 /** Longest side (px) of the high-res phone capture used when zooming. */
-const MAX_CAPTURE_SIDE = 3200;
+const MAX_CAPTURE_SIDE = 2800;
 /** Memory budget for re-usable phone captures (looping typing dots repeat). */
 const CACHE_BYTES = 160 * 1024 * 1024;
 
@@ -338,7 +351,7 @@ export class FrameRenderer {
    * If the app only shows "typing…" in the header, keep framing the latest
    * message (or the bottom of the thread on the other party's side).
    */
-  private measureTyping(side: "left" | "right", fallback: Rect | null): Rect {
+  private measureTyping(side: "left" | "right", fallback: Rect | null): Rect | null {
     const node = this.o.stage.node;
     const nodeRect = node.getBoundingClientRect();
     const before = this.before ?? new Set<Element>();
@@ -367,9 +380,9 @@ export class FrameRenderer {
       }
       return this.toScene(rect, nodeRect);
     }
-    if (fallback) return fallback;
-    const { phone, scale } = this.o.layout;
-    return { x: side === "left" ? phone.x : phone.x + phone.w * 0.55, y: phone.y + phone.h * 0.78, w: phone.w * 0.45, h: 60 * scale };
+    // header-only indicator (e.g. Telegram Android): hold on the last message,
+    // or stay wide if nothing has been said yet
+    return fallback;
   }
 
   /* ------------------------------------------------------------ frames */

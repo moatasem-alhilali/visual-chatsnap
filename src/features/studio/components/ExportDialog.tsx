@@ -972,7 +972,7 @@ export function ExportDialog({
         ) : (
           <div className="grid min-h-0 flex-1 overflow-y-auto md:grid-cols-[minmax(0,1fr)_360px] md:overflow-hidden">
             {/* preview */}
-            <div className="relative flex min-h-[300px] flex-col bg-muted/50 p-4 md:min-h-[560px]">
+            <div className="relative flex min-h-[240px] flex-col bg-muted/50 p-4 md:min-h-[560px]">
               <div className="relative flex min-h-0 flex-1 items-center justify-center">
                 {phase === "done" && result ? (
                   <video
@@ -983,7 +983,7 @@ export function ExportDialog({
                     muted
                     loop
                     playsInline
-                    className="max-h-[min(62dvh,540px)] max-w-full rounded-lg bg-black shadow-lg"
+                    className="max-h-[48dvh] max-w-full rounded-lg bg-black shadow-lg md:max-h-[min(62dvh,540px)]"
                     style={{ aspectRatio: `${result.W}/${result.H}` }}
                   />
                 ) : (
@@ -992,7 +992,7 @@ export function ExportDialog({
                     width={previewW}
                     height={previewH}
                     className={cn(
-                      "max-h-[min(56dvh,520px)] max-w-full rounded-lg shadow-lg ring-1 ring-black/5 transition-opacity",
+                      "max-h-[40dvh] max-w-full rounded-lg shadow-lg ring-1 ring-black/5 transition-opacity md:max-h-[min(56dvh,520px)]",
                       !previewPhone && "animate-pulse",
                     )}
                     style={{ aspectRatio: `${layout.W}/${layout.H}` }}
@@ -1006,7 +1006,7 @@ export function ExportDialog({
             </div>
 
             {/* side panel */}
-            <div className="flex min-h-0 flex-col border-t border-border md:border-s md:border-t-0">
+            <div className="flex flex-col border-t border-border md:min-h-0 md:border-s md:border-t-0">
               {phase === "rendering" ? (
                 <div className="flex flex-1 flex-col justify-center gap-5 p-6">
                   <div className="space-y-1">
@@ -1108,7 +1108,7 @@ export function ExportDialog({
                 </div>
               ) : (
                 <>
-                  <div className="min-h-0 flex-1 space-y-5 p-5 md:overflow-y-auto">
+                  <div className="space-y-5 p-5 md:min-h-0 md:flex-1 md:overflow-y-auto">
                     {phase === "error" && (
                       <div
                         className="flex gap-2 rounded-lg bg-destructive/10 p-3 text-sm text-destructive"
@@ -1307,7 +1307,7 @@ export function ExportDialog({
                     </button>
                   </div>
 
-                  <div className="space-y-2 border-t border-border p-4">
+                  <div className="sticky bottom-0 space-y-2 border-t border-border bg-background p-4 md:static">
                     <div className="flex items-center justify-between text-[11px] text-muted-foreground tabular-nums">
                       <span dir="ltr">{summary}</span>
                       <span>~{fmtMB(estimateBytes(bitrate, totalMs, prefs.zoom), lang)}</span>
