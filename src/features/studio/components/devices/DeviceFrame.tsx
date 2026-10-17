@@ -68,16 +68,14 @@ export const DEVICE_SPEC: Record<Device, DeviceSpec> = {
     outerRadius: 72,
     screenRadius: 55,
     // Black Titanium: brushed dark grey with a cool sheen, lit from the top-left.
-    rail: "linear-gradient(152deg, #77777c 0%, #4a4a4f 9%, #343438 24%, #2b2b2f 50%, #313135 74%, #47474c 90%, #6a6a70 100%)",
+    rail: "linear-gradient(152deg, #8c8c92 0%, #5e5e64 9%, #48484d 24%, #3e3e43 50%, #45454a 74%, #5a5a60 90%, #808086 100%)",
     railShade: [
-      "inset 0 0 0 0.6px rgba(0,0,0,0.9)", // outer silhouette
-      "inset 0 0 0 1.5px rgba(214,214,222,0.42)", // specular line on the curved edge
-      "inset 0 0 0 2.6px rgba(255,255,255,0.10)",
-      "inset 0 0 0 4.8px rgba(0,0,0,0.16)", // the curve rolls away from the light
-      "inset 0 0 0 6.5px rgba(0,0,0,0.38)", // seam into the glass
+      "inset 0 0 0 0.6px rgba(0,0,0,0.85)", // outer silhouette
+      "inset 0 0 0 1.8px rgba(226,226,234,0.36)", // specular line on the curved edge
+      "inset 0 0 0 3.4px rgba(255,255,255,0.07)", // the curve rolls away from the light
     ].join(", "),
-    buttonLeft: "linear-gradient(90deg, #1d1d20 0%, #4e4e53 30%, #6c6c72 55%, #3a3a3e 100%)",
-    buttonRight: "linear-gradient(270deg, #1d1d20 0%, #4e4e53 30%, #6c6c72 55%, #3a3a3e 100%)",
+    buttonLeft: "linear-gradient(90deg, #2a2a2e 0%, #5d5d63 32%, #7c7c82 58%, #4a4a4f 100%)",
+    buttonRight: "linear-gradient(270deg, #2a2a2e 0%, #5d5d63 32%, #7c7c82 58%, #4a4a4f 100%)",
   },
   android: {
     w: 360,
@@ -91,9 +89,7 @@ export const DEVICE_SPEC: Record<Device, DeviceSpec> = {
     rail: "linear-gradient(160deg, #8b8e94 0%, #6b6e74 14%, #55585e 45%, #5b5e64 72%, #7d8086 100%)",
     railShade: [
       "inset 0 0 0 0.6px rgba(0,0,0,0.85)", // outer silhouette
-      "inset 0 0 0 1.3px rgba(235,238,245,0.38)", // chamfer catching the light
-      "inset 0 0 0 3.8px rgba(255,255,255,0.04)",
-      "inset 0 0 0 5px rgba(0,0,0,0.30)", // seam into the glass
+      "inset 0 0 0 1.3px rgba(235,238,245,0.36)", // chamfer catching the light
     ].join(", "),
     buttonLeft: "linear-gradient(90deg, #3a3c40 0%, #73767c 45%, #55585d 100%)",
     buttonRight: "linear-gradient(270deg, #3a3c40 0%, #8a8d93 40%, #5f6267 100%)",
@@ -297,7 +293,8 @@ export function DeviceFrame({
             inset: s.railWidth,
             borderRadius: glassRadius,
             background: "#020203",
-            boxShadow: "inset 0 0 0 0.5px rgba(0,0,0,1), inset 0 0 1.5px 0.5px rgba(255,255,255,0.05)",
+            // seam between the rail and the glass, then a hairline glint on the glass edge
+            boxShadow: `0 0 0 ${isPhone ? 1.1 : 0.9}px rgba(0,0,0,0.55), inset 0 0 0 0.5px rgba(255,255,255,0.06)`,
           }}
         />
 

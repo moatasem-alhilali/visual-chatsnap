@@ -272,12 +272,6 @@ function timeWidth(s: string): number {
   return Math.ceil(w);
 }
 
-/** Paragraph direction like StaticLayout's FIRSTSTRONG_LTR heuristic. */
-function firstStrongDir(text: string): "ltr" | "rtl" {
-  const m = text.match(/[A-Za-zÀ-ɏͰ-ϿЀ-ӿ]|[֐-ࣿיִ-﷿ﹰ-﻿]/);
-  return m && /[֐-ࣿיִ-﷿ﹰ-﻿]/.test(m[0]) ? "rtl" : "ltr";
-}
-
 const HAS_RTL = /[֐-ࣿיִ-﷿ﹰ-﻿]/;
 
 /** 1–3 emoji (and nothing else) → Telegram's big-emoji rendering. Returns the emoji count or 0. */
@@ -798,12 +792,14 @@ function fitTextBlocks(sc: HTMLElement) {
     const pr = p.getBoundingClientRect();
     if (!p.offsetWidth || !pr.width) return;
     const k = pr.width / p.offsetWidth;
+    const textSpan = p.firstElementChild as HTMLElement | null;
+    if (!textSpan) return;
+    // one client rect per line box of the text span → single-line bubbles already shrink-wrap
+    const lineTops = new Set(Array.from(textSpan.getClientRects(), (r) => Math.round(r.top / k)));
+    if (lineTops.size < 2) return;
     const range = document.createRange();
     range.selectNodeContents(p);
-    const rects = Array.from(range.getClientRects()).filter((r) => r.width > 0 || r.height > 0);
-    if (rects.length < 2) return;
-    const tops = new Set(rects.map((r) => Math.round(r.top / k)));
-    if (tops.size < 2) return;
+    const rects = Array.from(range.getClientRects()).filter((r) => r.width > 0);
     const cs = getComputedStyle(p);
     const pl = parseFloat(cs.paddingLeft) * k;
     const pRight = parseFloat(cs.paddingRight) * k;
@@ -812,7 +808,7 @@ function fitTextBlocks(sc: HTMLElement) {
     for (const r of rects) {
       need = Math.max(need, rtl ? pr.right - pRight - r.left : r.right - (pr.left + pl));
     }
-    const w = Math.ceil((need / k) * 4) / 4;
+    const w = Math.ceil((need / k) * 4) / 4 + 0.5;
     if (w > 0 && w < p.clientWidth) p.style.width = `${w}px`;
   });
 }
