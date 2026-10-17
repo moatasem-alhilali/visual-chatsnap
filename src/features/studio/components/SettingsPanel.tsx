@@ -1,101 +1,36 @@
 "use client";
 
-import { useRef } from "react";
-import { ArrowLeftRight, Upload, X } from "lucide-react";
+import { useId } from "react";
+import {
+  ArrowUpDown,
+  BatteryFull,
+  Clock,
+  LayoutGrid,
+  Moon,
+  Palette,
+  PanelTop,
+  PenLine,
+  Signal,
+  Smartphone,
+  Sun,
+  Users,
+  Wifi,
+} from "lucide-react";
 
-import { Button } from "@/shared/components/ui/button";
+import { Input } from "@/shared/components/ui/input";
+import { SegmentedControl } from "@/shared/components/ui/segmented";
+import { Switch } from "@/shared/components/ui/switch";
+import { Tooltip } from "@/shared/components/ui/tooltip";
 import { useStudioStore } from "../store";
-import type { Person, Scenario, Sender } from "../types";
+import type { PresenceStatus, Scenario, StatusBarConfig } from "../types";
 import { DEFAULT_STATUS_BAR } from "../types";
 import { ANDROID_FONTS } from "../data/fonts";
-import { PLATFORMS } from "./platforms";
-import { Avatar } from "./shared";
 import type { StudioLabels } from "./labels";
+import { FieldLabel, PanelSection } from "./studio/PanelSection";
+import { DevicePicker, PlatformPicker, platformName } from "./studio/Pickers";
+import { ParticipantCard } from "./studio/ParticipantCard";
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="space-y-2">
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
-      {children}
-    </div>
-  );
-}
-
-function Segmented<T extends string>({
-  value,
-  onChange,
-  options,
-}: {
-  value: T;
-  onChange: (v: T) => void;
-  options: { value: T; label: string }[];
-}) {
-  return (
-    <div className="flex gap-1 rounded-lg bg-muted p-1">
-      {options.map((o) => (
-        <button
-          key={o.value}
-          onClick={() => onChange(o.value)}
-          className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
-            value === o.value ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function PersonEditor({ who, person, t }: { who: Sender; person: Person; t: StudioLabels }) {
-  const updatePerson = useStudioStore((s) => s.updatePerson);
-  const fileRef = useRef<HTMLInputElement>(null);
-
-  const onFile = (file: File | undefined) => {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => updatePerson(who, { avatar: reader.result as string });
-    reader.readAsDataURL(file);
-  };
-
-  return (
-    <div className="rounded-lg border border-border bg-card p-3">
-      <p className="mb-2 text-xs font-semibold">{who === "me" ? t.me : t.them}</p>
-      <div className="flex items-center gap-3">
-        <Avatar person={person} size={44} />
-        <div className="flex-1 space-y-2">
-          <input
-            value={person.name}
-            onChange={(e) => updatePerson(who, { name: e.target.value })}
-            placeholder={t.name}
-            dir="auto"
-            className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-          />
-          <div className="flex gap-1.5">
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => onFile(e.target.files?.[0])}
-            />
-            <Button size="sm" variant="outline" className="h-7 flex-1 gap-1 px-2 text-xs" onClick={() => fileRef.current?.click()}>
-              <Upload className="size-3" />
-              {t.upload}
-            </Button>
-            {person.avatar && (
-              <Button size="sm" variant="ghost" className="h-7 gap-1 px-2 text-xs text-destructive" onClick={() => updatePerson(who, { avatar: null })}>
-                <X className="size-3" />
-                {t.remove}
-              </Button>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
+/** Left zone: everything about the scenario's look (platform, device, people…). */
 export function SettingsPanel({ scenario, t }: { scenario: Scenario; t: StudioLabels }) {
   const setPlatform = useStudioStore((s) => s.setPlatform);
   const setDevice = useStudioStore((s) => s.setDevice);
@@ -106,127 +41,163 @@ export function SettingsPanel({ scenario, t }: { scenario: Scenario; t: StudioLa
   const updateStatusBar = useStudioStore((s) => s.updateStatusBar);
   const swapRoles = useStudioStore((s) => s.swapRoles);
 
+  const ids = {
+    platform: useId(),
+    device: useId(),
+    font: useId(),
+    theme: useId(),
+    presence: useId(),
+    lastSeen: useId(),
+  };
   const sb = scenario.statusBar ?? DEFAULT_STATUS_BAR;
+  const presenceLabel = { online: t.online, typing: t.typing, lastseen: t.lastSeen }[scenario.presence];
+
+  const sbRows: { key: keyof StatusBarConfig; label: string; icon: React.ReactNode }[] = [
+    { key: "wifi", label: t.sbWifi, icon: <Wifi /> },
+    { key: "cellular", label: t.sbCellular, icon: <Signal /> },
+    { key: "batteryPct", label: t.sbBatteryPct, icon: <BatteryFull /> },
+  ];
 
   return (
-    <div className="space-y-5">
-      <Section title={t.platform}>
-        <div className="grid grid-cols-2 gap-2">
-          {PLATFORMS.map((p) => {
-            const active = scenario.platform === p.id;
-            return (
-              <button
-                key={p.id}
-                onClick={() => setPlatform(p.id)}
-                className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-medium transition-all ${
-                  active ? "border-primary bg-primary/10 text-foreground" : "border-border bg-card text-muted-foreground hover:border-foreground/30"
-                }`}
-              >
-                <span className="size-3 rounded-full" style={{ background: p.accent }} />
-                {p.label}
-              </button>
-            );
-          })}
-        </div>
-      </Section>
-
-      <Section title={t.device}>
-        <Segmented
-          value={scenario.device}
-          onChange={setDevice}
-          options={[
-            { value: "iphone", label: t.iphone },
-            { value: "android", label: t.android },
-          ]}
+    <div>
+      <PanelSection
+        icon={<LayoutGrid />}
+        title={t.platform}
+        summary={platformName(scenario.platform, scenario.device, t)}
+      >
+        <p id={ids.platform} className="sr-only">
+          {t.platform}
+        </p>
+        <PlatformPicker
+          value={scenario.platform}
+          device={scenario.device}
+          onChange={setPlatform}
+          t={t}
+          labelId={ids.platform}
         />
+      </PanelSection>
+
+      <PanelSection
+        icon={<Smartphone />}
+        title={t.device}
+        summary={scenario.device === "iphone" ? t.iphone : t.android}
+      >
+        <p id={ids.device} className="sr-only">
+          {t.device}
+        </p>
+        <DevicePicker value={scenario.device} onChange={setDevice} t={t} labelId={ids.device} />
         {scenario.device === "android" && (
-          <div className="mt-2">
-            <span className="mb-1 block text-[11px] font-medium text-muted-foreground">{t.font}</span>
-            <div className="flex gap-1 rounded-lg bg-muted p-1">
-              {ANDROID_FONTS.map((f) => (
-                <button
-                  key={f.id}
-                  onClick={() => setAndroidFont(f.id)}
-                  className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
-                    scenario.androidFont === f.id ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-                  }`}
-                  style={{ fontFamily: f.family }}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
+          <div className="mt-3 animate-in fade-in-0 slide-in-from-top-1 duration-200">
+            <FieldLabel id={ids.font}>{t.font}</FieldLabel>
+            <SegmentedControl
+              aria-labelledby={ids.font}
+              value={scenario.androidFont}
+              onChange={setAndroidFont}
+              size="sm"
+              options={ANDROID_FONTS.map((f) => ({
+                value: f.id,
+                label: f.label,
+                style: { fontFamily: f.family },
+              }))}
+            />
           </div>
         )}
-      </Section>
+      </PanelSection>
 
-      <Section title={t.statusBarTitle}>
-        <div className="flex flex-wrap gap-2">
-          {([
-            { key: "wifi", label: t.sbWifi },
-            { key: "cellular", label: t.sbCellular },
-            { key: "batteryPct", label: t.sbBatteryPct },
-          ] as const).map((o) => {
-            const on = sb[o.key];
-            return (
-              <button
-                key={o.key}
-                onClick={() => updateStatusBar({ [o.key]: !on })}
-                className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
-                  on
-                    ? "border-primary bg-primary/10 text-foreground"
-                    : "border-border bg-card text-muted-foreground hover:border-foreground/30"
-                }`}
-              >
-                {o.label}
-              </button>
-            );
-          })}
-        </div>
-      </Section>
-
-      <Section title={t.chatTheme}>
-        <Segmented
+      <PanelSection
+        icon={<Palette />}
+        title={t.appearance}
+        summary={scenario.theme === "light" ? t.light : t.dark}
+      >
+        <FieldLabel id={ids.theme}>{t.chatTheme}</FieldLabel>
+        <SegmentedControl
+          aria-labelledby={ids.theme}
           value={scenario.theme}
           onChange={setTheme}
           options={[
-            { value: "light", label: t.light },
-            { value: "dark", label: t.dark },
+            { value: "light", label: t.light, icon: <Sun /> },
+            { value: "dark", label: t.dark, icon: <Moon /> },
           ]}
         />
-      </Section>
+      </PanelSection>
 
-      <Section title={t.presence}>
-        <Segmented
+      <PanelSection
+        icon={<Users />}
+        title={t.people}
+        summary={`${scenario.me.name || t.meShort} · ${scenario.them.name || t.themShort}`}
+      >
+        <div className="relative space-y-2">
+          <ParticipantCard who="me" person={scenario.me} t={t} />
+          <ParticipantCard who="them" person={scenario.them} t={t} />
+          <div className="pointer-events-none absolute inset-x-0 top-1/2 flex -translate-y-1/2 justify-end pe-5">
+            <Tooltip content={t.swapRoles}>
+              <button
+                type="button"
+                onClick={swapRoles}
+                aria-label={t.swapRoles}
+                className="pointer-events-auto flex size-7 cursor-pointer items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-studio-float transition-[color,transform] duration-200 ease-studio hover:rotate-180 hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+              >
+                <ArrowUpDown className="size-3.5" />
+              </button>
+            </Tooltip>
+          </div>
+        </div>
+      </PanelSection>
+
+      <PanelSection icon={<PenLine />} title={t.presence} summary={presenceLabel}>
+        <p id={ids.presence} className="sr-only">
+          {t.presence}
+        </p>
+        <SegmentedControl<PresenceStatus>
+          aria-labelledby={ids.presence}
           value={scenario.presence}
           onChange={setPresence}
+          size="sm"
           options={[
-            { value: "online", label: t.online },
+            {
+              value: "online",
+              label: t.online,
+              icon: <span className="size-1.5 rounded-full bg-emerald-500" />,
+            },
             { value: "typing", label: t.typing },
-            { value: "lastseen", label: t.lastSeen },
+            { value: "lastseen", label: t.lastSeen, icon: <Clock /> },
           ]}
         />
         {scenario.presence === "lastseen" && (
-          <input
-            value={scenario.lastSeenText}
-            onChange={(e) => setLastSeenText(e.target.value)}
-            placeholder={t.lastSeenText}
-            dir="auto"
-            className="mt-2 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-          />
+          <div className="mt-3 animate-in fade-in-0 slide-in-from-top-1 duration-200">
+            <FieldLabel htmlFor={ids.lastSeen}>{t.lastSeenText}</FieldLabel>
+            <Input
+              id={ids.lastSeen}
+              value={scenario.lastSeenText}
+              onChange={(e) => setLastSeenText(e.target.value)}
+              placeholder={t.lastSeenText}
+              dir="auto"
+            />
+          </div>
         )}
-      </Section>
+      </PanelSection>
 
-      <Section title={t.people}>
-        <div className="space-y-2">
-          <PersonEditor who="me" person={scenario.me} t={t} />
-          <PersonEditor who="them" person={scenario.them} t={t} />
-          <Button variant="outline" size="sm" className="w-full gap-2" onClick={swapRoles}>
-            <ArrowLeftRight className="size-4" />
-            {t.swapRoles}
-          </Button>
-        </div>
-      </Section>
+      <PanelSection icon={<PanelTop />} title={t.statusBarTitle} defaultOpen={false}>
+        <p className="mb-2 text-xs text-muted-foreground">{t.statusBarHint}</p>
+        <ul className="divide-y divide-border/70 overflow-hidden rounded-xl border border-border bg-card">
+          {sbRows.map((row) => {
+            const id = `sb-${row.key}`;
+            return (
+              <li key={row.key} className="flex items-center gap-2.5 px-3 py-2.5">
+                <span className="text-muted-foreground [&_svg]:size-4">{row.icon}</span>
+                <label htmlFor={id} className="flex-1 cursor-pointer text-[13px] font-medium">
+                  {row.label}
+                </label>
+                <Switch
+                  id={id}
+                  checked={sb[row.key]}
+                  onCheckedChange={(v) => updateStatusBar({ [row.key]: v })}
+                />
+              </li>
+            );
+          })}
+        </ul>
+      </PanelSection>
     </div>
   );
 }

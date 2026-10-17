@@ -669,6 +669,20 @@ function clock(t: string): string {
   return t.trim().replace(/\s+(AM|PM|am|pm|ص|م)$/u, "\u202f$1");
 }
 
+/**
+ * Export frames: give each outgoing fill its slice of the screen-fixed gradient
+ * from its current on-screen position (scroll timelines don't survive the
+ * snapdom clone).
+ */
+function pinGradient(root: HTMLElement) {
+  const box = root.getBoundingClientRect();
+  const k = box.height / root.clientHeight || 1; // the studio may scale the phone
+  root.querySelectorAll<HTMLElement>(".imsg-ios-out-js").forEach((f) => {
+    const y = (f.getBoundingClientRect().top - box.top) / k;
+    f.style.backgroundPosition = `0 ${(-y).toFixed(1)}px`;
+  });
+}
+
 /* ------------------------------ component ------------------------------ */
 
 export function IMessage({ scenario, playback, lang, rtl }: PlatformProps) {
@@ -684,23 +698,22 @@ export function IMessage({ scenario, playback, lang, rtl }: PlatformProps) {
 
   // The outgoing gradient is fixed to the screen: give it the real screen height,
   // and in export frames pin each bubble's slice of it from its on-screen position.
+  const exporting = clockMs !== undefined;
   useLayoutEffect(() => {
     const el = rootRef.current;
     if (!el || !el.clientHeight) return;
     el.style.setProperty("--imsg-h", `${el.clientHeight}px`);
-    if (clockMs === undefined) return;
-    const box = el.getBoundingClientRect();
-    const k = box.height / el.clientHeight || 1; // the studio may scale the phone
-    el.querySelectorAll<HTMLElement>(".imsg-ios-out-js").forEach((f) => {
-      const y = (f.getBoundingClientRect().top - box.top) / k;
-      f.style.backgroundPosition = `0 ${(-y).toFixed(1)}px`;
-    });
-    const dbg = el.querySelector<HTMLElement>(".imsg-ios-out-js");
-    if (dbg) {
-      const cs = getComputedStyle(dbg);
-      el.dataset.dbg = [cs.backgroundImage, cs.backgroundSize, cs.backgroundPosition, cs.backgroundColor].join(" || ");
-    }
+    if (exporting) pinGradient(el);
   });
+  // The exporter (and the harness) move the scroller after rendering; re-pin then.
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    const sc = scrollRef.current;
+    if (!exporting || !root || !sc) return;
+    const onScroll = () => pinGradient(root);
+    sc.addEventListener("scroll", onScroll, { passive: true });
+    return () => sc.removeEventListener("scroll", onScroll);
+  }, [exporting, scrollRef]);
 
   // Typing indicator entrance in the exported video (no CSS animations there).
   useLayoutEffect(() => {
