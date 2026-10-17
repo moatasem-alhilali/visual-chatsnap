@@ -8,7 +8,7 @@ import { Download, Film, Loader2, X } from "lucide-react";
 
 import { Button } from "@/shared/components/ui/button";
 import { deviceOuter, DeviceFrame } from "./devices/DeviceFrame";
-import { PlatformView } from "./platforms";
+import { PlatformView, resolvePlatformMotion } from "./platforms";
 import { deviceFontFamily } from "../data/fonts";
 import { buildTimeline, type FrameState } from "../export/schedule";
 import { canExportVideo, exportToMp4 } from "../export/exportVideo";
@@ -34,13 +34,14 @@ function emptyState(): FrameState {
   return { visibleIds: new Set(), typing: false, statuses: new Map() };
 }
 
-function makeView(scenario: Scenario, st: FrameState): PlaybackView {
+function makeView(scenario: Scenario, st: FrameState, clockMs?: number): PlaybackView {
   const messages = scenario.messages.filter((m) => st.visibleIds.has(m.id));
   return {
     phase: "playing",
     isLive: false,
     messages,
     typing: st.typing,
+    clockMs,
     statusOf: (m) => st.statuses.get(m.id) ?? m.status,
     play: () => {},
     pause: () => {},
@@ -69,6 +70,7 @@ export function ExportDialog({
   const supported = canExportVideo();
 
   const [frame, setFrame] = useState<FrameState>(emptyState);
+  const [clockMs, setClockMs] = useState<number | undefined>(undefined);
   const [bg, setBg] = useState(BACKGROUNDS[0]);
   const [fps, setFps] = useState(30);
   const [phase, setPhase] = useState<"idle" | "rendering" | "done" | "error">("idle");
@@ -121,23 +123,26 @@ export function ExportDialog({
       // warm-up capture so snapdom embeds fonts/styles into its cache
       await snapdom.toCanvas(node, { scale: 1, embedFonts: true });
 
-      const ENTER_DUR = 300; // ms — message entrance animation length
-      const easeOut = (p: number) => 1 - Math.pow(1 - p, 3);
+      // Entrance motion is per platform + OS (see PlatformMotion).
+      const motion = resolvePlatformMotion(scenario.platform, scenario.device);
       const scrollPos = new Map<HTMLElement, number>();
 
       const drawFrame = async (timeMs: number) => {
-        flushSync(() => setFrame(timeline.stateAt(timeMs)));
+        flushSync(() => {
+          setFrame(timeline.stateAt(timeMs));
+          setClockMs(timeMs);
+        });
 
-        // Entrance animation: the freshly revealed message slides up + fades in.
+        // Entrance animation of freshly revealed messages, platform-specific.
         node.querySelectorAll<HTMLElement>("[data-mid]").forEach((el) => {
           const at = timeline.revealAt.get(el.dataset.mid ?? "");
           if (at === undefined) return;
           const age = timeMs - at;
-          if (age >= 0 && age < ENTER_DUR) {
-            const p = easeOut(age / ENTER_DUR);
-            el.style.opacity = String(p);
-            el.style.transform = `translateY(${(1 - p) * 16}px) scale(${0.965 + 0.035 * p})`;
-            el.style.transformOrigin = "center bottom";
+          if (age >= 0 && age < motion.enterMs) {
+            const st = motion.enterStyle(age / motion.enterMs, el.dataset.sender === "me", rtl);
+            el.style.opacity = st.opacity === undefined ? "" : String(st.opacity);
+            el.style.transform = st.transform ?? "";
+            el.style.transformOrigin = st.transformOrigin ?? "";
           } else {
             el.style.opacity = "";
             el.style.transform = "";
@@ -210,7 +215,7 @@ export function ExportDialog({
     }
   };
 
-  const view = makeView(scenario, frame);
+  const view = makeView(scenario, frame, clockMs);
 
   return (
     <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">

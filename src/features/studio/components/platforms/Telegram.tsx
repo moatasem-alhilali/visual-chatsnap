@@ -104,6 +104,16 @@ export function tgGradient(c: [string, string, string, string]): string {
   ].join(", ");
 }
 
+/** Full wallpaper style: doodle tile (repeating) over the 4-point gradient (stretched). */
+export function tgWallpaper(pattern: string, colors: [string, string, string, string], base: string): CSSProperties {
+  return {
+    backgroundColor: base,
+    backgroundImage: `${pattern}, ${tgGradient(colors)}`,
+    backgroundSize: "240px 240px, 100% 100%, 100% 100%, 100% 100%, 100% 100%",
+    backgroundRepeat: "repeat, no-repeat, no-repeat, no-repeat, no-repeat",
+  };
+}
+
 /** Deterministic pseudo-waveform (0..1) so each voice note looks different but stable. */
 export function tgWaveform(seed: string, count: number): number[] {
   let h = 2166136261;
@@ -179,11 +189,7 @@ const IOS_LIGHT: IosTheme = {
   datePill: "rgba(97, 126, 80, 0.45)",
   topFade: "linear-gradient(to bottom, rgba(245,247,240,0.7) 0%, rgba(245,247,240,0.35) 55%, rgba(245,247,240,0) 100%)",
   bottomFade: "linear-gradient(to top, rgba(245,247,240,0.55) 0%, rgba(245,247,240,0) 100%)",
-  wallpaper: {
-    backgroundColor: "#a9c38f",
-    backgroundImage: `${tgPatternUri("#1d3a17", 0.2)}, ${tgGradient(["#dbddbb", "#6ba587", "#d5d88d", "#88b884"])}`,
-    backgroundSize: "240px 240px, 100% 100%",
-  },
+  wallpaper: tgWallpaper(tgPatternUri("#1d3a17", 0.2), ["#dbddbb", "#6ba587", "#d5d88d", "#88b884"], "#a9c38f"),
   bubbleFilter: "drop-shadow(0 0.6px 0.4px rgba(40, 70, 30, 0.28))",
   homeIndicator: "#000000",
   voice: {
@@ -210,11 +216,7 @@ const IOS_DARK: IosTheme = {
   datePill: "rgba(28, 28, 30, 0.72)",
   topFade: "linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.35) 55%, rgba(0,0,0,0) 100%)",
   bottomFade: "linear-gradient(to top, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0) 100%)",
-  wallpaper: {
-    backgroundColor: "#000000",
-    backgroundImage: `${tgInvertedPatternUri(0.9, "#9a9a9a")}, ${tgGradient(["#598bf6", "#7a5eef", "#d67cff", "#f38b58"])}`,
-    backgroundSize: "240px 240px, 100% 100%",
-  },
+  wallpaper: tgWallpaper(tgInvertedPatternUri(0.9, "#9a9a9a"), ["#598bf6", "#7a5eef", "#d67cff", "#f38b58"], "#000000"),
   bubbleFilter: "none",
   homeIndicator: "#ffffff",
   voice: {
@@ -298,9 +300,9 @@ function Meta({
   overlay?: boolean;
 }) {
   return (
+    // Positioned against the UI direction (inline-end); the time itself always reads LTR.
     <span
-      dir="ltr"
-      className="pointer-events-none absolute flex items-center gap-[3px] whitespace-nowrap"
+      className="pointer-events-none absolute flex whitespace-nowrap"
       style={{
         bottom: overlay ? 8 : 5,
         insetInlineEnd: overlay ? 8 : 10,
@@ -312,8 +314,10 @@ function Meta({
           : null),
       }}
     >
-      {time}
-      {mine && <Checks status={status} color={overlay ? "#ffffff" : checkColor} />}
+      <span dir="ltr" className="flex items-center gap-[3px]">
+        {time}
+        {mine && <Checks status={status} color={overlay ? "#ffffff" : checkColor} />}
+      </span>
     </span>
   );
 }
@@ -461,7 +465,7 @@ export function Telegram({ scenario, playback, lang, rtl }: PlatformProps) {
               >
                 <div
                   className={`relative ${live ? "rcss-anim-pop" : ""}`}
-                  style={{ maxWidth: "80%", filter: bareImage ? undefined : t.bubbleFilter }}
+                  style={{ maxWidth: "87%", filter: bareImage ? undefined : t.bubbleFilter }}
                 >
                   {tail && !bareImage && <BubbleTail side={onRight ? "right" : "left"} color={tailFill} />}
                   <div

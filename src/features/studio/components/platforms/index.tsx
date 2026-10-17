@@ -3,15 +3,17 @@
 import { createElement } from "react";
 
 import type { Device, Platform } from "../../types";
-import type { PlatformProps } from "./types";
+import type { PlatformMotion, PlatformProps } from "./types";
 import { WhatsApp } from "./WhatsApp";
 import { WhatsAppAndroid } from "./WhatsAppAndroid";
 import { Telegram } from "./Telegram";
+import { TelegramAndroid } from "./TelegramAndroid";
 import { Instagram } from "./Instagram";
 import { InstagramAndroid } from "./InstagramAndroid";
 import { Snapchat } from "./Snapchat";
 import { SnapchatAndroid } from "./SnapchatAndroid";
 import { IMessage } from "./iMessage";
+import { SamsungMessages } from "./SamsungMessages";
 
 type PlatformComponent = (props: PlatformProps) => React.ReactNode;
 
@@ -25,14 +27,18 @@ export interface PlatformMeta {
   Component: PlatformComponent;
   /** optional device-specific renderer for Android/Samsung */
   android?: PlatformComponent;
+  /** entrance motion of the iOS renderer (used by the video exporter) */
+  motion?: PlatformMotion;
+  /** entrance motion of the Android renderer */
+  androidMotion?: PlatformMotion;
 }
 
 export const PLATFORMS: PlatformMeta[] = [
   { id: "whatsapp", label: "WhatsApp", accent: "#25d366", Component: WhatsApp, android: WhatsAppAndroid },
-  { id: "telegram", label: "Telegram", accent: "#2aabee", Component: Telegram },
+  { id: "telegram", label: "Telegram", accent: "#2aabee", Component: Telegram, android: TelegramAndroid },
   { id: "instagram", label: "Instagram", accent: "#e1306c", Component: Instagram, android: InstagramAndroid },
   { id: "snapchat", label: "Snapchat", accent: "#fffc00", Component: Snapchat, android: SnapchatAndroid },
-  { id: "imessage", label: "iMessage", accent: "#0a7cff", Component: IMessage },
+  { id: "imessage", label: "iMessage", accent: "#0a7cff", Component: IMessage, android: SamsungMessages },
 ];
 
 /** Resolve the right renderer for a platform on a given device. */
@@ -40,6 +46,26 @@ export function resolvePlatformComponent(platform: Platform, device: Device): Pl
   const meta = PLATFORM_MAP[platform];
   if (device === "android" && meta.android) return meta.android;
   return meta.Component;
+}
+
+/** Generic fallback: slide up 16px + fade, ease-out cubic over 300ms. */
+export const DEFAULT_MOTION: PlatformMotion = {
+  enterMs: 300,
+  enterStyle: (p) => {
+    const e = 1 - Math.pow(1 - p, 3);
+    return {
+      opacity: e,
+      transform: `translateY(${(1 - e) * 16}px) scale(${0.965 + 0.035 * e})`,
+      transformOrigin: "center bottom",
+    };
+  },
+};
+
+/** Resolve the entrance motion for a platform on a given device. */
+export function resolvePlatformMotion(platform: Platform, device: Device): PlatformMotion {
+  const meta = PLATFORM_MAP[platform];
+  if (device === "android" && meta.android) return meta.androidMotion ?? DEFAULT_MOTION;
+  return meta.motion ?? DEFAULT_MOTION;
 }
 
 /** Stable component that renders the right device/platform template. */
