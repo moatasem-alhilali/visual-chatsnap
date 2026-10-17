@@ -1,4 +1,4 @@
-import { snapdom, type SnapdomOptions } from "@zumer/snapdom";
+import { snapdom, type SnapdomOptions, type SnapdomPlugin } from "@zumer/snapdom";
 
 import type { PlatformMotion } from "../components/platforms/types";
 import { isLightBackground, paintBackground, paintPhoneShadow, ScreenBackdrop, type BackgroundDef, type PaintOptions } from "./backgrounds";
@@ -129,6 +129,28 @@ function stripShadowOf(phone: HTMLElement): void {
 const SKIP_STYLE_PROPS =
   /^(scroll-|overscroll-|timeline-|view-timeline|view-transition|trigger-scope|interest-delay|caret-|anchor-|position-anchor|position-area|position-try|position-visibility|break-|orphans$|widows$|column-(count|fill|height|rule|span|width|wrap)|row-rule|rule-overlap|counter-|quotes$|ruby-|-webkit-ruby|math-|text-emphasis|text-combine|-webkit-text-combine|contain-intrinsic|field-sizing|interpolate-size|dynamic-range-limit|frame-sizing|hyphenate-|initial-letter|margin-trim|shape-(image|margin|outside)|buffered-rendering|print-color-adjust|forced-color-adjust|resize$|window-drag|app-region|-webkit-user-|-webkit-tap-highlight|-webkit-locale|-webkit-rtl-ordering|overflow-anchor|text-size-adjust|will-change|caption-side|empty-cells|touch-action|user-select|cursor$|reading-|speak$|interactivity|flex-line-count)/;
 
+/**
+ * snapdom treats every padded text block as having a styled ::first-letter
+ * (the pseudo never inherits padding, so its computed style "differs") and
+ * wraps the first letter in its own span. That breaks the kerning pair after
+ * it, which makes tight shrink-wrapped bubbles re-wrap in the export (e.g.
+ * iMessage "Arrives in 2 days" → "Arrives in 2 / days"). No template styles
+ * ::first-letter, so merge those spans back into plain text after cloning.
+ */
+const unsplitFirstLetter: SnapdomPlugin = {
+  name: "scenora-unsplit-first-letter",
+  afterClone(ctx) {
+    const root = ctx.clone;
+    if (!root) return;
+    root.querySelectorAll("[data-snapdom-pseudo=\"::first-letter\"]").forEach((span) => {
+      const parent = span.parentNode;
+      if (!parent) return;
+      parent.replaceChild(document.createTextNode(span.textContent ?? ""), span);
+      parent.normalize();
+    });
+  },
+};
+
 /** Snapshot the stage at an exact output scale (dpr pinned to 1 so the size is exact). */
 export async function captureStage(stage: StageController, scale: number): Promise<HTMLCanvasElement> {
   // `excludeStyleProps` is supported by snapdom 2.x but missing from its typings
@@ -140,9 +162,24 @@ export async function captureStage(stage: StageController, scale: number): Promi
     cache: "auto",
     backgroundColor: undefined,
     excludeStyleProps: SKIP_STYLE_PROPS,
+    plugins: [unsplitFirstLetter],
   };
   return snapdom.toCanvas(stage.node, opts);
 }
+
+/**
+ * Scroll a chat list and notify its listeners synchronously. Real scroll events
+ * are dispatched on the next animation frame (or never, in a background tab),
+ * which is too late for templates that repaint on scroll (screen-anchored
+ * bubble gradients, jump-to-bottom buttons) before the frame is captured.
+ */
+export function scrollChat(el: HTMLElement, top: number): void {
+  el.scrollTop = top;
+  el.dispatchEvent(new Event("scroll"));
+}
+
+/** Approximate phone bezel (CSS px) skipped when sampling the screen for the blurred backdrop. */
+const BEZEL_GUESS = 18;
 
 const SCROLL_MS = 340;
 const easeOutCubic = (p: number) => 1 - Math.pow(1 - p, 3);
@@ -273,9 +310,7 @@ export class FrameRenderer {
   }
 
   private scrollAllToBottom() {
-    this.o.stage.node.querySelectorAll<HTMLElement>(".rcss-scroll").forEach((el) => {
-      el.scrollTop = el.scrollHeight;
-    });
+    this.o.stage.node.querySelectorAll<HTMLElement>(".rcss-scroll").forEach((el) => scrollChat(el, el.scrollHeight));
   }
 
   /**
@@ -435,7 +470,10 @@ export class FrameRenderer {
       tw.value = tw.from + (tw.to - tw.from) * easeOutCubic(p);
       const before = el.scrollTop;
       el.scrollTop = tw.value;
-      if (Math.abs(el.scrollTop - before) > 0.01) changed = true;
+      if (Math.abs(el.scrollTop - before) > 0.01 || this.first) {
+        changed = true;
+        el.dispatchEvent(new Event("scroll"));
+      }
     });
     return changed;
   }
@@ -512,7 +550,7 @@ export class FrameRenderer {
     const identity = s === 1 && v.x === 0 && v.y === 0;
 
     if (this.backdrop) {
-      const m = DEVICE_MARGIN * scale * this.captureMul;
+      const m = (DEVICE_MARGIN + BEZEL_GUESS) * scale * this.captureMul;
       this.backdrop.paint(ctx, W, H, phone, phone.width - m * 2, phone.height - m * 2);
       if (this.shadowLayer) {
         if (identity) ctx.drawImage(this.shadowLayer, 0, 0);
@@ -563,7 +601,7 @@ export function paintPreview(
   ctx.imageSmoothingQuality = "high";
   const light = isLightBackground(background, paint);
   if (background.dynamic && phone) {
-    const m = DEVICE_MARGIN * phoneScale;
+    const m = (DEVICE_MARGIN + BEZEL_GUESS) * phoneScale;
     backdrop.paint(ctx, layout.W, layout.H, phone, phone.width - m * 2, phone.height - m * 2);
   } else {
     paintBackground(ctx, layout.W, layout.H, background, paint);

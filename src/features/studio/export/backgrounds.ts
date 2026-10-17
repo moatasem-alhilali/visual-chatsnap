@@ -239,32 +239,38 @@ export function paintBackground(ctx: Ctx, W: number, H: number, bg: BackgroundDe
 export class ScreenBackdrop {
   private small: OffscreenCanvas;
   private sctx: OffscreenCanvasRenderingContext2D;
+  /** ctx.filter is missing in Safari < 18: fall back to a much smaller canvas (upscaling blurs it) */
+  private readonly filters: boolean;
 
   constructor() {
-    this.small = new OffscreenCanvas(72, 128);
-    this.sctx = this.small.getContext("2d", { willReadFrequently: false })!;
+    this.filters = typeof OffscreenCanvasRenderingContext2D !== "undefined" && "filter" in OffscreenCanvasRenderingContext2D.prototype;
+    this.small = this.filters ? new OffscreenCanvas(72, 128) : new OffscreenCanvas(14, 24);
+    this.sctx = this.small.getContext("2d")!;
   }
 
-  paint(ctx: Ctx, W: number, H: number, phone: CanvasImageSource, srcW: number, srcH: number) {
+  /** `srcW`×`srcH` is the centred region of `phone` to use (its screen, without margins/bezel). */
+  paint(ctx: Ctx, W: number, H: number, phone: HTMLCanvasElement | OffscreenCanvas, srcW: number, srcH: number) {
     const sw = this.small.width;
     const sh = this.small.height;
-    // cover-fit the phone's screen area into the small canvas, blurred
+    const sx = (phone.width - srcW) / 2;
+    const sy = (phone.height - srcH) / 2;
+    // cover-fit the screen area into the small canvas, blurred
     const k = Math.max(sw / srcW, sh / srcH) * 1.25;
     this.sctx.save();
     this.sctx.fillStyle = "#1a1d22";
     this.sctx.fillRect(0, 0, sw, sh);
-    this.sctx.filter = "blur(6px)";
-    this.sctx.drawImage(phone, (sw - srcW * k) / 2, (sh - srcH * k) / 2, srcW * k, srcH * k);
+    if (this.filters) this.sctx.filter = "blur(6px)";
+    this.sctx.drawImage(phone, sx, sy, srcW, srcH, (sw - srcW * k) / 2, (sh - srcH * k) / 2, srcW * k, srcH * k);
     this.sctx.restore();
 
     ctx.save();
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
     // a second, larger blur while upscaling hides the low resolution entirely
-    ctx.filter = `blur(${Math.round(Math.max(W, H) / 60)}px) saturate(1.25)`;
+    if (this.filters) ctx.filter = `blur(${Math.round(Math.max(W, H) / 60)}px) saturate(1.25)`;
     const bleed = Math.max(W, H) * 0.08;
     ctx.drawImage(this.small, -bleed, -bleed, W + bleed * 2, H + bleed * 2);
-    ctx.filter = "none";
+    if (this.filters) ctx.filter = "none";
     ctx.fillStyle = "rgba(0,0,0,0.38)";
     ctx.fillRect(0, 0, W, H);
     ctx.restore();

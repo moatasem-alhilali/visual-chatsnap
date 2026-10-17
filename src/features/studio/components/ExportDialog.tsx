@@ -41,6 +41,7 @@ import {
   measureDevice,
   paintPreview,
   stripOuterShadow,
+  scrollChat,
   waitForTemplate,
   yieldToEventLoop,
   type StageController,
@@ -528,7 +529,7 @@ function BackgroundSwatch({
     if (!c || !ctx) return;
     const def = BACKGROUNDS.find((b) => b.id === id)!;
     if (def.dynamic && phone) {
-      new ScreenBackdrop().paint(ctx, c.width, c.height, phone, phone.width, phone.height);
+      new ScreenBackdrop().paint(ctx, c.width, c.height, phone, phone.width * 0.86, phone.height * 0.9);
     } else {
       paintBackground(ctx, c.width, c.height, def, paint);
     }
@@ -707,9 +708,8 @@ export function ExportDialog({
       stage.render(null);
       await waitForTemplate(stage);
       if (cancelled) return;
-      stage.node.querySelectorAll<HTMLElement>(".rcss-scroll").forEach((el) => {
-        el.scrollTop = el.scrollHeight;
-      });
+      stage.node.querySelectorAll<HTMLElement>(".rcss-scroll").forEach((el) => scrollChat(el, el.scrollHeight));
+      await yieldToEventLoop();
       stripOuterShadow(stage);
       const dims = measureDevice(stage);
       try {
@@ -970,10 +970,11 @@ export function ExportDialog({
             </Button>
           </div>
         ) : (
-          <div className="grid min-h-0 flex-1 overflow-y-auto md:grid-cols-[minmax(0,1fr)_360px] md:overflow-hidden">
+          <div className="grid min-h-0 flex-1 overflow-y-auto md:h-[min(84dvh,680px)] md:flex-none md:grid-cols-[minmax(0,1fr)_360px] md:overflow-hidden">
             {/* preview */}
-            <div className="relative flex min-h-[240px] flex-col bg-muted/50 p-4 md:min-h-[560px]">
-              <div className="relative flex min-h-0 flex-1 items-center justify-center">
+            <div className="relative flex h-[46dvh] flex-col bg-muted/50 p-4 md:h-auto md:min-h-0">
+              <div className="relative min-h-0 flex-1">
+                <div className="absolute inset-0 flex items-center justify-center">
                 {phase === "done" && result ? (
                   <video
                     key={result.url}
@@ -983,7 +984,7 @@ export function ExportDialog({
                     muted
                     loop
                     playsInline
-                    className="max-h-[48dvh] max-w-full rounded-lg bg-black shadow-lg md:max-h-[min(62dvh,540px)]"
+                    className="max-h-full max-w-full rounded-lg bg-black shadow-lg"
                     style={{ aspectRatio: `${result.W}/${result.H}` }}
                   />
                 ) : (
@@ -992,12 +993,13 @@ export function ExportDialog({
                     width={previewW}
                     height={previewH}
                     className={cn(
-                      "max-h-[40dvh] max-w-full rounded-lg shadow-lg ring-1 ring-black/5 transition-opacity md:max-h-[min(56dvh,520px)]",
+                      "max-h-full max-w-full rounded-lg shadow-lg ring-1 ring-black/5 transition-opacity",
                       !previewPhone && "animate-pulse",
                     )}
                     style={{ aspectRatio: `${layout.W}/${layout.H}` }}
                   />
                 )}
+                </div>
               </div>
               <div className="mt-3 flex items-center justify-center gap-2 text-[11px] font-medium text-muted-foreground tabular-nums" dir="ltr">
                 <span>{phase === "done" && result ? `${result.W}×${result.H} · ${result.fps} fps` : summary}</span>
@@ -1174,23 +1176,6 @@ export function ExportDialog({
                       </Section>
                     )}
 
-                    <Section title={c.background} aside={<span className="text-[11px] text-muted-foreground">{c.bgs[prefs.bg]}</span>}>
-                      <div className="grid grid-cols-5 gap-2">
-                        {BACKGROUNDS.map((b) => (
-                          <BackgroundSwatch
-                            key={b.id}
-                            id={b.id}
-                            paint={paint}
-                            phone={previewPhone?.canvas ?? null}
-                            active={prefs.bg === b.id}
-                            label={b.id === "custom" ? c.pickColor : c.bgs[b.id]}
-                            onSelect={() => update({ bg: b.id })}
-                            onCustom={(hex) => update({ bg: "custom", custom: hex })}
-                          />
-                        ))}
-                      </div>
-                    </Section>
-
                     <section className="space-y-2.5 rounded-xl border border-border p-3">
                       <button
                         type="button"
@@ -1237,6 +1222,23 @@ export function ExportDialog({
                         </div>
                       )}
                     </section>
+
+                    <Section title={c.background} aside={<span className="text-[11px] text-muted-foreground">{c.bgs[prefs.bg]}</span>}>
+                      <div className="grid grid-cols-5 gap-2">
+                        {BACKGROUNDS.map((b) => (
+                          <BackgroundSwatch
+                            key={b.id}
+                            id={b.id}
+                            paint={paint}
+                            phone={previewPhone?.canvas ?? null}
+                            active={prefs.bg === b.id}
+                            label={b.id === "custom" ? c.pickColor : c.bgs[b.id]}
+                            onSelect={() => update({ bg: b.id })}
+                            onCustom={(hex) => update({ bg: "custom", custom: hex })}
+                          />
+                        ))}
+                      </div>
+                    </Section>
 
                     <Section title={c.timing}>
                       <div className="space-y-2">
