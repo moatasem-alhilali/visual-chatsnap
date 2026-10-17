@@ -12,7 +12,7 @@ import { Instagram, instagramIosMotion } from "./Instagram";
 import { InstagramAndroid, instagramAndroidMotion } from "./InstagramAndroid";
 import { Snapchat, snapchatIosMotion } from "./Snapchat";
 import { SnapchatAndroid, snapchatAndroidMotion } from "./SnapchatAndroid";
-import { IMessage } from "./iMessage";
+import { IMessage, imessageIosMotion } from "./iMessage";
 import { SamsungMessages, samsungMessagesMotion } from "./SamsungMessages";
 
 type PlatformComponent = (props: PlatformProps) => React.ReactNode;
@@ -38,7 +38,7 @@ export const PLATFORMS: PlatformMeta[] = [
   { id: "telegram", label: "Telegram", accent: "#2aabee", Component: Telegram, android: TelegramAndroid },
   { id: "instagram", label: "Instagram", accent: "#e1306c", Component: Instagram, android: InstagramAndroid, motion: instagramIosMotion, androidMotion: instagramAndroidMotion },
   { id: "snapchat", label: "Snapchat", accent: "#fffc00", Component: Snapchat, android: SnapchatAndroid, motion: snapchatIosMotion, androidMotion: snapchatAndroidMotion },
-  { id: "imessage", label: "iMessage", accent: "#0a7cff", Component: IMessage, android: SamsungMessages, androidMotion: samsungMessagesMotion },
+  { id: "imessage", label: "iMessage", accent: "#0a7cff", Component: IMessage, android: SamsungMessages, motion: imessageIosMotion, androidMotion: samsungMessagesMotion },
 ];
 
 /** Resolve the right renderer for a platform on a given device. */

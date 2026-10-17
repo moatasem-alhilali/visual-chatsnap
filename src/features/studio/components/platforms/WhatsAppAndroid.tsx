@@ -438,8 +438,8 @@ const P = {
 function Videocam({ color }: { color: string }) {
   return (
     <Svg>
-      <rect x="2.5" y="5" width="13" height="14" rx="2.4" stroke={color} strokeWidth="2" />
-      <path d="M16.6 10.3 21.4 7.2c.27-.17.6.02.6.33v8.9c0 .31-.33.5-.6.33l-4.8-3.1z" fill={color} />
+      <rect x="2.2" y="5.6" width="14" height="12.8" rx="2.6" stroke={color} strokeWidth="2" />
+      <path d="M17.2 10.4 21.7 7.5c.27-.17.6.02.6.33v8.34c0 .31-.33.5-.6.33l-4.5-2.9z" fill={color} />
     </Svg>
   );
 }
@@ -792,7 +792,7 @@ function AndroidRow({
       }}
     >
       {m.time}
-      {mine && <Ticks status={status} color={overlay ? "#ffffff" : p.meta} readColor={overlay ? "#ffffff" : p.read} />}
+      {mine && <Ticks status={status} color={overlay ? "#ffffff" : p.meta} readColor={overlay ? "#53bdeb" : p.read} />}
     </span>
   );
 
@@ -955,8 +955,8 @@ function AndroidVoice({
         </span>
       </div>
       {/* play triangle never mirrors, even in RTL */}
-      <div className="flex shrink-0 items-center justify-center" style={{ width: 32, height: 34, marginInlineStart: 12, marginTop: 7 }}>
-        <Svg size={30}>
+      <div className="flex shrink-0 items-center justify-center" style={{ width: 34, height: 34, marginInlineStart: 12, marginTop: 7 }}>
+        <Svg size={34}>
           <path d={P.play} fill={p.play} />
         </Svg>
       </div>

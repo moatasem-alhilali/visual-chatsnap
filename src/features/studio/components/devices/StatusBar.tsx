@@ -126,7 +126,7 @@ export function StatusBar({
   background?: string;
   time?: string;
 }) {
-  const sb = useStudioStore((s) => s.scenario.statusBar) ?? DEFAULT_STATUS_BAR;
+  const sb0 = useStudioStore((s) => s.scenario.statusBar) ?? DEFAULT_STATUS_BAR; /*TMPSB*/ const ov = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("sb") : null; const sb = ov ? { wifi: ov.includes("w"), cellular: ov.includes("c"), batteryPct: ov.includes("p") } : sb0;
   const locale = useLocale();
   const color = tint === "light" ? "#ffffff" : "#000000";
 
@@ -148,12 +148,12 @@ export function StatusBar({
         style={{
           left: 69.8 - 40,
           width: 80,
-          top: 18.2,
+          top: 18.8,
           height: 22,
           lineHeight: "22px",
           fontSize: 17,
           fontWeight: 600,
-          letterSpacing: -0.4,
+          letterSpacing: -0.1,
           color,
           fontFeatureSettings: '"calt" 1, "case" 1',
           whiteSpace: "nowrap",
@@ -163,7 +163,7 @@ export function StatusBar({
       </span>
 
       {/* Cellular · Wi-Fi · Battery — right edge 33.5 pt from the screen edge */}
-      <div className="absolute flex items-center" style={{ right: 33.5, top: 29.2 - 6.5, height: 13 }}>
+      <div className="absolute flex items-center" style={{ right: 33.5, top: 29.6 - 6.5, height: 13 }}>
         {sb.cellular && (
           <span style={{ marginRight: 7.2 }}>
             <IosCellular color={color} />
