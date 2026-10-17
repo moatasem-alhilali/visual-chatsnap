@@ -206,6 +206,11 @@ interface Pal {
 
 const OUT_GRADIENT_DARK = "linear-gradient(to bottom, #9f3eaa 0%, #8146d7 33.333%, #4272df 66.667%, #258de5 100%)";
 
+/** Longhands only: mixing the `background` shorthand with longhands makes React clear the colour on client renders. */
+function bubbleBg(fill: string, grad: boolean): CSSProperties {
+  return grad ? { backgroundColor: "#258de5", backgroundImage: OUT_GRADIENT_DARK } : { backgroundColor: fill };
+}
+
 const LIGHT: Pal = {
   dark: false,
   inText: "#000000",
@@ -461,8 +466,7 @@ function Tail({ side, bg, grad }: { side: "left" | "right"; bg: string; grad: bo
         [side]: -6,
         width: 7,
         height: 11,
-        background: bg,
-        backgroundColor: grad ? "#258de5" : undefined,
+        ...bubbleBg(bg, grad),
         clipPath: TAIL_PATH,
         transform: side === "left" ? "scaleX(-1)" : undefined,
       }}
@@ -559,8 +563,7 @@ function PlayGlyph({ color, grad }: { color: string; grad: boolean }) {
         top: 14.5,
         width: 13.5,
         height: 15,
-        background: grad ? OUT_GRADIENT_DARK : color,
-        backgroundColor: grad ? "#258de5" : undefined,
+        ...bubbleBg(color, grad),
         clipPath: "path('M1.6 0.3C0.85 -0.15 0 0.35 0 1.2V13.8C0 14.65 0.85 15.15 1.6 14.7L12.7 8.2C13.45 7.75 13.45 7.25 12.7 6.8Z')",
       }}
     />
@@ -982,7 +985,7 @@ export function TelegramAndroid({ scenario, playback, lang, rtl }: PlatformProps
                   <div
                     data-tga-bg={grad ? "grad" : undefined}
                     className="relative"
-                    style={{ padding: 2, background: fill, backgroundColor: grad ? "#258de5" : undefined, boxShadow: mine ? t.outShadow : t.inShadow, ...r }}
+                    style={{ padding: 2, ...bubbleBg(fill, grad), boxShadow: mine ? t.outShadow : t.inShadow, ...r }}
                   >
                     <div className="relative overflow-hidden" style={{ width: PHOTO_W, ...pr }}>
                       {m.imageSrc ? (
@@ -1004,7 +1007,7 @@ export function TelegramAndroid({ scenario, playback, lang, rtl }: PlatformProps
                   <div
                     data-tga-bg={grad ? "grad" : undefined}
                     className="relative"
-                    style={{ background: fill, backgroundColor: grad ? "#258de5" : undefined, boxShadow: mine ? t.outShadow : t.inShadow, ...bubbleRadii(onRight, pinnedTop, pinnedBottom, tail) }}
+                    style={{ ...bubbleBg(fill, grad), boxShadow: mine ? t.outShadow : t.inShadow, ...bubbleRadii(onRight, pinnedTop, pinnedBottom, tail) }}
                   >
                     {isVoice ? (
                       <VoiceBody m={m} ctx={ctx} />
