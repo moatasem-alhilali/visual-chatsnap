@@ -247,6 +247,9 @@ const ENTER_KEYFRAMES = (() => {
   return `@keyframes sig-android-enter{${steps.join("")}}`;
 })();
 
+/** Editor.BLINK: the cursor is solid for 500ms after each edit, then 500ms on / 500ms off. */
+const CARET_MS = 1000;
+
 /* Typing dots [Y]: 1500ms cycle, each dot animates for 600ms (peak at 300ms), 150ms stagger. */
 const TYPING_CYCLE = 1500;
 const TYPING_STAGGER = 150;
@@ -264,6 +267,12 @@ ${ENTER_KEYFRAMES}
 .sig-android-enter{animation:sig-android-enter ${ENTER_MS}ms linear both}
 @keyframes sig-android-dot{0%{opacity:.4;transform:scale(.75)}20%{opacity:1;transform:scale(1)}40%,100%{opacity:.4;transform:scale(.75)}}
 .sig-android-dot{animation:sig-android-dot ${TYPING_CYCLE}ms linear infinite both}
+@keyframes sig-android-caret{0%,50%{opacity:1}50.01%,100%{opacity:0}}
+.sig-android-caret{animation:sig-android-caret ${CARET_MS}ms step-end infinite;animation-delay:${CARET_MS / 2}ms}
+@keyframes sig-android-toggle-in{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:scale(1)}}
+.sig-android-toggle-in{animation:sig-android-toggle-in 150ms cubic-bezier(.4,0,.2,1) both}
+@keyframes sig-android-fade-in{from{opacity:0}to{opacity:1}}
+.sig-android-fade-in{animation:sig-android-fade-in 150ms cubic-bezier(.4,0,.2,1) both}
 `;
 
 /* ======================================================================
@@ -444,6 +453,9 @@ const P = {
   mic2:
     "M7.75 21.13c-0.48 0-0.88 0.39-0.88 0.87s0.4 0.88 0.88 0.88h8.5c0.48 0 0.88-0.4 0.88-0.88s-0.4-0.88-0.88-0.88h-3.38v-1.29c4.22-0.44 7.5-4 7.5-8.33v-1c0-0.48-0.39-0.88-0.87-0.88s-0.88 0.4-0.88 0.88v1c0 3.66-2.96 6.63-6.62 6.63s-6.63-2.97-6.63-6.63v-1c0-0.48-0.39-0.88-0.87-0.88s-0.88 0.4-0.88 0.88v1c0 4.33 3.3 7.9 7.5 8.33v1.3H7.75Z",
   plus: "M12.875,4.5a0.875,0.875 0,0 0,-1.75 0v6.625H4.5a0.875,0.875 0,0 0,0 1.75h6.625V19.5a0.875,0.875 0,0 0,1.75 0v-6.625H19.5a0.875,0.875 0,0 0,0 -1.75h-6.625V4.5Z",
+  // ic_send_lock_24 (MessageSendType.SignalMessageSendType.buttonDrawableRes)
+  sendLock:
+    "M12.694,18.461 L5.286,22.694A1.25,1.25 0,0 1,3.433 21.4L4.69,13.862 14,12 4.69,10.138 3.433,2.6A1.25,1.25 0,0 1,5.286 1.306L22.1,10.915a1.25,1.25 0,0 1,0 2.17l-1.194,0.682A3.99,3.99 0,0 0,14 16.5v0.416A3.017,3.017 0,0 0,12.694 18.461ZM22,19.5v3A1.5,1.5 0,0 1,20.5 24h-5A1.5,1.5 0,0 1,14 22.5v-3a1.5,1.5 0,0 1,1.25 -1.475L15.25,16.75a2.75,2.75 0,0 1,5.5 0v1.275A1.5,1.5 0,0 1,22 19.5ZM16.75,16.75L16.75,18h2.5L19.25,16.75a1.25,1.25 0,0 0,-2.5 0Z",
   chevronRight:
     "M8.881,4.381a0.875,0.875 0,0 1,1.238 0l7,7a0.875,0.875 0,0 1,0 1.238l-7,7A0.875,0.875 0,0 1,8.88 18.38L15.263,12 8.88,5.619a0.875,0.875 0,0 1,0 -1.238Z",
   personCircle1:
@@ -658,42 +670,7 @@ export function SignalAndroid({ scenario, playback, lang, rtl }: PlatformProps) 
       </div>
 
       {/* Composer [P] */}
-      <div className="flex shrink-0 items-center" style={{ height: 60, background: p.bg, paddingInlineStart: 12, paddingInlineEnd: 14 }}>
-        <div className="flex min-w-0 flex-1 items-center" style={{ height: 44, borderRadius: 20, background: p.compose }}>
-          <div className="flex shrink-0 items-center justify-center" style={{ width: 48, height: 44 }}>
-            <Icon>
-              {P.emoji.map((d, i) => (
-                <path key={i} d={d} fill={p.ink} />
-              ))}
-            </Icon>
-          </div>
-          <span
-            className="min-w-0 flex-1 truncate"
-            dir={uiDir}
-            style={{ fontSize: 16, lineHeight: "20px", letterSpacing: "0.01em", color: p.sub, paddingInline: 2 }}
-          >
-            {s.placeholder}
-          </span>
-          <div className="flex shrink-0 items-center" style={{ marginInlineStart: 4 }}>
-            <Icon style={{ marginInlineEnd: 16 }}>
-              <path d={P.camera1} fill={p.ink} fillRule="evenodd" />
-              <path d={P.camera2} fill={p.ink} fillRule="evenodd" />
-            </Icon>
-            <Icon style={{ marginInlineEnd: 12 }}>
-              <path d={P.mic1} fill={p.ink} />
-              <path d={P.mic2} fill={p.ink} />
-            </Icon>
-          </div>
-        </div>
-        <div
-          className="flex shrink-0 items-center justify-center rounded-full"
-          style={{ width: 40, height: 40, marginInlineStart: 12, background: p.outBubble }}
-        >
-          <Icon size={22}>
-            <path d={P.plus} fill={p.plusIcon} />
-          </Icon>
-        </div>
-      </div>
+      <AndroidComposer p={p} rtl={rtl} placeholder={s.placeholder} text={playback.draft?.text ?? ""} clock={clock} />
 
       <SystemBottomBar device="android" bg={p.bg} fg={p.navFg} />
     </div>

@@ -478,12 +478,12 @@ function SnapReaction({ emoji, person, ring }: { emoji: string; person: Person; 
     <div className="relative shrink-0" style={{ width: 30, height: 32 }} aria-label={emoji}>
       <span
         className="absolute select-none"
-        style={{ top: 0, insetInlineStart: 0, fontSize: 20, lineHeight: "22px", fontFamily: "system-ui, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif" }}
+        style={{ top: 0, insetInlineStart: -1, fontSize: 21, lineHeight: "23px", fontFamily: "system-ui, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif" }}
       >
         {emoji}
       </span>
       <span className="absolute flex rounded-full" style={{ bottom: 0, insetInlineEnd: 0, padding: 1.5, background: ring }}>
-        <Avatar person={person} size={19} />
+        <Avatar person={person} size={17} />
       </span>
     </div>
   );

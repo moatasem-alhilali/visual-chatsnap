@@ -210,6 +210,13 @@ interface Pal {
   photoInk: string;
   navFg: string;
   svc: string;
+  /** ReactionsLayoutInBubble fills: chosen = chat_in/outReactionButtonBackground, other = same × 0.156 */
+  react: { inChosen: string; inOther: string; outChosen: string; outOther: string };
+  /** ReplyMessageLine colours */
+  reply: { outLine: string; outName: string; outText: string; outMedia: string; inText: string; inMedia: string; outBg: number; names: string[] };
+  /** chat_messagePanelText / chat_messagePanelCursor */
+  inputText: string;
+  cursor: string;
 }
 
 const OUT_GRADIENT_DARK = "linear-gradient(to bottom, #9f3eaa 0%, #8146d7 33.333%, #4272df 66.667%, #258de5 100%)";
@@ -251,6 +258,20 @@ const LIGHT: Pal = {
   photoInk: "#a6b2bc",
   navFg: "#2b2d31",
   svc: SVC_LIGHT,
+  react: { inChosen: "#229af0", inOther: "rgba(34, 154, 240, 0.156)", outChosen: "#78c272", outOther: "rgba(120, 194, 114, 0.156)" },
+  reply: {
+    outLine: "#6eb969",
+    outName: "#55ab4f",
+    outText: "#000000",
+    outMedia: "#65b05b",
+    inText: "#000000",
+    inMedia: "#a1aab3",
+    outBg: 0.1,
+    // avatar_nameInMessage{Red,Orange,Violet,Green,Cyan,Blue,Pink}
+    names: ["#cc5049", "#d67722", "#955cdb", "#40a920", "#309eba", "#368ad1", "#c7508b"],
+  },
+  inputText: "#000000",
+  cursor: "#54a1db",
 };
 
 const DARK: Pal = {
@@ -284,6 +305,22 @@ const DARK: Pal = {
   photoInk: "#5d6f80",
   navFg: "#e8edf2",
   svc: SVC_DARK,
+  // inReactionButtonBackground falls back to chat_inLoader; darkblue sets the outgoing one to white
+  react: { inChosen: "#609dd2", inOther: "rgba(96, 157, 210, 0.156)", outChosen: "#ffffff", outOther: "rgba(255, 255, 255, 0.156)" },
+  reply: {
+    // fillAccentColors (gradient, light text): out reply line/name/text/media = white
+    outLine: "#ffffff",
+    outName: "#ffffff",
+    outText: "#ffffff",
+    outMedia: "#ffffff",
+    inText: "#ffffff",
+    inMedia: "#798897",
+    outBg: 0.12,
+    // darkblue.attheme avatar_nameInMessage*
+    names: ["#e88878", "#e8ab5a", "#8c8dea", "#7dd071", "#53ccc6", "#5cadea", "#e8749a"],
+  },
+  inputText: "#ffffff",
+  cursor: "#54a1db",
 };
 
 /* ------------------------------------------------------------------ */

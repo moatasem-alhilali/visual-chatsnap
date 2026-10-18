@@ -382,12 +382,12 @@ function Reaction({ emoji, person, ring }: { emoji: string; person: Person; ring
     <div className="relative shrink-0" style={{ width: 30, height: 32 }} aria-label={emoji}>
       <span
         className="absolute select-none"
-        style={{ top: 0, insetInlineStart: 0, fontSize: 20, lineHeight: "22px", fontFamily: "'Noto Color Emoji', 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif" }}
+        style={{ top: 0, insetInlineStart: -1, fontSize: 21, lineHeight: "23px", fontFamily: "'Noto Color Emoji', 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif" }}
       >
         {emoji}
       </span>
       <span className="absolute flex rounded-full" style={{ bottom: 0, insetInlineEnd: 0, padding: 1.5, background: ring }}>
-        <Avatar person={person} size={19} />
+        <Avatar person={person} size={17} />
       </span>
     </div>
   );
