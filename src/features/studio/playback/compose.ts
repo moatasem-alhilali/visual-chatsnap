@@ -57,6 +57,36 @@ export function draftAt(text: string, p: number): string {
   return g.slice(0, k).join("");
 }
 
+/* ------------------------------------------------------------------ */
+/* On-screen keyboard (slides up for compose typing)                   */
+/* ------------------------------------------------------------------ */
+
+/** keyboard slide up/down duration */
+export const KEYBOARD_SLIDE_MS = 260;
+/** after sending, the keyboard stays up if my next compose starts within this gap */
+export const KEYBOARD_KEEP_MS = 1800;
+/** otherwise it slides down this long after the message is sent */
+export const KEYBOARD_CLOSE_AFTER_MS = 450;
+
+/** Show the OS keyboard during compose typing (default on when compose typing is on). */
+export function keyboardEnabled(scenario: Pick<Scenario, "composeTyping" | "keyboard">): boolean {
+  return composeEnabled(scenario) && scenario.keyboard !== false;
+}
+
+/** Keyboard layout for a message: Arabic when its text is RTL, otherwise English. */
+export function keyboardLangFor(text: string): "ar" | "en" {
+  return /[֐-ࣿיִ-﷿ﹰ-﻿]/.test(text) ? "ar" : "en";
+}
+
+/** What the OS keyboard shows at a moment (null = no keyboard at all). */
+export interface KeyboardState {
+  /** 0 = fully hidden, 1 = fully up. Live playback flips 0↔1 (the screen animates the
+   *  slide with CSS); the exporter passes the exact eased fraction per frame. */
+  open: number;
+  /** layout to show */
+  lang: "ar" | "en";
+}
+
 /** What the composer currently shows while composing. */
 export interface ComposeDraft {
   /** id of the message being typed */

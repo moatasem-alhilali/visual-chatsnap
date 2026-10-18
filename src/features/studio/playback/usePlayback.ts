@@ -9,7 +9,12 @@ import {
   composeMsFor,
   composesMessage,
   draftAt,
+  KEYBOARD_CLOSE_AFTER_MS,
+  KEYBOARD_KEEP_MS,
+  keyboardEnabled,
+  keyboardLangFor,
   type ComposeDraft,
+  type KeyboardState,
 } from "./compose";
 
 export type PlaybackPhase = "idle" | "playing" | "paused" | "done";
@@ -27,6 +32,12 @@ export interface PlaybackView {
    * placeholder) and swap the mic/like button for their send button.
    */
   draft: ComposeDraft | null;
+  /**
+   * The OS keyboard shown during compose typing (null = none). Rendered by the
+   * shared PhoneScreen wrapper; templates only read the resulting inset via
+   * `useKeyboardInset()` to lift their composer above it.
+   */
+  keyboard: KeyboardState | null;
   /**
    * Deterministic clock (ms since playback start) supplied by the video
    * exporter, where CSS animations do not run. When defined, looping animations
@@ -54,6 +65,7 @@ export function usePlayback(scenario: Scenario): PlaybackView {
   const [statuses, setStatuses] = useState<Record<string, DeliveryStatus>>({});
   const [typing, setTyping] = useState(false);
   const [draft, setDraft] = useState<ComposeDraft | null>(null);
+  const [keyboard, setKeyboard] = useState<KeyboardState | null>(null);
 
   const indexRef = useRef(0);
   const pauseRef = useRef(false);
@@ -118,12 +130,17 @@ export function usePlayback(scenario: Scenario): PlaybackView {
         if (composesMessage(scenarioRef.current, msg)) {
           // type my message into the composer, hold, then send it
           const dur = composeMsFor(msg);
+          if (keyboardEnabled(scenarioRef.current)) setKeyboard({ open: 1, lang: keyboardLangFor(msg.text) });
           const tick = (elapsed: number) => {
             setDraft({ messageId: msg.id, text: draftAt(msg.text, elapsed / dur) });
             if (elapsed >= dur) {
               after(COMPOSE_HOLD_MS, () => {
                 setDraft(null);
                 reveal(msg);
+                // keep the keyboard up if I type again right away (same rule as export/schedule.ts)
+                const next = messagesRef.current[i + 1];
+                const keep = next && composesMessage(scenarioRef.current, next) && 70 + Math.max(0, next.delayMs) <= KEYBOARD_KEEP_MS;
+                if (!keep) after(KEYBOARD_CLOSE_AFTER_MS, () => setKeyboard((k) => (k ? { ...k, open: 0 } : k)));
                 after(70, () => runStepRef.current(i + 1));
               });
             } else {
@@ -159,6 +176,7 @@ export function usePlayback(scenario: Scenario): PlaybackView {
     setStatuses({});
     setTyping(false);
     setDraft(null);
+    setKeyboard(null);
     setPhase("playing");
     // start on the next tick so the cleared state is committed first
     window.setTimeout(() => runStep(0), 30);
@@ -186,6 +204,7 @@ export function usePlayback(scenario: Scenario): PlaybackView {
     setStatuses({});
     setTyping(false);
     setDraft(null);
+    setKeyboard(null);
     setPhase("idle");
   }, [clearTimers]);
 
@@ -209,6 +228,7 @@ export function usePlayback(scenario: Scenario): PlaybackView {
     messages,
     typing: isLive && typing,
     draft: isLive ? draft : null,
+    keyboard: isLive ? keyboard : null,
     statusOf,
     play,
     pause,

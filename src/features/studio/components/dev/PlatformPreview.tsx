@@ -10,6 +10,8 @@ import type { ChatTheme, Device, Message, Platform, PresenceStatus, Scenario } f
 import { createDefaultScenario } from "../../data/defaults";
 import { deviceFontFamily } from "../../data/fonts";
 import { DeviceFrame } from "../devices/DeviceFrame";
+import { PhoneScreen } from "../devices/PhoneScreen";
+import { keyboardLangFor } from "../../playback/compose";
 import { PlatformView } from "../platforms";
 
 /**
@@ -22,6 +24,9 @@ import { PlatformView } from "../platforms";
  *   &scroll=top|bottom  &play=1 (run the real cinematic playback)
  *   &clock=1234 (simulate the video exporter clock, i.e. PlaybackView.clockMs)
  *   &draft=Hello (show a compose-typing draft in the composer, i.e. PlaybackView.draft)
+ *   &keyboard=1 (show the OS keyboard over the template, i.e. PlaybackView.keyboard)
+ *   &fixture=extras (link preview, edited, location, file, calls, sticker, deleted)
+ *   &group=1 (3-member group chat: Scenario.group + Message.authorIndex)
  *   &finish=<id> (phone colour from DEVICE_FINISHES)
  *   The full fixture includes a reply (replyToId) and reactions on both sides.
  */
@@ -92,6 +97,50 @@ function fullFixture(lang: "ar" | "en"): Message[] {
   ];
 }
 
+/**
+ * Every new message kind in one thread: link preview, edited, location, file,
+ * missed + connected calls, sticker, deleted. With &group=1 the "them"
+ * messages rotate across three members (authorIndex 0–2).
+ */
+function extrasFixture(lang: "ar" | "en", group: boolean): Message[] {
+  seq = 100;
+  const ar = lang === "ar";
+  const by = (i: number) => (group ? { authorIndex: i } : {});
+  return [
+    msg({ sender: "them", ...by(0), text: ar ? "وصل الطلب؟" : "Did the order ship?", time: "9:40" }),
+    msg({ sender: "them", ...by(1), type: "call", text: "", call: { video: false, missed: true }, time: "9:41" }),
+    msg({
+      sender: "me",
+      text: ar ? "نعم! تتبّعه هنا https://noon.store/track/48213" : "Yes! Track it here https://noon.store/track/48213",
+      link: {
+        url: "https://noon.store/track/48213",
+        title: ar ? "تتبع الطلب #48213 — متجر نون" : "Track order #48213 — Noon Store",
+        description: ar ? "طلبك في الطريق ويصل اليوم" : "Your order is on its way and arrives today",
+        siteName: "noon.store",
+        image: PHOTO,
+      },
+      time: "9:43",
+      status: "read",
+    }),
+    msg({ sender: "me", text: ar ? "يوصلك قبل الساعة ٦ إن شاء الله" : "It should arrive before 6 pm", edited: true, time: "9:43", status: "read" }),
+    msg({ sender: "them", ...by(2), type: "location", text: "", location: { title: ar ? "حي العليا، الرياض" : "Olaya, Riyadh", subtitle: ar ? "شارع العليا العام" : "Olaya St" }, time: "9:45" }),
+    msg({ sender: "me", type: "file", text: "", file: { name: "Invoice-48213.pdf", size: "245 KB", pages: ar ? "صفحتان" : "2 pages" }, time: "9:46", status: "delivered" }),
+    msg({ sender: "them", ...by(0), type: "sticker", text: "🎉", time: "9:47" }),
+    msg({ sender: "them", ...by(1), type: "deleted", text: "", time: "9:48" }),
+    msg({ sender: "me", type: "call", text: "", call: { video: true, missed: false, duration: "4:12" }, time: "9:52", status: "read" }),
+  ];
+}
+
+const GROUP = (lang: "ar" | "en") => ({
+  name: lang === "ar" ? "فريق متجر نون 🛍️" : "Noon Store Team 🛍️",
+  avatar: null,
+  members: [
+    { name: lang === "ar" ? "خالد" : "Khalid", avatar: null },
+    { name: lang === "ar" ? "سارة" : "Sara", avatar: null },
+    { name: lang === "ar" ? "عمر" : "Omar", avatar: null },
+  ],
+});
+
 function pick<T extends string>(v: string | null, allowed: readonly T[], fallback: T): T {
   return v && (allowed as readonly string[]).includes(v) ? (v as T) : fallback;
 }
@@ -113,6 +162,9 @@ export function PlatformPreview() {
   const clockParam = sp.get("clock");
   // force a compose-typing draft in the composer (e.g. &draft=On%20my%20way)
   const draftParam = sp.get("draft");
+  const keyboardParam = sp.get("keyboard") === "1";
+  // &group=1 turns the thread into a 3-member group chat; &fixture=extras shows the new message kinds
+  const groupParam = sp.get("group") === "1";
   // phone finish id from DEVICE_FINISHES (e.g. &finish=blue-titanium)
   const finish = sp.get("finish");
   const clockMs = clockParam === null ? undefined : Number(clockParam);
@@ -128,9 +180,17 @@ export function PlatformPreview() {
       me: { name: lang === "ar" ? "متجر نون" : "Noon Store", avatar: null },
       them: { name: lang === "ar" ? "خالد" : "Khalid", avatar: null },
       lastSeenText: lang === "ar" ? "آخر ظهور اليوم 9:30 ص" : "last seen today at 9:30 AM",
-      messages: fixture === "default" ? base.messages : fullFixture(lang),
+      messages:
+        fixture === "default"
+          ? base.messages
+          : fixture === "extras"
+            ? extrasFixture(lang, groupParam)
+            : groupParam
+              ? fullFixture(lang).map((m, i) => (m.sender === "them" ? { ...m, authorIndex: i % 3 } : m))
+              : fullFixture(lang),
+      group: groupParam ? GROUP(lang) : null,
     };
-  }, [platform, device, theme, presence, fixture, lang]);
+  }, [platform, device, theme, presence, fixture, lang, groupParam]);
 
   const live = usePlayback(scenario);
   const staticView: PlaybackView = useMemo(
@@ -140,6 +200,8 @@ export function PlatformPreview() {
       messages: scenario.messages,
       typing: forceTyping,
       draft: draftParam ? { messageId: "preview-draft", text: draftParam } : null,
+      // &keyboard=1 shows the OS keyboard (layout from the draft text, else the UI language)
+      keyboard: keyboardParam ? { open: 1, lang: draftParam ? keyboardLangFor(draftParam) : lang } : null,
       clockMs,
       statusOf: (m) => m.status,
       play: () => {},
@@ -148,7 +210,7 @@ export function PlatformPreview() {
       restart: () => {},
       reset: () => {},
     }),
-    [scenario, forceTyping, clockMs, draftParam],
+    [scenario, forceTyping, clockMs, draftParam, keyboardParam, lang],
   );
 
   const { play: startPlay } = live;
@@ -197,7 +259,9 @@ export function PlatformPreview() {
       {/* keep screenshots clean: no consent banner, no Next dev indicator */}
       <style>{`body{margin:0;background:#fff} nextjs-portal{display:none!important} body > .fixed.bottom-0.z-50, .pointer-events-none.fixed.inset-x-0.bottom-0{display:none!important}`}</style>
       <DeviceFrame device={device} finish={finish ?? undefined} dir={rtl ? "rtl" : "ltr"} fontFamily={deviceFontFamily(device, scenario.androidFont)}>
-        <PlatformView scenario={scenario} playback={play ? live : staticView} lang={lang} rtl={rtl} />
+        <PhoneScreen scenario={scenario} playback={play ? live : staticView}>
+          <PlatformView scenario={scenario} playback={play ? live : staticView} lang={lang} rtl={rtl} />
+        </PhoneScreen>
       </DeviceFrame>
     </div>
   );

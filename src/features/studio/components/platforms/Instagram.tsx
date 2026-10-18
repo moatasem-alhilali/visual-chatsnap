@@ -236,6 +236,25 @@ const IGI_STR: Record<Lang, {
   repliedToYou: string;
   repliedSelf: string;
   voiceMessage: string;
+  /* group threads */
+  nameRepliedToYou: (name: string) => string;
+  nameRepliedTo: (name: string, to: string) => string;
+  nameRepliedSelf: (name: string) => string;
+  seenByAll: string;
+  members: (n: number) => string;
+  joinNames: string;
+  /* round 5 message kinds */
+  edited: string;
+  youUnsent: string;
+  nameUnsent: (name: string) => string;
+  videoEnded: string;
+  audioEnded: string;
+  missedVideo: string;
+  missedAudio: string;
+  callBack: string;
+  callAgain: string;
+  liveLocation: string;
+  liveSub: string;
 }> = {
   en: {
     activeNow: "Active now",
@@ -251,6 +270,23 @@ const IGI_STR: Record<Lang, {
     repliedToYou: "Replied to you",
     repliedSelf: "Replied to themselves",
     voiceMessage: "Voice message",
+    nameRepliedToYou: (name) => `${name} replied to you`,
+    nameRepliedTo: (name, to) => `${name} replied to ${to}`,
+    nameRepliedSelf: (name) => `${name} replied to themselves`,
+    seenByAll: "Seen by everyone",
+    members: (n) => `${n} members`,
+    joinNames: ", ",
+    edited: "Edited",
+    youUnsent: "You unsent a message",
+    nameUnsent: (name) => `${name} unsent a message`,
+    videoEnded: "Video chat ended",
+    audioEnded: "Audio call ended",
+    missedVideo: "Missed video chat",
+    missedAudio: "Missed audio call",
+    callBack: "Call back",
+    callAgain: "Call again",
+    liveLocation: "Live location",
+    liveSub: "Sharing for 1 hour",
   },
   ar: {
     activeNow: "نشط الآن",
@@ -266,6 +302,23 @@ const IGI_STR: Record<Lang, {
     repliedToYou: "قام بالرد عليك",
     repliedSelf: "قام بالرد على نفسه",
     voiceMessage: "رسالة صوتية",
+    nameRepliedToYou: (name) => `قام ${name} بالرد عليك`,
+    nameRepliedTo: (name, to) => `قام ${name} بالرد على ${to}`,
+    nameRepliedSelf: (name) => `قام ${name} بالرد على نفسه`,
+    seenByAll: "شاهدها الجميع",
+    members: (n) => `${n} أعضاء`,
+    joinNames: "، ",
+    edited: "تم التعديل",
+    youUnsent: "ألغيت إرسال رسالة",
+    nameUnsent: (name) => `ألغى ${name} إرسال رسالة`,
+    videoEnded: "انتهت محادثة الفيديو",
+    audioEnded: "انتهت المكالمة الصوتية",
+    missedVideo: "محادثة فيديو فائتة",
+    missedAudio: "مكالمة صوتية فائتة",
+    callBack: "معاودة الاتصال",
+    callAgain: "الاتصال مرة أخرى",
+    liveLocation: "الموقع المباشر",
+    liveSub: "تتم المشاركة لمدة ساعة",
   },
 };
 
@@ -606,20 +659,32 @@ function IgiReplyQuote({
   pal,
   s,
   themName,
+  targetName,
+  group,
 }: {
   target: Message;
   mine: boolean;
   pal: IosPalette;
   s: (typeof IGI_STR)[Lang];
+  /** author of the reply (a "them" reply) */
   themName: string;
+  /** author of the quoted message when it is a "them" message */
+  targetName: string;
+  group: boolean;
 }) {
   const label = mine
     ? target.sender === "me"
       ? s.youRepliedSelf
-      : s.youRepliedTo(themName)
+      : s.youRepliedTo(targetName)
     : target.sender === "me"
-      ? s.repliedToYou
-      : s.repliedSelf;
+      ? group
+        ? s.nameRepliedToYou(themName)
+        : s.repliedToYou
+      : group
+        ? targetName === themName
+          ? s.nameRepliedSelf(themName)
+          : s.nameRepliedTo(themName, targetName)
+        : s.repliedSelf;
   const targetMine = target.sender === "me";
   const radius = 18;
 
@@ -639,7 +704,7 @@ function IgiReplyQuote({
     );
   } else {
     const isVoice = target.type === "voice";
-    const text = isVoice ? s.voiceMessage : target.text;
+    const text = isVoice ? s.voiceMessage : igiQuoteText(target, s);
     quote = (
       <div
         className="min-w-0"

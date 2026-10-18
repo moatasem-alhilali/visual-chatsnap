@@ -173,6 +173,22 @@ interface LocalStrings {
   replies: (n: number) => string;
   audio: string;
   photo: string;
+  /** "Edited" under an edited bubble (ChatKit EDITED_MESSAGE_STATUS) */
+  edited: string;
+  /** retracted-message notices (iOS 16+ Undo Send) */
+  unsentByMe: string;
+  unsentBy: (name: string) => string;
+  /** FaceTime call rows */
+  faceTimeVideo: string;
+  faceTimeAudio: string;
+  missedVideo: string;
+  missedAudio: string;
+  /** document attachment kind ("PDF Document") */
+  docKind: (ext: string) => string;
+  liveLocation: string;
+  location: string;
+  sticker: string;
+  file: string;
 }
 const LOCAL: Record<Lang, LocalStrings> = {
   en: {
@@ -185,6 +201,18 @@ const LOCAL: Record<Lang, LocalStrings> = {
     replies: (n) => (n === 1 ? "1 Reply" : `${n} Replies`),
     audio: "Audio Message",
     photo: "Photo",
+    edited: "Edited",
+    unsentByMe: "You unsent a message.",
+    unsentBy: (name) => `${name} unsent a message.`,
+    faceTimeVideo: "FaceTime Video",
+    faceTimeAudio: "FaceTime Audio",
+    missedVideo: "Missed FaceTime Video",
+    missedAudio: "Missed FaceTime Audio",
+    docKind: (ext) => (ext ? `${ext.toUpperCase()} Document` : "Document"),
+    liveLocation: "Live Location",
+    location: "Location",
+    sticker: "Sticker",
+    file: "Attachment",
   },
   ar: {
     service: "iMessage",
@@ -196,6 +224,18 @@ const LOCAL: Record<Lang, LocalStrings> = {
     replies: (n) => (n === 1 ? "رد واحد" : n === 2 ? "ردان" : n <= 10 ? `${n} ردود` : `${n} رد`),
     audio: "رسالة صوتية",
     photo: "صورة",
+    edited: "تم التعديل",
+    unsentByMe: "لقد ألغيت إرسال رسالة.",
+    unsentBy: (name) => `ألغى ${name} إرسال رسالة.`,
+    faceTimeVideo: "فيديو FaceTime",
+    faceTimeAudio: "صوت FaceTime",
+    missedVideo: "مكالمة فيديو FaceTime فائتة",
+    missedAudio: "مكالمة صوتية FaceTime فائتة",
+    docKind: (ext) => (ext ? `مستند ${ext.toUpperCase()}` : "مستند"),
+    liveLocation: "الموقع المباشر",
+    location: "الموقع",
+    sticker: "ملصق",
+    file: "مرفق",
   },
 };
 

@@ -5,7 +5,13 @@ import {
   composesMessage,
   composeWallMs,
   draftAt,
+  KEYBOARD_CLOSE_AFTER_MS,
+  KEYBOARD_KEEP_MS,
+  KEYBOARD_SLIDE_MS,
+  keyboardEnabled,
+  keyboardLangFor,
   type ComposeDraft,
+  type KeyboardState,
 } from "../playback/compose";
 import type { DeliveryStatus, Scenario, Sender } from "../types";
 
@@ -16,6 +22,15 @@ export interface FrameState {
   statuses: Map<string, DeliveryStatus>;
   /** my message being typed into the composer at this moment (compose typing) */
   draft: ComposeDraft | null;
+  /** OS keyboard openness (eased slide) and layout at this moment */
+  keyboard: KeyboardState | null;
+}
+
+/** a span during which the OS keyboard is up (slides in at openAt, out at closeAt) */
+export interface KeyboardWindow {
+  openAt: number;
+  closeAt: number;
+  lang: "ar" | "en";
 }
 
 export interface RevealEvent {
@@ -57,7 +72,11 @@ export interface Timeline {
   typings: TypingWindow[];
   /** windows during which my next message is being typed into the composer */
   composes: ComposeWindow[];
+  /** spans during which the OS keyboard is shown (empty when disabled) */
+  keyboards: KeyboardWindow[];
 }
+
+const easeOutCubic = (p: number) => 1 - Math.pow(1 - Math.min(1, Math.max(0, p)), 3);
 
 // Mirrors usePlayback's timing constants exactly so the export matches playback:
 //  - play() starts the first step after a 30 ms tick,
@@ -77,12 +96,29 @@ export function buildTimeline(scenario: Scenario): Timeline {
   const composes: ComposeWindow[] = [];
   const statusEvents: StatusEvent[] = [];
 
+  const keyboards: KeyboardWindow[] = [];
+  const kbOn = keyboardEnabled(scenario);
+  let kbOpen: KeyboardWindow | null = null;
+
   let t = START_TICK;
-  for (const m of scenario.messages) {
+  scenario.messages.forEach((m, i) => {
     t += Math.max(0, m.delayMs);
     if (composesMessage(scenario, m)) {
       const wallMs = composeWallMs(m);
       composes.push({ id: m.id, text: m.text, start: t, typeMs: composeMsFor(m), wallMs, end: t + wallMs + COMPOSE_HOLD_MS });
+      if (kbOn) {
+        // same rule as usePlayback: up at compose start; after sending, stays up
+        // only if my very next message composes within KEYBOARD_KEEP_MS
+        if (!kbOpen) kbOpen = { openAt: t, closeAt: Infinity, lang: keyboardLangFor(m.text) };
+        const sentAt = t + wallMs + COMPOSE_HOLD_MS;
+        const next = scenario.messages[i + 1];
+        const keep = !!next && composesMessage(scenario, next) && GAP_AFTER + Math.max(0, next.delayMs) <= KEYBOARD_KEEP_MS;
+        if (!keep) {
+          kbOpen.closeAt = sentAt + KEYBOARD_CLOSE_AFTER_MS;
+          keyboards.push(kbOpen);
+          kbOpen = null;
+        }
+      }
       t += wallMs + COMPOSE_HOLD_MS;
     } else if (m.sender === "them" && m.typingMs > 0) {
       typings.push({ start: t, end: t + m.typingMs });
@@ -104,11 +140,13 @@ export function buildTimeline(scenario: Scenario): Timeline {
     }
 
     t += GAP_AFTER;
-  }
+  });
 
   const lastStatusAt = statusEvents.reduce((mx, e) => Math.max(mx, e.at), 0);
   const lastRevealAt = reveals.length ? reveals[reveals.length - 1].at : 0;
-  const contentMs = Math.max(lastRevealAt, lastStatusAt);
+  // let the last keyboard finish sliding down before the video ends
+  const lastKeyboardAt = keyboards.reduce((mx, k) => Math.max(mx, k.closeAt + KEYBOARD_SLIDE_MS), 0);
+  const contentMs = Math.max(lastRevealAt, lastStatusAt, lastKeyboardAt);
 
   const revealAt = new Map<string, number>();
   for (const r of reveals) revealAt.set(r.id, r.at);
@@ -141,8 +179,24 @@ export function buildTimeline(scenario: Scenario): Timeline {
       }
     }
 
-    return { visibleIds, typing, statuses, draft };
+    // keyboard: eased slide in at openAt, out at closeAt (same duration as the live CSS transition)
+    let keyboard: KeyboardState | null = null;
+    for (const k of keyboards) {
+      if (time >= k.openAt && time < k.closeAt + KEYBOARD_SLIDE_MS) {
+        const open =
+          time < k.closeAt
+            ? easeOutCubic((time - k.openAt) / KEYBOARD_SLIDE_MS)
+            : 1 - easeOutCubic((time - k.closeAt) / KEYBOARD_SLIDE_MS);
+        // layout follows the message currently/last being typed in this span
+        let lang = k.lang;
+        for (const c of composes) if (c.start >= k.openAt && c.start <= time) lang = keyboardLangFor(c.text);
+        keyboard = { open, lang };
+        break;
+      }
+    }
+
+    return { visibleIds, typing, statuses, draft, keyboard };
   };
 
-  return { contentMs, stateAt, revealAt, reveals, typings, composes };
+  return { contentMs, stateAt, revealAt, reveals, typings, composes, keyboards };
 }

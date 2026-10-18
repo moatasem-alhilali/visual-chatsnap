@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 
 import type { Device, Person } from "../types";
+import { useKeyboardInset } from "./devices/keyboard-context";
 
 /**
  * The OS bottom affordance — an iOS home indicator pill for iPhone, or the
@@ -18,6 +19,9 @@ export function SystemBottomBar({
   bg: string;
   fg: string;
 }) {
+  // While the OS keyboard is up it draws the home indicator / nav bar itself.
+  const { inset } = useKeyboardInset();
+  if (inset > 0) return null;
   if (device === "iphone") {
     // iOS home indicator: 134×5 pt capsule, 8 pt above the bottom edge
     // (19 pt band in total — templates compensate for exactly this height).

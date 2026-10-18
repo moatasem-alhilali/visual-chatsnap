@@ -18,7 +18,7 @@ const platformSchema = z.enum([
 
 const deviceSchema = z.enum(["iphone", "android"]);
 const senderSchema = z.enum(["me", "them"]);
-const messageTypeSchema = z.enum(["text", "voice", "image"]);
+const messageTypeSchema = z.enum(["text", "voice", "image", "sticker", "location", "file", "call", "deleted"]);
 const deliveryStatusSchema = z.enum(["sent", "delivered", "read"]);
 const chatThemeSchema = z.enum(["light", "dark"]);
 const presenceStatusSchema = z.enum(["online", "typing", "lastseen"]);
@@ -51,7 +51,57 @@ const messageSchema = z.object({
   imageSrc: z.string().nullable().optional(),
   reaction: z.string().max(16).nullable().optional().catch(null),
   replyToId: z.string().nullable().optional().catch(null),
+  edited: z.boolean().optional().catch(undefined),
+  link: z
+    .object({
+      url: z.string().max(2048),
+      title: z.string().max(300).catch(""),
+      description: z.string().max(600).optional().catch(undefined),
+      siteName: z.string().max(120).optional().catch(undefined),
+      image: z.string().nullable().optional().catch(null),
+    })
+    .nullable()
+    .optional()
+    .catch(null),
+  location: z
+    .object({
+      title: z.string().max(200).catch(""),
+      subtitle: z.string().max(300).optional().catch(undefined),
+      live: z.boolean().optional().catch(undefined),
+    })
+    .nullable()
+    .optional()
+    .catch(null),
+  file: z
+    .object({
+      name: z.string().max(200).catch("file"),
+      size: z.string().max(32).optional().catch(undefined),
+      pages: z.string().max(32).optional().catch(undefined),
+    })
+    .nullable()
+    .optional()
+    .catch(null),
+  call: z
+    .object({
+      video: z.boolean().catch(false),
+      missed: z.boolean().catch(false),
+      duration: z.string().max(16).optional().catch(undefined),
+    })
+    .nullable()
+    .optional()
+    .catch(null),
+  authorIndex: z.coerce.number().int().min(0).max(63).optional().catch(undefined),
 });
+
+const groupSchema = z
+  .object({
+    name: z.string().max(120).catch(""),
+    avatar: z.string().nullable().catch(null),
+    members: z.array(personSchema).max(64).catch([]),
+  })
+  .nullable()
+  .optional()
+  .catch(null);
 
 export const scenarioSchema = z.object({
   version: z.coerce.number().int().min(1).catch(1),
@@ -66,6 +116,8 @@ export const scenarioSchema = z.object({
   statusBar: statusBarSchema,
   composeTyping: z.boolean().optional().catch(undefined),
   deviceColor: z.string().max(32).optional().catch(undefined),
+  keyboard: z.boolean().optional().catch(undefined),
+  group: groupSchema,
   messages: z.array(messageSchema).catch([]),
 });
 

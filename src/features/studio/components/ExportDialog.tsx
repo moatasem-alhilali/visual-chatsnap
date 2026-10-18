@@ -29,6 +29,7 @@ import {
 import { Button } from "@/shared/components/ui/button";
 import { cn } from "@/shared/lib/utils";
 import { DEVICE_SIZE, DeviceFrame } from "./devices/DeviceFrame";
+import { PhoneScreen } from "./devices/PhoneScreen";
 import { PLATFORM_MAP, PlatformView, preloadPlatform, resolvePlatformMotion } from "./platforms";
 import { deviceFontFamily } from "../data/fonts";
 import { buildTimeline, type FrameState } from "../export/schedule";
@@ -558,6 +559,7 @@ function makeView(scenario: Scenario, st: FrameState | null, clockMs?: number): 
       messages: scenario.messages,
       typing: false,
       draft: null,
+      keyboard: null,
       statusOf: (m) => m.status,
       play: noop,
       pause: noop,
@@ -572,6 +574,7 @@ function makeView(scenario: Scenario, st: FrameState | null, clockMs?: number): 
     messages: scenario.messages.filter((m) => st.visibleIds.has(m.id)),
     typing: st.typing,
     draft: st.draft,
+    keyboard: st.keyboard,
     clockMs,
     statusOf: (m) => st.statuses.get(m.id) ?? m.status,
     play: noop,
@@ -700,7 +703,9 @@ const ExportStage = memo(function ExportStage({
         >
           {/* the chat layer (transformed while the app opens out of the notification) */}
           <div style={{ position: "absolute", inset: 0, isolation: "isolate", ...introChatStyle(showIntro ? st.introT : null, scenario.device, screenH) }}>
-            <PlatformView scenario={scenario} playback={view} lang={lang} rtl={rtl} />
+            <PhoneScreen scenario={scenario} playback={view}>
+              <PlatformView scenario={scenario} playback={view} lang={lang} rtl={rtl} />
+            </PhoneScreen>
           </div>
           {showIntro && <NotificationIntro notice={notice} t={st.introT!} device={scenario.device} />}
         </DeviceFrame>

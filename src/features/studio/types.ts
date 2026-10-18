@@ -15,7 +15,65 @@ export type Device = "iphone" | "android";
 
 export type Sender = "me" | "them";
 
-export type MessageType = "text" | "voice" | "image";
+export type MessageType =
+  | "text"
+  | "voice"
+  | "image"
+  /** big sticker without a bubble: imageSrc, or 1–3 emoji in text */
+  | "sticker"
+  /** shared location: map card with Message.location */
+  | "location"
+  /** document attachment: Message.file */
+  | "file"
+  /** voice/video call entry (missed or connected): Message.call */
+  | "call"
+  /** "This message was deleted" placeholder */
+  | "deleted";
+
+/** Link preview card attached to a text message. */
+export interface LinkPreview {
+  url: string;
+  title: string;
+  description?: string;
+  /** e.g. "example.com" (derived from url when empty) */
+  siteName?: string;
+  /** data URL of the preview image */
+  image?: string | null;
+}
+
+export interface LocationShare {
+  /** place name, e.g. "Noon Store – Olaya" */
+  title: string;
+  /** address or coordinates line */
+  subtitle?: string;
+  /** live location (apps show their "Live location" styling) */
+  live?: boolean;
+}
+
+export interface FileShare {
+  /** file name with extension, e.g. "Invoice-48213.pdf" */
+  name: string;
+  /** human size label, e.g. "245 KB" */
+  size?: string;
+  /** page count label for PDFs, e.g. "2 pages" */
+  pages?: string;
+}
+
+export interface CallEntry {
+  video: boolean;
+  missed: boolean;
+  /** duration label for a connected call, e.g. "4:12" */
+  duration?: string;
+}
+
+/** Group chat: the other participants (me is Scenario.me). */
+export interface GroupChat {
+  name: string;
+  /** data URL of the group picture, or null for the app default */
+  avatar: string | null;
+  /** other members, in order; "them" messages pick one via Message.authorIndex */
+  members: Person[];
+}
 
 export type DeliveryStatus = "sent" | "delivered" | "read";
 
@@ -73,6 +131,18 @@ export interface Message {
   reaction?: string | null;
   /** id of an earlier message this one replies to (rendered as a quote) */
   replyToId?: string | null;
+  /** shows the app's "Edited" label */
+  edited?: boolean;
+  /** link preview card for a text message containing a URL */
+  link?: LinkPreview | null;
+  location?: LocationShare | null;
+  file?: FileShare | null;
+  call?: CallEntry | null;
+  /**
+   * Group chats only: which member (index into Scenario.group.members) wrote
+   * this "them" message (default 0).
+   */
+  authorIndex?: number;
 }
 
 export interface Scenario {
@@ -97,5 +167,16 @@ export interface Scenario {
   composeTyping?: boolean;
   /** physical finish of the phone shell (DeviceFrame colour id; device default when unset) */
   deviceColor?: string;
+  /**
+   * Show the OS keyboard while my messages are typed into the composer
+   * (undefined = on). Only matters when compose typing is on.
+   */
+  keyboard?: boolean;
+  /**
+   * Group chat. When set, the conversation is a group: the header shows the
+   * group, "them" messages carry sender names/avatars as the app does, and
+   * Scenario.them is ignored in favour of group.members.
+   */
+  group?: GroupChat | null;
   messages: Message[];
 }

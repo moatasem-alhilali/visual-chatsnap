@@ -10,6 +10,7 @@ import type { PlaybackView } from "../playback/usePlayback";
 import type { Scenario } from "../types";
 import { DEVICE_SPEC, DeviceFrame, deviceOuter } from "./devices/DeviceFrame";
 import { FitDevice } from "./devices/FitDevice";
+import { PhoneScreen } from "./devices/PhoneScreen";
 import { PlatformView } from "./platforms";
 import { deviceFontFamily } from "../data/fonts";
 
@@ -53,7 +54,9 @@ export function DeviceStage({
         style={{ width: outer.w, height: outer.h, borderRadius: DEVICE_SPEC[scenario.device].outerRadius }}
       >
         <DeviceFrame device={scenario.device} dir={rtl ? "rtl" : "ltr"} fontFamily={fontFamily} finish={scenario.deviceColor}>
-          <PlatformView scenario={scenario} playback={playback} lang={lang} rtl={rtl} />
+          <PhoneScreen scenario={scenario} playback={playback}>
+            <PlatformView scenario={scenario} playback={playback} lang={lang} rtl={rtl} />
+          </PhoneScreen>
         </DeviceFrame>
       </CameraRig>
     </FitDevice>
