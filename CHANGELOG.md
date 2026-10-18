@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- **Search engine optimisation:**
+  - **Landing pages:** 22 server-rendered pages, one per app and language (`/[locale]/chat/[app]`), plus a hub (`/[locale]/chat`). Each has unique copy, a real template screenshot, an FAQ and a link that opens the studio with that app selected.
+  - **Structured data:** JSON-LD for Organization, WebSite, WebApplication, BreadcrumbList, FAQPage and ItemList.
+  - **Sitemap:** `hreflang` alternates and image entries.
+  - **Metadata:** a 1200×600 share image, optional Google/Bing/Yandex verification tokens, and the theme colour.
+  - **Home page:** an `h1` that is now in the server HTML.
+  - **Speed:**
+    - Landing pages no longer prefetch the studio bundle (306 KB less unused JavaScript).
+    - Phone-mockup fonts are no longer preloaded.
+    - Vercel analytics scripts load only on Vercel.
 - **Create with AI:**
   - The studio builds a prompt you paste into any model (ChatGPT, Claude, Gemini). The model interviews you about the ad, then replies with one JSON block in the `scenora.v1` format, which you paste back.
   - The format covers every studio feature:

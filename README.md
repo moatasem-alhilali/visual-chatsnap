@@ -306,10 +306,22 @@ Everything is optional. Copy `.env.example` to `.env.local` to customise brandin
 | `NEXT_PUBLIC_SITE_URL` | `https://visual-chatsnap.vercel.app` | Canonical URL, sitemap, Open Graph |
 | `NEXT_PUBLIC_SITE_DESCRIPTION` | Scenora description | Default meta description |
 | `NEXT_PUBLIC_SUPPORT_EMAIL` | `hello@scenora.app` | Public contact address exposed in `siteConfig` |
+| `NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION` | not set | Google Search Console verification meta tag |
+| `NEXT_PUBLIC_BING_SITE_VERIFICATION` | not set | Bing Webmaster Tools verification (`msvalidate.01`) |
+| `NEXT_PUBLIC_YANDEX_SITE_VERIFICATION` | not set | Yandex Webmaster verification |
 | `BACKEND_API_URL` | not set | Server-side analytics forwarding target |
 | `NEXT_PUBLIC_API_URL` | not set | Browser-safe API base URL |
 
 **Analytics** are **consent-gated**: nothing is sent until the visitor accepts the banner. Events go to the local route `/api/analytics/track`, which forwards them server-side to `{BACKEND_API_URL}/api/v1/visual-chats/analytics/track` only when a backend is configured; otherwise it returns `204`. Scenario content is never sent.
+
+### Search engines (SEO)
+
+- **Indexable pages:** the studio (`/ar`, `/en`), the chat-generator hub (`/[locale]/chat`) and one landing page per app (`/[locale]/chat/whatsapp`, `…/imessage`, …). The landing pages are fully server-rendered and statically generated. Each has unique copy, a screenshot rendered from the real template, an FAQ, and a button that opens the studio with that app selected (`/?app=whatsapp`).
+- **Metadata:** unique titles and descriptions, canonical URLs, `hreflang` for `ar` / `en` / `x-default`, Open Graph and Twitter cards (`public/og.jpg`, 1200×600), and robots directives.
+- **Structured data (JSON-LD):** `Organization`, `WebSite` and `WebApplication` on the studio; `WebPage`, `BreadcrumbList` and `FAQPage` on each landing page; `CollectionPage` and `ItemList` on the hub.
+- **Crawling:** `/sitemap.xml` lists every page in both languages, with `hreflang` alternates and images. `/robots.txt` blocks private and dev-only paths, and `/llms.txt` describes the public pages for AI assistants.
+- **After deploying:** verify the domain in [Google Search Console](https://search.google.com/search-console) and [Bing Webmaster Tools](https://www.bing.com/webmasters), then submit `https://<your-domain>/sitemap.xml`.
+- **Screenshots:** the landing-page screenshots (`public/screens/*.webp`) are produced with `scripts/shot.mjs`. Re-shoot them when a template's look changes.
 
 ## Deployment
 

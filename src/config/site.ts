@@ -1,9 +1,9 @@
 export const siteConfig = {
-  name: process.env.NEXT_PUBLIC_SITE_NAME ?? "Scenora",
-  shortName: process.env.NEXT_PUBLIC_SITE_SHORT_NAME ?? "Scenora",
+  name: process.env.NEXT_PUBLIC_SITE_NAME || "Scenora",
+  shortName: process.env.NEXT_PUBLIC_SITE_SHORT_NAME || "Scenora",
   url: process.env.NEXT_PUBLIC_SITE_URL || "https://visual-chatsnap.vercel.app",
   description:
-    process.env.NEXT_PUBLIC_SITE_DESCRIPTION ??
+    process.env.NEXT_PUBLIC_SITE_DESCRIPTION ||
     "Scenora is a free, open-source studio for realistic WhatsApp, iMessage, Instagram, Telegram, Snapchat, Messenger, TikTok, X, Signal, Discord and Viber chats on iPhone and Samsung, exported as MP4 video ads in the browser.",
   defaultLocale: "ar",
   locales: ["ar", "en"] as const,
