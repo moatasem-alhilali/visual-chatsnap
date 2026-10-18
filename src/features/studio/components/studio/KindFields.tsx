@@ -335,10 +335,12 @@ export function CallFields({ m, t, update }: { m: Message; t: StudioLabels; upda
 
 export function DeletedPreview({ t }: { t: StudioLabels }) {
   return (
-    <div className="flex items-center gap-2 rounded-lg bg-muted/60 px-2.5 py-2 text-muted-foreground">
-      <Ban className="size-3.5 shrink-0" />
-      <span className="text-[13px] italic">{t.deletedPreview}</span>
-      <span className="ms-auto hidden text-[11px] sm:inline">{t.deletedHint}</span>
+    <div className="flex items-start gap-2 rounded-lg bg-muted/60 px-2.5 py-2 text-muted-foreground">
+      <Ban className="mt-0.5 size-3.5 shrink-0" />
+      <span className="min-w-0">
+        <span className="block text-[13px] italic">{t.deletedPreview}</span>
+        <span className="block text-[11px]">{t.deletedHint}</span>
+      </span>
     </div>
   );
 }

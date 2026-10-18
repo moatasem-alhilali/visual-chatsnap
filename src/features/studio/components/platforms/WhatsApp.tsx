@@ -1823,7 +1823,17 @@ function Row({
     const loc = m.location;
     const file = m.file;
     const kind = file ? docKind(file.name) : null;
-    const metaLine = file ? [file.pages, file.size, kind?.ext].filter(Boolean).join(" • ") : "";
+    // each part isolated so "245 KB" / "PDF" keep their order inside the Arabic UI
+    const metaLine = file
+      ? [file.pages, file.size, kind?.ext]
+          .filter(Boolean)
+          .map((part, i) => (
+            <span key={i}>
+              {i > 0 && " • "}
+              <bdi>{part}</bdi>
+            </span>
+          ))
+      : null;
     body =
       m.type === "location" ? (
         <>
@@ -1934,7 +1944,7 @@ function Row({
     body = (
       <>
         {nameLine("0 0 1px")}
-        <span style={{ fontSize: 17, lineHeight: "22px", letterSpacing: -0.43, fontStyle: "italic", color: subColor }}>
+        <span style={{ fontSize: 17, lineHeight: "22px", letterSpacing: -0.43, fontStyle: uiDir === "rtl" ? "normal" : "italic", color: subColor }}>
           <BlockGlyph color={subColor} /> {mine ? s.deletedMine : s.deleted}
         </span>
         <span style={{ display: "inline-block", width: reserve, height: 1 }} />

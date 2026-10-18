@@ -42,6 +42,15 @@
  *     12 dp box, 3 dp bar, bold sender + one-line snippet, thumbnail for photos).
  *     Typing: the field grows to 5 lines, accent caret, the voice button turns
  *     into the blue (#167EFA) send circle.
+ *   - Groups: capsule shows the group picture (default: two-person glyph tile) and
+ *     name; each member's run starts with their 36 dp avatar and a 13 sp grey
+ *     name above the first bubble. Calls (Samsung Messages has no call bubbles)
+ *     appear as centred grey lines with Samsung Phone call-log wording; deleted
+ *     messages are an outlined placeholder bubble; "Edited" joins the time
+ *     column; link previews are a card under the text bubble; Maps cards use
+ *     Google Maps styling.
+ *   - Keyboard: adjustResize. The screen pads by the keyboard inset, the keyboard
+ *     draws the nav bar, and the thread keeps its bottom anchored.
  *   - Header presence: Samsung Messages has none (no online / last seen); the
  *     "typing" state is only the dots bubble inside the thread.
  */

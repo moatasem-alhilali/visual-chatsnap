@@ -634,8 +634,8 @@ function CardText({ title, host, p }: { title: string; host: string; p: Palette 
           {title}
         </span>
       )}
-      <span dir="ltr" className="truncate" style={{ fontSize: META_TEXT, lineHeight: `${META_LINE}px`, color: p.secondary, textAlign: "start" }}>
-        {host}
+      <span className="truncate" style={{ fontSize: META_TEXT, lineHeight: `${META_LINE}px`, color: p.secondary, textAlign: "start" }}>
+        <bdi>{host}</bdi>
       </span>
     </div>
   );
@@ -663,8 +663,8 @@ function LinkCard({ link, p }: { link: LinkPreview; p: Palette }) {
           {link.title || host}
         </span>
         {link.title && (
-          <span dir="ltr" className="truncate" style={{ fontSize: 16, lineHeight: "18px", color: p.secondary }}>
-            {host}
+          <span className="truncate" style={{ fontSize: 16, lineHeight: "18px", color: p.secondary }}>
+            <bdi>{host}</bdi>
           </span>
         )}
       </span>

@@ -299,7 +299,16 @@ function normType(v: unknown): MessageType | null {
     deleted: "deleted",
     unsent: "deleted",
   };
-  return map[s] ?? null;
+  if (map[s]) return map[s];
+  // free-form descriptions like "missed video call", "pdf document", "voice note 0:12"
+  if (s.includes("call")) return "call";
+  if (s.includes("voice") || s.includes("audio")) return "voice";
+  if (s.includes("location") || s.includes("map")) return "location";
+  if (s.includes("pdf") || s.includes("file") || s.includes("document")) return "file";
+  if (s.includes("photo") || s.includes("image") || s.includes("picture")) return "image";
+  if (s.includes("sticker")) return "sticker";
+  if (s.includes("delete") || s.includes("unsent")) return "deleted";
+  return null;
 }
 
 const STATUS: DeliveryStatus[] = ["sent", "delivered", "read"];

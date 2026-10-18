@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { LayoutTemplate, MessagesSquare, Timer, Users } from "lucide-react";
+import { ArrowRight, LayoutTemplate, MessagesSquare, Sparkles, Timer, Users } from "lucide-react";
+import { useStudioUi } from "../../hooks/useStudioUi";
 
 import { Button } from "@/shared/components/ui/button";
 import { Dialog } from "@/shared/components/ui/dialog";
@@ -118,6 +119,7 @@ export function TemplateGallery({
   onUse: (tpl: ScenarioTemplate, lang: TemplateLang) => void;
 }) {
   const [lang, setLang] = useState<TemplateLang>(locale);
+  const openDialog = useStudioUi((s) => s.openDialog);
 
   return (
     <Dialog
@@ -129,6 +131,20 @@ export function TemplateGallery({
       closeLabel={t.close}
       className="max-w-5xl"
     >
+      <button
+        type="button"
+        onClick={() => openDialog("ai")}
+        className="group mb-3 flex w-full cursor-pointer items-center gap-3 rounded-xl border border-primary/25 bg-primary/[0.06] px-3 py-2.5 text-start outline-none transition-[border-color,background-color] duration-150 ease-studio hover:border-primary/45 hover:bg-primary/10 focus-visible:ring-[3px] focus-visible:ring-ring/40"
+      >
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+          <Sparkles className="size-4" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[13.5px] font-semibold text-foreground">{t.aiWrite}</span>
+          <span className="block text-xs leading-snug text-muted-foreground">{t.aiWriteHint}</span>
+        </span>
+        <ArrowRight aria-hidden className="size-4 shrink-0 text-primary transition-transform duration-150 ease-studio group-hover:translate-x-0.5 rtl:-scale-x-100 rtl:group-hover:-translate-x-0.5" />
+      </button>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <p id="tpl-lang" className="text-xs font-medium text-muted-foreground">
           {t.templateLanguage}

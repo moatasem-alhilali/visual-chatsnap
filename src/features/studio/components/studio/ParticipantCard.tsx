@@ -33,9 +33,11 @@ export function AvatarField({
   /** drawn instead of the initials avatar when there is no photo (e.g. a group icon) */
   fallback?: React.ReactNode;
 }) {
+  // small avatars (member rows) keep "remove" inside the picker instead of a corner badge
+  const compact = size < 36;
   return (
     <div className="relative shrink-0">
-      <MediaPicker value={person.avatar} onChange={onChange} t={t} label={label} prefer="avatar" maxDim={512} allowRemove={false}>
+      <MediaPicker value={person.avatar} onChange={onChange} t={t} label={label} prefer="avatar" maxDim={512} allowRemove={compact}>
         {(toggle, open) => (
           <Tooltip content={person.avatar ? t.changePhoto : t.mediaChoose}>
             <button
@@ -54,7 +56,7 @@ export function AvatarField({
           </Tooltip>
         )}
       </MediaPicker>
-      {person.avatar && (
+      {person.avatar && !compact && (
         <Tooltip content={t.removePhoto}>
           <button
             type="button"

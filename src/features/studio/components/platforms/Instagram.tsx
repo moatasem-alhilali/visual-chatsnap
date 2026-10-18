@@ -3,6 +3,32 @@
 /**
  * Instagram Direct — thread screen (iPhone), self-contained renderer.
  *
+ * Round 5 (groups, new kinds, keyboard):
+ *  - Group: header + intro show IG's default group picture (two member photos
+ *    stacked diagonally, front one ringed in the canvas colour) or the uploaded
+ *    photo, the group name, and the member names ("Khalid, Sara, Omar") as the
+ *    subtitle; the intro reads "4 members" (members + you) with no "View
+ *    profile". A 12pt grey sender name sits above the first bubble of each
+ *    member's run (aligned with the bubble text), the member's 28pt avatar
+ *    beside the run's last bubble. Typing shows the next author's avatar;
+ *    the receipt becomes "Seen by everyone" / «شاهدها الجميع».
+ *  - Sticker: no bubble — the image (132pt) or the emoji at 96pt.
+ *  - Location: 236pt map card on the grey surface (inline SVG streets, red
+ *    pin; live = the sharer's photo with a blue halo, "Live location").
+ *  - File: a regular bubble (gradient when mine) with a document glyph, the
+ *    name 15/600 and "2 pages · 245 KB · PDF" (parts bidi-isolated).
+ *  - Call: grey bubble on the caller's side — 36pt disc with the phone/video
+ *    glyph (red when missed), "Video chat ended" + duration / "Missed audio
+ *    call" + "Call back" (ar «انتهت محادثة الفيديو» / «مكالمة صوتية فائتة»).
+ *  - Unsend: no bubble — a centred 12pt secondary line "You unsent a message"
+ *    / "Sara unsent a message" (ar «ألغيت إرسال رسالة» / «ألغى سارة …»).
+ *  - Edited: 12pt secondary "Edited" / «تم التعديل» above the bubble.
+ *  - Links: URL underlined in the bubble ink; the preview card (image, title,
+ *    description, site) is joined under the text bubble on the grey surface.
+ *  - Keyboard: the screen gets padding-bottom = inset (moving with the
+ *    keyboard's transition), the composer's 14pt bottom gap becomes 8pt and
+ *    the thread shrinks with the newest message kept pinned.
+ *
  * Round 4 additions:
  *  - Reaction: the emoji (15pt) in a 26pt incoming-grey pill with a 2pt
  *    canvas-coloured ring, overlapping the bubble's bottom edge by 7pt, 10pt

@@ -19,6 +19,7 @@ import {
   Moon,
   Redo2,
   Save,
+  Sparkles,
   Sun,
   Trash2,
   Undo2,
@@ -161,6 +162,19 @@ export function StudioHeader({
       </div>
 
       <div className="ms-auto flex items-center gap-0.5 sm:gap-1">
+        <Tooltip content={t.aiCreateHint} shortcut="I">
+          <Button
+            variant="soft"
+            size="sm"
+            onClick={() => openDialog("ai")}
+            aria-label={t.aiCreate}
+            className="gap-1.5 px-2 max-md:size-8 max-md:px-0"
+          >
+            <Sparkles />
+            <span className="hidden text-[13px] md:inline">{t.aiCreate}</span>
+          </Button>
+        </Tooltip>
+
         <Tooltip content={t.templatesHint}>
           <Button variant="ghost" size="sm" onClick={() => openDialog("templates")} className="hidden gap-1.5 px-2 lg:inline-flex">
             <LayoutTemplate />
@@ -209,6 +223,10 @@ export function StudioHeader({
           <DropdownMenuContent align="end" className="w-64">
             <DropdownMenuItem onSelect={onNew}>
               <FilePlus2 /> {t.newBlank}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => openDialog("ai")}>
+              <Sparkles /> {t.aiCreateMenu}
+              <span className="ms-auto text-[11px] text-muted-foreground" dir="ltr">I</span>
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => openDialog("templates")}>
               <LayoutTemplate /> {t.templatesMenu}

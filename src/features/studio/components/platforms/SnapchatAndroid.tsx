@@ -174,7 +174,28 @@ function snapFont(androidFont: string): string {
   return `"Avenir Next", "AvenirNext", "Avenir Next LT Pro", ${DEVICE_FONTS[androidFont] ?? DEVICE_FONTS.roboto}`;
 }
 
-const STR: Record<Lang, { me: string; sendAChat: string; sending: string; delivered: string; opened: string; today: string }> = {
+interface Strings {
+  me: string;
+  sendAChat: string;
+  sending: string;
+  delivered: string;
+  opened: string;
+  today: string;
+  edited: string;
+  youDeleted: string;
+  deletedBy: (name: string) => string;
+  missedAudio: string;
+  missedVideo: string;
+  audioCall: string;
+  videoChat: string;
+  tapToCallBack: string;
+  noAnswer: string;
+  liveLocation: string;
+  members: (n: number) => string;
+  deletedQuote: string;
+}
+
+const STR: Record<Lang, Strings> = {
   en: {
     me: "Me",
     sendAChat: "Send a Chat",
@@ -182,6 +203,18 @@ const STR: Record<Lang, { me: string; sendAChat: string; sending: string; delive
     delivered: CHROME.en.snapDelivered,
     opened: CHROME.en.snapOpened,
     today: CHROME.en.today,
+    edited: "(Edited)",
+    youDeleted: "YOU DELETED A CHAT",
+    deletedBy: (n) => `${n.toUpperCase()} DELETED A CHAT`,
+    missedAudio: "Missed Audio Call",
+    missedVideo: "Missed Video Chat",
+    audioCall: "Audio Call",
+    videoChat: "Video Chat",
+    tapToCallBack: "Tap to call back",
+    noAnswer: "No answer",
+    liveLocation: "Live Location",
+    members: (n) => `${n} Members`,
+    deletedQuote: "This message was deleted",
   },
   ar: {
     me: "أنا",
@@ -190,8 +223,89 @@ const STR: Record<Lang, { me: string; sendAChat: string; sending: string; delive
     delivered: CHROME.ar.snapDelivered,
     opened: CHROME.ar.snapOpened,
     today: CHROME.ar.today,
+    edited: "(تم التعديل)",
+    youDeleted: "لقد حذفت رسالة دردشة",
+    deletedBy: (n) => `تم حذف رسالة دردشة من قِبل ${n}`,
+    missedAudio: "مكالمة صوتية فائتة",
+    missedVideo: "دردشة فيديو فائتة",
+    audioCall: "مكالمة صوتية",
+    videoChat: "دردشة فيديو",
+    tapToCallBack: "انقر لمعاودة الاتصال",
+    noAnswer: "لم يتم الرد",
+    liveLocation: "الموقع المباشر",
+    members: (n) => `${n} من الأعضاء`,
+    deletedQuote: "تم حذف هذه الرسالة",
   },
 };
+
+/* ------------------------------ group helpers ------------------------------ */
+
+function authorOf(scenario: Scenario, m: Message): { person: Person; index: number } {
+  const g = scenario.group;
+  if (g && g.members.length > 0) {
+    const idx = Math.min(Math.max(0, m.authorIndex ?? 0), g.members.length - 1);
+    return { person: g.members[idx], index: idx };
+  }
+  return { person: scenario.them, index: -1 };
+}
+
+function themColor(index: number): string {
+  return index < 0 ? THEM_BLUE : GROUP_COLORS[index % GROUP_COLORS.length];
+}
+
+/** Runs split per sender (per member in groups), at status rows and at edited chats (their header carries "(Edited)"). */
+function runs(messages: Message[], i: number, group: boolean): { first: boolean; last: boolean } {
+  const m = messages[i];
+  const prev = messages[i - 1];
+  const next = messages[i + 1];
+  const key = (x: Message) => (x.sender === "me" ? "me" : group ? `t${x.authorIndex ?? 0}` : "t");
+  return {
+    first: !prev || prev.type === "deleted" || key(prev) !== key(m) || !!m.edited,
+    last: !next || next.type === "deleted" || key(next) !== key(m) || !!next.edited,
+  };
+}
+
+function typingAuthor(scenario: Scenario, shown: Message[]): number {
+  const lastShown = shown[shown.length - 1];
+  const from = lastShown ? scenario.messages.findIndex((x) => x.id === lastShown.id) + 1 : 0;
+  return scenario.messages.slice(from).find((x) => x.sender === "them")?.authorIndex ?? 0;
+}
+
+/** URL ranges underlined in the text colour (Snapchat `.CFuC2`). */
+function linkify(text: string): ReactNode {
+  const re = /(https?:\/\/[^\s]+|www\.[^\s]+)/g;
+  const out: ReactNode[] = [];
+  let last = 0;
+  let k = 0;
+  for (let mt = re.exec(text); mt; mt = re.exec(text)) {
+    if (mt.index > last) out.push(text.slice(last, mt.index));
+    out.push(
+      <span key={k++} style={{ textDecoration: "underline", textUnderlineOffset: 2 }}>
+        {mt[0]}
+      </span>,
+    );
+    last = mt.index + mt[0].length;
+  }
+  if (out.length === 0) return text;
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+
+/** Keep the newest chat in view while the thread shrinks (keyboard rising). */
+function useBottomAnchor(ref: RefObject<HTMLDivElement | null>) {
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let lastH = el.clientHeight;
+    const ro = new ResizeObserver(() => {
+      const h = el.clientHeight;
+      if (h < lastH) el.scrollTop += lastH - h;
+      lastH = h;
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref]);
+}
 
 /* --------------------------------- metrics -------------------------------- */
 
@@ -483,9 +597,23 @@ function QuoteBody({ target, accent, pal, textAlign }: { target: Message; accent
       </div>
     );
   }
+  const alt =
+    target.type === "deleted"
+      ? textAlign === "right"
+        ? STR.ar.deletedQuote
+        : STR.en.deletedQuote
+      : target.type === "location"
+        ? `📍 ${target.location?.title ?? ""}`
+        : target.type === "file"
+          ? `📄 ${target.file?.name ?? ""}`
+          : target.type === "call"
+            ? target.call?.video
+              ? "📹"
+              : "📞"
+            : target.text;
   return (
-    <div dir={dirOf(target.text)} style={snippet}>
-      {target.text}
+    <div dir={dirOf(alt)} style={{ ...snippet, ...(target.type === "deleted" ? { color: pal.sub, fontStyle: "italic" } : null) }}>
+      {alt}
     </div>
   );
 }
@@ -572,6 +700,216 @@ function ChatImage({ src, pal }: { src?: string | null; pal: Pal }) {
   );
 }
 
+/* ------------------------------- cards (r5) ------------------------------- */
+
+/** Snapchat attachment card (`.Zxfed`): 50×50 tile, 2-line title, grey subtitle. */
+function Card({ pal, tile, title, subtitle, titleColor }: { pal: Pal; tile: ReactNode; title: ReactNode; subtitle?: ReactNode; titleColor?: string }) {
+  return (
+    <div className="flex items-center" style={{ border: `1px solid ${pal.quoteBorder}`, background: pal.quoteBg, borderRadius: 10, marginBlock: 5, maxWidth: 310 }}>
+      <div
+        className="relative flex shrink-0 items-center justify-center overflow-hidden"
+        style={{ width: 50, height: 50, margin: 10, borderRadius: 10, background: pal.thumb }}
+      >
+        {tile}
+      </div>
+      <div className="min-w-0 flex-1" style={{ marginInlineEnd: 10, paddingBlock: 6 }}>
+        <div
+          style={{
+            color: titleColor ?? pal.text,
+            fontSize: 15,
+            lineHeight: "20px",
+            fontWeight: 600,
+            display: "-webkit-box",
+            WebkitBoxOrient: "vertical",
+            WebkitLineClamp: 2,
+            overflow: "hidden",
+            overflowWrap: "anywhere",
+            textAlign: "start",
+          }}
+        >
+          {title}
+        </div>
+        {subtitle && (
+          <div className="truncate" style={{ color: pal.sub, opacity: 0.67, fontSize: 12, lineHeight: "16px", fontWeight: 500, marginTop: 1, textAlign: "start" }}>
+            {subtitle}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function LinkCard({ link, pal }: { link: NonNullable<Message["link"]>; pal: Pal }) {
+  const site = link.siteName || link.url.replace(/^https?:\/\//, "").replace(/^www\./, "").split(/[/?#]/)[0];
+  return (
+    <Card
+      pal={pal}
+      tile={
+        link.image ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={link.image} alt="" draggable={false} className="block h-full w-full object-cover" style={{ borderRadius: 6, border: `0.5px solid ${pal.quoteBorder}` }} />
+        ) : (
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+            <path
+              d="M10.2 13.8a3.6 3.6 0 0 0 5.1 0l3.2-3.2a3.6 3.6 0 0 0-5.1-5.1l-1.1 1.1M13.8 10.2a3.6 3.6 0 0 0-5.1 0l-3.2 3.2a3.6 3.6 0 0 0 5.1 5.1l1.1-1.1"
+              stroke={pal.sub}
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
+          </svg>
+        )
+      }
+      title={<span dir={dirOf(link.title)}>{link.title}</span>}
+      subtitle={<bdi>{site}</bdi>}
+    />
+  );
+}
+
+function fileExt(name: string): string {
+  const i = name.lastIndexOf(".");
+  return i > 0 ? name.slice(i + 1).toUpperCase() : "FILE";
+}
+
+/** Document glyph: folded page with the type label (PDF red, DOC blue, XLS green…). */
+function DocGlyph({ ext }: { ext: string }) {
+  const fill =
+    ext === "PDF" ? "#E5252A" : /^DOCX?$/.test(ext) ? "#2B65D9" : /^(XLSX?|CSV)$/.test(ext) ? "#1E9E57" : /^PPTX?$/.test(ext) ? "#E5612A" : "#5B6470";
+  return (
+    <svg width="30" height="36" viewBox="0 0 30 36" fill="none">
+      <path d="M4 0h15l11 11v21a4 4 0 0 1-4 4H4a4 4 0 0 1-4-4V4a4 4 0 0 1 4-4Z" fill={fill} />
+      <path d="M19 0v7a4 4 0 0 0 4 4h7" fill="#ffffff" fillOpacity="0.35" />
+      <text x="15" y="28" textAnchor="middle" fontSize={ext.length > 3 ? 7 : 8.5} fontWeight="800" fill="#ffffff" fontFamily="Roboto, system-ui, sans-serif">
+        {ext.slice(0, 4)}
+      </text>
+    </svg>
+  );
+}
+
+function FileCard({ file, pal }: { file: NonNullable<Message["file"]>; pal: Pal }) {
+  const ext = fileExt(file.name);
+  const parts = [file.pages, file.size, ext].filter((x): x is string => !!x);
+  return (
+    <Card
+      pal={pal}
+      tile={<DocGlyph ext={ext} />}
+      title={<bdi>{file.name}</bdi>}
+      subtitle={parts.map((p, k) => (
+        <span key={k}>
+          {k > 0 && " · "}
+          <bdi>{p}</bdi>
+        </span>
+      ))}
+    />
+  );
+}
+
+function CallCard({ call, mine, pal, s }: { call: NonNullable<Message["call"]>; mine: boolean; pal: Pal; s: Strings }) {
+  const missedIn = call.missed && !mine;
+  const title = missedIn ? (call.video ? s.missedVideo : s.missedAudio) : call.video ? s.videoChat : s.audioCall;
+  const detail = call.missed ? (mine ? s.noAnswer : s.tapToCallBack) : call.duration || "0:00";
+  const glyph = missedIn ? MISSED_RED : pal.icon;
+  return (
+    <Card
+      pal={pal}
+      tile={call.video ? <CamcorderGlyph color={glyph} /> : <PhoneGlyph color={glyph} />}
+      title={title}
+      titleColor={missedIn ? MISSED_RED : undefined}
+      subtitle={<span className="tabular-nums">{detail}</span>}
+    />
+  );
+}
+
+function MapTile({ pal, seed }: { pal: Pal; seed: string }) {
+  let h = 7;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  const dx = (h % 40) - 20;
+  return (
+    <svg width="100%" height="100%" viewBox="0 0 300 150" preserveAspectRatio="xMidYMid slice" className="block" aria-hidden>
+      <rect width="300" height="150" fill={pal.mapLand} />
+      <g transform={`translate(${dx} 0)`}>
+        <path d="M-40 118c60-14 118-6 170 10s118 18 190-6v60H-40Z" fill={pal.mapWater} />
+        <rect x="18" y="14" width="62" height="40" rx="5" fill={pal.mapBlock} />
+        <rect x="96" y="12" width="48" height="44" rx="5" fill={pal.mapPark} />
+        <rect x="162" y="16" width="70" height="36" rx="5" fill={pal.mapBlock} />
+        <rect x="248" y="10" width="60" height="46" rx="5" fill={pal.mapBlock} />
+        <rect x="10" y="70" width="80" height="34" rx="5" fill={pal.mapBlock} />
+        <rect x="106" y="72" width="56" height="30" rx="5" fill={pal.mapBlock} />
+        <rect x="178" y="70" width="44" height="34" rx="5" fill={pal.mapPark} />
+        <rect x="238" y="72" width="70" height="30" rx="5" fill={pal.mapBlock} />
+        <path d="M-40 62h400M-40 112c80-6 160-2 380 2M88 -10v170M154 -10l14 170M232 -10l-6 170" stroke={pal.mapRoad} strokeWidth="7" strokeLinecap="round" />
+        <path d="M-40 62h400" stroke={pal.mapRoad} strokeWidth="11" />
+        <path d="M40 -10 300 150" stroke={pal.mapRoad} strokeWidth="4" opacity="0.8" />
+      </g>
+    </svg>
+  );
+}
+
+/** Snap Map location card: the sharer's Bitmoji on the map tile, then place + address (live: "Live Location"). */
+function LocationCard({ loc, person, pal, s, seed }: { loc: NonNullable<Message["location"]>; person: Person; pal: Pal; s: Strings; seed: string }) {
+  return (
+    <div className="overflow-hidden" style={{ border: `1px solid ${pal.quoteBorder}`, background: pal.quoteBg, borderRadius: 10, marginBlock: 5, width: "min(100%, 250px)" }}>
+      <div className="relative" style={{ height: 128 }}>
+        <MapTile pal={pal} seed={seed} />
+        <span className="absolute flex flex-col items-center" style={{ left: "50%", top: 27, transform: "translateX(-50%)" }}>
+          <span className="flex rounded-full" style={{ padding: 2.5, background: "#ffffff", boxShadow: "0 2px 6px rgba(0,0,0,0.25)" }}>
+            <Avatar person={person} size={38} />
+          </span>
+          <span style={{ width: 10, height: 4, borderRadius: "50%", background: "rgba(0,0,0,0.22)", marginTop: 4 }} />
+        </span>
+      </div>
+      <div style={{ padding: "8px 12px 10px" }}>
+        <div className="truncate" style={{ color: pal.text, fontSize: 15, lineHeight: "20px", fontWeight: 600, textAlign: "start" }}>
+          <bdi>{loc.title}</bdi>
+        </div>
+        {(loc.live || loc.subtitle) && (
+          <div className="flex items-center" style={{ gap: 5, marginTop: 1 }}>
+            {loc.live && <span className="shrink-0 rounded-full" style={{ width: 7, height: 7, background: CHAT_BLUE }} />}
+            <span className="truncate" style={{ color: loc.live ? CHAT_BLUE : pal.sub, fontSize: 12, lineHeight: "16px", fontWeight: loc.live ? 600 : 500 }}>
+              {loc.live ? s.liveLocation : loc.subtitle}
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Sticker({ m }: { m: Message }) {
+  if (m.imageSrc) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={m.imageSrc} alt="" draggable={false} className="block object-contain" style={{ width: 116, height: 116, marginBlock: 2 }} />
+    );
+  }
+  return (
+    <div
+      className="select-none"
+      style={{ fontSize: 76, lineHeight: "94px", height: 94, fontFamily: "'Noto Color Emoji', 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif", textAlign: "start" }}
+    >
+      {m.text.trim() || "🙂"}
+    </div>
+  );
+}
+
+/** Group avatar: members' Bitmoji cluster (back one up-end, front one down-start). */
+function GroupAvatar({ group, size, ring }: { group: NonNullable<Scenario["group"]>; size: number; ring: string }) {
+  if (group.avatar) return <Avatar person={{ name: group.name, avatar: group.avatar }} size={size} />;
+  const a = group.members[0] ?? { name: group.name, avatar: null };
+  const b = group.members[1];
+  if (!b) return <Avatar person={a} size={size} />;
+  const sub = Math.round(size * 0.7);
+  return (
+    <span className="relative block shrink-0" style={{ width: size, height: size }}>
+      <span className="absolute" style={{ top: 0, insetInlineEnd: 0 }}>
+        <Avatar person={b} size={sub} />
+      </span>
+      <span className="absolute flex rounded-full" style={{ bottom: -1.5, insetInlineStart: -1.5, padding: 1.5, background: ring }}>
+        <Avatar person={a} size={sub} />
+      </span>
+    </span>
+  );
+}
+
 function receiptText(status: DeliveryStatus, lang: Lang): string {
   const s = STR[lang];
   if (status === "read") return s.opened;
@@ -590,10 +928,28 @@ export function SnapchatAndroid({ scenario, playback, lang, rtl }: PlatformProps
   const live = playback.isLive && !exporting;
   const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}-${playback.draft?.text.length ?? -1}`);
 
+  const kb = useKeyboardInset();
+  useBottomAnchor(scrollRef);
+  const group = scenario.group && scenario.group.members.length > 0 ? scenario.group : null;
+
   const showTyping = typing || (!playback.isLive && scenario.presence === "typing");
   const showPresence = showTyping || scenario.presence === "online";
-  const subtitle = scenario.presence === "lastseen" && !showTyping ? scenario.lastSeenText : "";
+  const subtitle = group
+    ? s.members(group.members.length + 1)
+    : scenario.presence === "lastseen" && !showTyping
+      ? scenario.lastSeenText
+      : "";
   const themLabel = scenario.them.name.trim() || "—";
+  const typerIndex = group ? typingAuthor(scenario, messages) : -1;
+  /** Label, colour and person for any message's sender. */
+  const who = (x: Message): { label: string; color: string; person: Person } => {
+    if (x.sender === "me") return { label: s.me, color: ME_RED, person: scenario.me };
+    const a = authorOf(scenario, x);
+    return { label: a.person.name.trim() || themLabel, color: themColor(a.index), person: a.person };
+  };
+  const presentPeople: { person: Person; color: string; typing: boolean }[] = group
+    ? group.members.slice(0, 3).map((p, idx) => ({ person: p, color: themColor(idx), typing: showTyping && idx === typerIndex }))
+    : [{ person: scenario.them, color: THEM_BLUE, typing: showTyping }];
 
   const last = messages[messages.length - 1];
   const receiptId = last && last.sender === "me" ? last.id : null;
@@ -611,7 +967,16 @@ export function SnapchatAndroid({ scenario, playback, lang, rtl }: PlatformProps
   };
 
   return (
-    <div className="flex h-full w-full flex-col" style={{ background: pal.bg, fontFamily: snapFont(scenario.androidFont) }}>
+    <div
+      className="flex h-full w-full flex-col"
+      style={{
+        background: pal.bg,
+        fontFamily: snapFont(scenario.androidFont),
+        // keyboard: composer rides on top of it, the thread shrinks (adjustResize)
+        paddingBottom: kb.inset,
+        transition: kb.transition === "none" ? "none" : `padding-bottom ${kb.transition}`,
+      }}
+    >
       <style>{KEYFRAMES}</style>
       <SamsungStatusBar tint={dark ? "light" : "dark"} background={pal.bg} lang={lang} />
 
@@ -623,10 +988,16 @@ export function SnapchatAndroid({ scenario, playback, lang, rtl }: PlatformProps
         <span className="flex shrink-0 items-center justify-center" style={{ width: 34, height: 40 }}>
           <BackChevron color={pal.icon} />
         </span>
-        <Avatar person={scenario.them} size={36} className="ms-0.5" />
+        {group ? (
+          <span className="ms-0.5 shrink-0">
+            <GroupAvatar group={group} size={36} ring={pal.bg} />
+          </span>
+        ) : (
+          <Avatar person={scenario.them} size={36} className="ms-0.5" />
+        )}
         <div className="min-w-0 flex-1" style={{ marginInlineStart: 10 }}>
           <div className="truncate" style={{ color: pal.text, fontSize: 18, lineHeight: "23px", fontWeight: 700 }}>
-            {scenario.them.name}
+            <bdi>{group ? group.name : scenario.them.name}</bdi>
           </div>
           {subtitle && (
             <div className="truncate" style={{ color: pal.sub, fontSize: 12.5, lineHeight: "16px", fontWeight: 500 }}>
@@ -665,13 +1036,71 @@ export function SnapchatAndroid({ scenario, playback, lang, rtl }: PlatformProps
 
         {messages.map((m: Message, i) => {
           const mine = m.sender === "me";
-          const accent = mine ? ME_RED : THEM_BLUE;
-          const { firstOfGroup, lastOfGroup } = groupInfo(messages, i);
+          const author = who(m);
+          const accent = author.color;
+          const { first: firstOfGroup, last: lastOfGroup } = runs(messages, i, !!group);
           const status = playback.statusOf(m);
           const caption = m.type === "image" ? m.text.trim() : "";
           const emoji = m.type === "text" && isEmojiOnly(m.text);
           const quoted = m.replyToId ? byId.get(m.replyToId) : undefined;
+          const quotedWho = quoted ? who(quoted) : null;
           const reaction = m.reaction?.trim();
+
+          // Deleted chat → centred status message (`.ijyxU`), no label or bar.
+          if (m.type === "deleted") {
+            return (
+              <div
+                key={m.id}
+                data-mid={m.id}
+                data-sender={m.sender}
+                className={live ? "snapand-enter" : undefined}
+                style={{ paddingTop: i > 0 ? 14 : 4, paddingBottom: 4, textAlign: "center" }}
+              >
+                <span
+                  className="inline-block uppercase"
+                  dir="auto"
+                  style={{
+                    color: pal.sub,
+                    fontSize: lang === "ar" ? 11 : 9.5,
+                    fontWeight: lang === "ar" ? 600 : 500,
+                    letterSpacing: lang === "ar" ? 0 : 1,
+                    lineHeight: 1.2,
+                  }}
+                >
+                  {mine ? s.youDeleted : s.deletedBy(author.label)}
+                </span>
+              </div>
+            );
+          }
+
+          let body: ReactNode;
+          if (m.type === "sticker") body = <Sticker m={m} />;
+          else if (m.type === "location" && m.location) body = <LocationCard loc={m.location} person={author.person} pal={pal} s={s} seed={m.id} />;
+          else if (m.type === "file" && m.file) body = <FileCard file={m.file} pal={pal} />;
+          else if (m.type === "call" && m.call) body = <CallCard call={m.call} mine={mine} pal={pal} s={s} />;
+          else if (m.type === "voice") body = <VoiceNote accent={accent} pal={pal} duration={m.voiceDuration} />;
+          else if (m.type === "image")
+            body = (
+              <div className="flex flex-col" style={{ gap: 6, alignItems: "flex-start" }}>
+                <ChatImage src={m.imageSrc} pal={pal} />
+                {caption && (
+                  <div dir={dirOf(caption)} className="w-full whitespace-pre-wrap break-words" style={textStyle}>
+                    {caption}
+                  </div>
+                )}
+              </div>
+            );
+          else if (emoji) body = <div style={{ fontSize: 34, lineHeight: "42px", textAlign }}>{m.text.trim()}</div>;
+          else
+            body = (
+              <>
+                <div dir={dirOf(m.text)} className="whitespace-pre-wrap break-words" style={textStyle}>
+                  {linkify(m.text)}
+                </div>
+                {m.link && <LinkCard link={m.link} pal={pal} />}
+              </>
+            );
+
           return (
             <div
               key={m.id}
@@ -681,18 +1110,24 @@ export function SnapchatAndroid({ scenario, playback, lang, rtl }: PlatformProps
               style={{ paddingTop: firstOfGroup && i > 0 ? GROUP_GAP : 0 }}
             >
               {firstOfGroup && (
-                <div
-                  className="truncate uppercase"
-                  style={{
-                    color: accent,
-                    fontSize: LABEL_SIZE,
-                    lineHeight: `${LABEL_LINE}px`,
-                    fontWeight: 600,
-                    letterSpacing: "0.02em",
-                    marginBottom: 3,
-                  }}
-                >
-                  {mine ? s.me : themLabel}
+                <div className="flex items-baseline" style={{ gap: 5, marginBottom: 3 }}>
+                  <span
+                    className="min-w-0 truncate uppercase"
+                    style={{
+                      color: accent,
+                      fontSize: LABEL_SIZE,
+                      lineHeight: `${LABEL_LINE}px`,
+                      fontWeight: 600,
+                      letterSpacing: "0.02em",
+                    }}
+                  >
+                    <bdi>{author.label}</bdi>
+                  </span>
+                  {m.edited && (
+                    <span className="shrink-0" style={{ color: pal.sub, fontSize: 12, lineHeight: `${LABEL_LINE}px`, fontWeight: 500 }}>
+                      {s.edited}
+                    </span>
+                  )}
                 </div>
               )}
               <div className="flex items-stretch">
@@ -708,38 +1143,15 @@ export function SnapchatAndroid({ scenario, playback, lang, rtl }: PlatformProps
                   }}
                 />
                 <div className="min-w-0 flex-1" style={{ paddingInlineStart: TEXT_GAP, paddingBlock: m.type === "text" ? 1 : 3 }}>
-                  {quoted && (
-                    <QuoteCard
-                      target={quoted}
-                      label={quoted.sender === "me" ? s.me : themLabel}
-                      accent={quoted.sender === "me" ? ME_RED : THEM_BLUE}
-                      pal={pal}
-                      textAlign={textAlign}
-                    />
+                  {quoted && quotedWho && (
+                    <QuoteCard target={quoted} label={quotedWho.label} accent={quotedWho.color} pal={pal} textAlign={textAlign} />
                   )}
-                  {m.type === "voice" ? (
-                    <VoiceNote accent={accent} pal={pal} duration={m.voiceDuration} />
-                  ) : m.type === "image" ? (
-                    <div className="flex flex-col" style={{ gap: 6, alignItems: "flex-start" }}>
-                      <ChatImage src={m.imageSrc} pal={pal} />
-                      {caption && (
-                        <div dir={dirOf(caption)} className="w-full whitespace-pre-wrap break-words" style={textStyle}>
-                          {caption}
-                        </div>
-                      )}
-                    </div>
-                  ) : emoji ? (
-                    <div style={{ fontSize: 34, lineHeight: "42px", textAlign }}>{m.text.trim()}</div>
-                  ) : (
-                    <div dir={dirOf(m.text)} className="whitespace-pre-wrap break-words" style={textStyle}>
-                      {m.text}
-                    </div>
-                  )}
+                  {body}
                 </div>
               </div>
               {reaction && (
                 <div className="flex" style={{ marginTop: 3, marginBottom: 1 }}>
-                  <Reaction emoji={reaction} person={mine ? scenario.them : scenario.me} ring={pal.bg} />
+                  <Reaction emoji={reaction} person={mine ? (group ? group.members[0] : scenario.them) : scenario.me} ring={pal.bg} />
                 </div>
               )}
               {mine && m.id === receiptId && (
@@ -759,29 +1171,31 @@ export function SnapchatAndroid({ scenario, playback, lang, rtl }: PlatformProps
         {/* Friend presence: their Bitmoji peeks up over a name chip; while typing a dots bubble shows. */}
         {showPresence && (
           <div className="flex items-end overflow-hidden" style={{ marginTop: 14, gap: 6, paddingInlineStart: 2 }}>
-            <div className="flex flex-col items-center">
-              <div className={live ? "snapand-peek" : undefined} style={{ marginBottom: -7 }}>
-                <Avatar person={scenario.them} size={30} />
+            {presentPeople.map(({ person, color }, pi) => (
+              <div key={pi} className="flex flex-col items-center">
+                <div className={live ? "snapand-peek" : undefined} style={{ marginBottom: -7 }}>
+                  <Avatar person={person} size={30} />
+                </div>
+                <span
+                  className="relative truncate uppercase"
+                  style={{
+                    maxWidth: 120,
+                    height: 20,
+                    lineHeight: "17px",
+                    padding: "0 10px",
+                    borderRadius: 10,
+                    border: `1.5px solid ${color}`,
+                    background: pal.bg,
+                    color,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: "0.02em",
+                  }}
+                >
+                  {person.name.trim() || themLabel}
+                </span>
               </div>
-              <span
-                className="relative truncate uppercase"
-                style={{
-                  maxWidth: 120,
-                  height: 20,
-                  lineHeight: "17px",
-                  padding: "0 10px",
-                  borderRadius: 10,
-                  border: `1.5px solid ${THEM_BLUE}`,
-                  background: pal.bg,
-                  color: THEM_BLUE,
-                  fontSize: 11,
-                  fontWeight: 700,
-                  letterSpacing: "0.02em",
-                }}
-              >
-                {themLabel}
-              </span>
-            </div>
+            ))}
             {showTyping && (
               <div
                 className={`flex items-center ${live ? "snapand-fade" : ""}`}
@@ -796,7 +1210,7 @@ export function SnapchatAndroid({ scenario, playback, lang, rtl }: PlatformProps
                       style={{
                         width: 6,
                         height: 6,
-                        background: THEM_BLUE,
+                        background: group ? themColor(typerIndex) : THEM_BLUE,
                         ...(st
                           ? { opacity: st.opacity, transform: `translateY(${st.y.toFixed(2)}px)` }
                           : { animationDelay: `${d * DOT_STAGGER - DOT_CYCLE}ms` }),

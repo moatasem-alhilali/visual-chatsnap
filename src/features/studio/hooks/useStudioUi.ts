@@ -5,7 +5,7 @@ import { create } from "zustand";
 export type PanelTab = "setup" | "messages";
 
 /** Studio dialogs that can be opened from anywhere (menus, empty states, shortcuts). */
-export type StudioDialog = "templates" | "transcript" | "projects" | "share" | null;
+export type StudioDialog = "templates" | "transcript" | "projects" | "share" | "ai" | null;
 
 /**
  * Transient editor UI state (never persisted): which message is selected,

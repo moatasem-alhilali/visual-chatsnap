@@ -65,6 +65,16 @@
  *    the waveform turns into a 32pt tinted-glass blue disc with arrow.up.
  *  [F] support.apple.com/guide/iphone/iph018d3c336 ("React with Tapbacks", iOS 26),
  *      asset ipcdn-web.apple.com/assets/v2/web/c472aee5-d184-482a-866a-b7a5d7200d13
+ *  - Groups: header shows the group photo or a cluster of member monograms + the
+ *    group name in the capsule; 11pt secondary sender name above each member's
+ *    run (13pt in), 28pt avatar beside the run's last bubble (bubbles indent 43pt).
+ *  - Rich links / Maps / documents: LPLinkView-style grey plate on both sides with
+ *    the run's tail; a URL at the start/end of the text is split into its own
+ *    balloon (title 15pt semibold + domain 13pt). "Edited" 11pt semibold systemBlue
+ *    under the balloon. FaceTime rows and Undo Send notices are centred 11pt
+ *    captions ("FaceTime Video · 4:12", "Khalid unsent a message.").
+ *  - Keyboard: the input bar rides 8pt above the keyboard with 16pt side insets;
+ *    the transcript lifts by the same amount (transform, keyboard transition).
  *  - Scroll edges: soft fades under the floating header and composer (Liquid Glass
  *    scroll-edge effect, drawn as gradients so the snapdom exporter matches).
  *  - Motion: outgoing bubbles rise from the input field (≈58pt) on a lightly damped
@@ -1006,7 +1016,14 @@ function FileCard({
   dark: boolean;
 }) {
   const ext = (/\.([a-z0-9]{1,5})$/i.exec(file.name)?.[1] ?? "").toLowerCase();
-  const meta = [file.pages, file.size, ext ? ext.toUpperCase() : l.docKind("")].filter(Boolean).join(" · ");
+  const meta = [file.pages, file.size, ext ? ext.toUpperCase() : l.docKind("")]
+    .filter((x): x is string => !!x)
+    .map((x, i) => (
+      <span key={i}>
+        {i > 0 && " · "}
+        <bdi>{x}</bdi>
+      </span>
+    ));
   return (
     <Plate p={p} tail={tail} width={undefined}>
       <div className="flex items-center" style={{ minWidth: 214, padding: "10px 16px 10px 12px", gap: 10 }}>

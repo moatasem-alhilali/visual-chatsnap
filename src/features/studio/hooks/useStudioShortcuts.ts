@@ -99,6 +99,9 @@ export function useStudioShortcuts(handlers: Handlers) {
       } else if (key === "f") {
         e.preventDefault();
         h.onRecord();
+      } else if (key === "i") {
+        e.preventDefault();
+        ui.openDialog("ai");
       } else if (e.key === "?") {
         e.preventDefault();
         ui.setShortcutsOpen(true);

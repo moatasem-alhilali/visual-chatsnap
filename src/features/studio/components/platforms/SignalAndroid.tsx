@@ -76,9 +76,10 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
-import type { DeliveryStatus, Message, Person } from "../../types";
+import type { DeliveryStatus, GroupChat, LinkPreview, Message, Person } from "../../types";
 import { dirOf, SystemBottomBar, useChatScroll } from "../shared";
 import { SamsungStatusBar } from "../devices/SamsungStatusBar";
+import { useKeyboardInset } from "../devices/keyboard-context";
 import type { Lang } from "./chrome";
 import type { PlatformMotion, PlatformProps } from "./types";
 
@@ -225,10 +226,127 @@ const CLUSTER_MIN = 3;
    Localised strings [P][R]
    ====================================================================== */
 
-const STR: Record<Lang, { placeholder: string; today: string; you: string; photo: string; audio: string }> = {
-  en: { placeholder: "Signal message", today: "Today", you: "You", photo: "Photo", audio: "Audio" },
-  ar: { placeholder: "رسالة سيجنال", today: "اليوم", you: "أنت", photo: "صورة", audio: "صوت" },
+interface Strings {
+  placeholder: string;
+  today: string;
+  you: string;
+  photo: string;
+  audio: string;
+  /** ConversationItem_edited_absolute_timestamp_footer ("Edited %1$s") */
+  edited: (time: string) => string;
+  /** ConversationItem_you_deleted_this_message / ConversationItem_s_deleted_this_message */
+  youDeleted: string;
+  deletedBy: (name: string) => string;
+  /** MessageRecord_*_call + MessageRecord_call_message_with_date */
+  missedVoice: string;
+  missedVideo: string;
+  incomingVoice: string;
+  incomingVideo: string;
+  outgoingVoice: string;
+  outgoingVideo: string;
+  unansweredVoice: string;
+  unansweredVideo: string;
+  withDate: (text: string, time: string) => string;
+  /** group call updates (GroupCallUpdateMessageFactory) */
+  groupMissed: (time: string) => string;
+  groupStartedBy: (name: string, time: string) => string;
+  groupStartedYou: (time: string) => string;
+  /** ConversationHeaderView GroupMemberSubtitle (MessageRequestProfileView_group_members_*) */
+  members: (names: string[], memberCount: number) => { text: string; others: string | null };
+}
+
+const STR: Record<Lang, Strings> = {
+  en: {
+    placeholder: "Signal message",
+    today: "Today",
+    you: "You",
+    photo: "Photo",
+    audio: "Audio",
+    edited: (t) => `Edited ${t}`,
+    youDeleted: "You deleted this message",
+    deletedBy: (n) => `${n} deleted this message`,
+    missedVoice: "Missed voice call",
+    missedVideo: "Missed video call",
+    incomingVoice: "Incoming voice call",
+    incomingVideo: "Incoming video call",
+    outgoingVoice: "Outgoing voice call",
+    outgoingVideo: "Outgoing video call",
+    unansweredVoice: "Unanswered voice call",
+    unansweredVideo: "Unanswered video call",
+    withDate: (x, t) => `${x} · ${t}`,
+    groupMissed: (t) => `Missed video call · ${t}`,
+    groupStartedBy: (n, t) => `${n} started a video call · ${t}`,
+    groupStartedYou: (t) => `You started a video call · ${t}`,
+    members: (n, count) => {
+      if (n.length === 0) return { text: "No other group members yet", others: null };
+      if (n.length === 1) return { text: `${n[0]} and you`, others: null };
+      if (n.length === 2) return { text: `${n[0]}, ${n[1]}, and you`, others: null };
+      const k = count - 3;
+      const others = k > 0 ? `${k} ${k === 1 ? "other" : "others"}` : "";
+      return { text: `${n[0]}, ${n[1]}, ${n[2]}, and ${others}`, others: others || null };
+    },
+  },
+  ar: {
+    placeholder: "رسالة سيجنال",
+    today: "اليوم",
+    you: "أنت",
+    photo: "صورة",
+    audio: "صوت",
+    edited: (t) => `مُعدَّلة ${t}`,
+    youDeleted: "حذفتَ هذه الرسالة",
+    deletedBy: (n) => `حذفَ ${n} هذه الرسالة`,
+    missedVoice: "مكالمة صوتية فائتة",
+    missedVideo: "مكالمة فيديو فائتة",
+    incomingVoice: "مكالمة صوتية واردة",
+    incomingVideo: "مكالمة فيديو واردة",
+    outgoingVoice: "مكالمة صوتية صادرة",
+    outgoingVideo: "مكالمة فيديو صادرة",
+    unansweredVoice: "مكالمة صوتية لم يتم الرد عليها",
+    unansweredVideo: "مكالمة فيديو لم يتم الرد عليها",
+    withDate: (x, t) => `${x} . ${t}`,
+    groupMissed: (t) => `مكالمة فيديو فائتة · ${t}`,
+    groupStartedBy: (n, t) => `${n} بدأ مكالمة فيديو · ${t}`,
+    groupStartedYou: (t) => `بدأتَ مكالمة فيديو · ${t}`,
+    members: (n, count) => {
+      if (n.length === 0) return { text: "لا يوجد أعضاء آخرون في المجموعة حتى الآن.", others: null };
+      if (n.length === 1) return { text: `${n[0]} وأنت`, others: null };
+      if (n.length === 2) return { text: `${n[0]}، و${n[1]} وأنت`, others: null };
+      const k = count - 3;
+      const d = localDigits(String(k), "ar");
+      const others = k <= 0 ? "" : k <= 1 ? `${d} آخر` : k === 2 ? `${d} آخران` : `${d} آخرون`;
+      return { text: `${n[0]}، و${n[1]}، و${n[2]}، و${others}`, others: others || null };
+    },
+  },
 };
+
+/**
+ * conversation/colors/ChatColorsPalette.Names.all (light, dark) — assigned by
+ * GroupAuthorNameColorHelper to the members in order.
+ */
+const NAME_COLORS: [string, string][] = [
+  ["#006da3", "#00a7fa"],
+  ["#067906", "#0ab80a"],
+  ["#b814b8", "#f65af6"],
+  ["#c13215", "#ff6f52"],
+  ["#5b6976", "#8ba1b6"],
+  ["#cc0066", "#f76eb2"],
+  ["#2e51ff", "#8599ff"],
+  ["#007575", "#00b2b2"],
+  ["#9c5711", "#d5920b"],
+  ["#d00b4d", "#ff6b9c"],
+  ["#8f2af4", "#bf80ff"],
+  ["#3d7406", "#5eb309"],
+];
+
+/** MessageRecord missed-call tint: core_red_shade (light) / core_red (dark). */
+const MISSED_RED = { light: "#e51d0e", dark: "#f44336" };
+
+/** Group threads: 28dp avatar 12dp from the edge, bubble 8dp after it (v2_conversation_item_*_incoming.xml). */
+const GROUP_START = 12;
+const GROUP_AVATAR = 28;
+const GROUP_BUBBLE_START = GROUP_START + GROUP_AVATAR + 8; // 48
+/** media_bubble_sticker_dimens */
+const STICKER = 175;
 
 /** Android formats times/durations with the locale's digits (Arabic-Indic in ar, like the status bar). */
 function localDigits(s: string, lang: Lang): string {
@@ -311,6 +429,9 @@ function minutesOf(time: string): number | null {
 
 function clustered(a: Message, b: Message): boolean {
   if (a.sender !== b.sender) return false;
+  // call updates are ConversationUpdateItems; group messages cluster per author
+  if (a.type === "call" || b.type === "call") return false;
+  if (a.sender === "them" && (a.authorIndex ?? 0) !== (b.authorIndex ?? 0)) return false;
   const ta = minutesOf(a.time);
   const tb = minutesOf(b.time);
   if (ta === null || tb === null) return true;

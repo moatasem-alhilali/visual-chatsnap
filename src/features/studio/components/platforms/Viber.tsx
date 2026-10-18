@@ -1199,7 +1199,7 @@ function Row({
         <span
           className="inline-flex items-center"
           dir={uiDir}
-          style={{ fontSize: 16, lineHeight: "21.5px", fontStyle: "italic", color: p.quoteText, letterSpacing: -0.3, gap: 5, flex: "1 1 auto" }}
+          style={{ fontSize: 16, lineHeight: "21.5px", fontStyle: dirOf(s.deleted) === "rtl" ? "normal" : "italic", color: p.quoteText, letterSpacing: -0.3, gap: 5, flex: "1 1 auto" }}
         >
           <BanGlyph color={p.quoteText} />
           {s.deleted}

@@ -51,6 +51,15 @@
  *    pill grows up to 5 lines, camera disc stays, the trailing icons give way
  *    to the bold accent "Send" text (ar "إرسال").
  *
+ * Round 5 — same IG design as iOS in dp: stacked default group picture, group
+ * name + member list subtitle, grey sender name above each member's run and
+ * the avatar beside its last bubble, "Seen by everyone"; sticker (no bubble),
+ * location map card (pin / live avatar), file bubble ("2 pages · 245 KB ·
+ * PDF"), call bubble ("Video chat ended · 4:12" / "Missed audio call · Call
+ * back"), centred "You unsent a message" line, "Edited" above the bubble,
+ * underlined URLs + joined link card, and the keyboard inset (padding-bottom
+ * = inset with the keyboard's transition; the 3-button bar hides itself).
+ *
  * Behaviour: no per-message times — a centred 12sp secondary-text timestamp
  * ("Today 10:41") at the top and after ≥1h of silence. Under your newest message
  * only: "Sent" until read, then "Seen" (Instagram has no "Delivered" stage).

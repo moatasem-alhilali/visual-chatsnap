@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocale } from "next-intl";
-import { ClipboardPaste, LayoutTemplate, Timer, Wand2 } from "lucide-react";
+import { ClipboardPaste, LayoutTemplate, Sparkles, Timer, Wand2 } from "lucide-react";
 
 import { Button } from "@/shared/components/ui/button";
 import { Tooltip } from "@/shared/components/ui/tooltip";
@@ -67,7 +67,20 @@ function EmptyState({ t, onAdd }: { t: StudioLabels; onAdd: (s: Sender) => void 
         {t.emptyOr}
         <span className="h-px flex-1 bg-border" />
       </div>
-      <div className="mt-3 grid w-full max-w-72 grid-cols-2 gap-2">
+      <button
+        type="button"
+        onClick={() => openDialog("ai")}
+        className="group mt-3 flex w-full max-w-72 cursor-pointer items-center gap-3 rounded-xl border border-primary/25 bg-primary/[0.06] px-3 py-2.5 text-start outline-none transition-[border-color,background-color] duration-150 ease-studio hover:border-primary/45 hover:bg-primary/10 focus-visible:ring-[3px] focus-visible:ring-ring/40"
+      >
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+          <Sparkles className="size-4" />
+        </span>
+        <span className="min-w-0">
+          <span className="block text-[13px] font-semibold text-foreground">{t.aiWrite}</span>
+          <span className="block text-[11.5px] leading-snug text-muted-foreground">{t.aiWriteHint}</span>
+        </span>
+      </button>
+      <div className="mt-2 grid w-full max-w-72 grid-cols-2 gap-2">
         <Button variant="soft" size="sm" onClick={() => openDialog("templates")} className="gap-1.5">
           <LayoutTemplate className="size-3.5" />
           {t.templates}

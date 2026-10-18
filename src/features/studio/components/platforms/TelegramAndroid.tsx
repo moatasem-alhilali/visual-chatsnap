@@ -73,17 +73,52 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type 
 import type { DeliveryStatus, Message, Person } from "../../types";
 import { Avatar, SystemBottomBar, useChatScroll } from "../shared";
 import { SamsungStatusBar } from "../devices/SamsungStatusBar";
+import { useKeyboardInset } from "../devices/keyboard-context";
 import type { Lang } from "./chrome";
-import { groupInfo, type PlatformMotion, type PlatformProps } from "./types";
+import type { PlatformMotion, PlatformProps } from "./types";
 
 /* ------------------------------------------------------------------ */
 /* Strings                                                             */
 /* ------------------------------------------------------------------ */
 
-const TGA_STRINGS: Record<
-  Lang,
-  { online: string; typing: string; lastSeenRecently: string; message: string; photo: string; voice: string; months: string[] }
-> = {
+interface TgaStrings {
+  online: string;
+  typing: string;
+  lastSeenRecently: string;
+  message: string;
+  photo: string;
+  voice: string;
+  months: string[];
+  /** EditedMessage */
+  edited: string;
+  /** Members_one / Members_other */
+  members: (n: number) => string;
+  /** IsTypingGroup ("%1$s is typing..." with the dots stripped like printString) */
+  userTyping: (name: string) => string;
+  /** CallMessage* */
+  call: { out: string; in: string; missed: string; cancelled: string; vOut: string; vIn: string; vMissed: string; vCancelled: string };
+  /** LocaleController.formatCallDuration: Minutes / Seconds plurals */
+  duration: (secs: number) => string;
+  /** AttachLiveLocation / LocationUpdatedJustNow / AttachLocation / AttachDocument / AttachSticker */
+  liveLocation: string;
+  updatedJustNow: string;
+  location: string;
+  file: string;
+  sticker: string;
+  callSep: string;
+}
+
+/** Arabic plural forms as Telegram's ar localisation uses them (1, 2, 3–10, 11–99, 100+). */
+function arPlural(n: number, one: string, two: string, few: string, many: string, other: string): string {
+  if (n === 1) return one;
+  if (n === 2) return two;
+  const m = n % 100;
+  if (m >= 3 && m <= 10) return `${n} ${few}`;
+  if (m >= 11 && m <= 99) return `${n} ${many}`;
+  return `${n} ${other}`;
+}
+
+const TGA_STRINGS: Record<Lang, TgaStrings> = {
   // AttachPhoto / AttachAudio are the reply-snippet labels for media targets
   en: {
     photo: "Photo",
@@ -93,6 +128,26 @@ const TGA_STRINGS: Record<
     lastSeenRecently: "last seen recently",
     message: "Message",
     months: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
+    edited: "edited",
+    members: (n) => (n === 1 ? "1 member" : `${n} members`),
+    userTyping: (name) => `${name} is typing`,
+    call: {
+      out: "Outgoing Call",
+      in: "Incoming Call",
+      missed: "Missed Call",
+      cancelled: "Cancelled Call",
+      vOut: "Outgoing Video Call",
+      vIn: "Incoming Video Call",
+      vMissed: "Missed Video Call",
+      vCancelled: "Cancelled Video Call",
+    },
+    duration: (s) => (s <= 60 ? `${s} ${s === 1 ? "second" : "seconds"}` : `${Math.floor(s / 60)} ${Math.floor(s / 60) === 1 ? "minute" : "minutes"}`),
+    liveLocation: "Live Location",
+    updatedJustNow: "updated just now",
+    location: "Location",
+    file: "File",
+    sticker: "Sticker",
+    callSep: ", ",
   },
   ar: {
     photo: "صورة",
@@ -102,6 +157,27 @@ const TGA_STRINGS: Record<
     lastSeenRecently: "آخر ظهور كان قريبًا",
     message: "الرسالة",
     months: ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"],
+    edited: "معدلة",
+    members: (n) => arPlural(n, "عضو واحد", "عضوان", "أعضاء", "عضوًا", "عضو"),
+    userTyping: (name) => `${name} يكتب`,
+    call: {
+      out: "مكالمة صادرة",
+      in: "مكالمة واردة",
+      missed: "مكالمة فائتة",
+      cancelled: "مكالمة ملغاة",
+      vOut: "مكالمة فيديو صادرة",
+      vIn: "مكالمة فيديو واردة",
+      vMissed: "مكالمة فيديو فائتة",
+      vCancelled: "مكالمة فيديو ملغاة",
+    },
+    duration: (s) =>
+      s <= 60 ? arPlural(s, "ثانية واحدة", "ثانيتان", "ثوانٍ", "ثانية", "ثانية") : arPlural(Math.floor(s / 60), "دقيقة واحدة", "دقيقتان", "دقائق", "دقيقة", "دقيقة"),
+    liveLocation: "الموقع المباشر",
+    updatedJustNow: "تم التحديث الآن",
+    location: "الموقع",
+    file: "ملف",
+    sticker: "ملصق",
+    callSep: "، ",
   },
 };
 
@@ -158,11 +234,12 @@ function wallpaperStyle(dark: boolean): CSSProperties {
 }
 
 /** Background geometry of a wallpaper copy that must line up with the full-screen wallpaper (cover, centred). */
-function wallGeometry(W: number, H: number, zone: "top" | "bottom"): CSSProperties {
+function wallGeometry(W: number, H: number, zone: "top" | "bottom", top?: number): CSSProperties {
   const k = Math.max(W / WALL_W, H / WALL_H);
   const w = WALL_W * k;
   const h = WALL_H * k;
-  const dy = zone === "top" ? 0 : H - FADE_BOTTOM;
+  // `top` = the copy's own offset from the screen top (the bottom zone moves up with the keyboard)
+  const dy = top ?? (zone === "top" ? 0 : H - FADE_BOTTOM);
   return { backgroundSize: `${w}px ${h}px`, backgroundPosition: `${(W - w) / 2}px ${(H - h) / 2 - dy}px` };
 }
 
@@ -217,6 +294,31 @@ interface Pal {
   /** chat_messagePanelText / chat_messagePanelCursor */
   inputText: string;
   cursor: string;
+  /** per-direction content colours for links, webpage previews, files and calls */
+  part: { in: PartA; out: PartA };
+  /** static map image palette (Google Maps default / night) */
+  map: { land: string; block: string; park: string; water: string; road: string; major: string; stroke: string };
+  /** avatar_nameInMessage* for group sender names */
+  names: string[];
+}
+
+interface PartA {
+  /** chat_messageLinkIn/Out */
+  link: string;
+  underline: boolean;
+  /** chat_in/outPreviewLine + chat_in/outSiteNameText */
+  line: string;
+  site: string;
+  /** chat_in/outFileNameText, chat_in/outFileInfoText */
+  fileName: string;
+  fileInfo: string;
+  /** chat_in/outLoader + chat_in/outMediaIcon (file circle) */
+  loader: string;
+  loaderIcon: string;
+  /** chat_in/outInstant (call button) */
+  instant: string;
+  /** chat_in/outTimeText-ish secondary line (call time, venue address) */
+  secondary: string;
 }
 
 const OUT_GRADIENT_DARK = "linear-gradient(to bottom, #9f3eaa 0%, #8146d7 33.333%, #4272df 66.667%, #258de5 100%)";
@@ -272,6 +374,35 @@ const LIGHT: Pal = {
   },
   inputText: "#000000",
   cursor: "#54a1db",
+  // ThemeColors defaults
+  part: {
+    in: {
+      link: "#2678b6",
+      underline: false,
+      line: "#70b4e8",
+      site: "#298acf",
+      fileName: "#298acf",
+      fileInfo: "#a1aab3",
+      loader: "#229af0",
+      loaderIcon: "#ffffff",
+      instant: "#298acf",
+      secondary: "#a1aab3",
+    },
+    out: {
+      link: "#2678b6",
+      underline: false,
+      line: "#88c97b",
+      site: "#55ab4f",
+      fileName: "#55ab4f",
+      fileInfo: "#65b05b",
+      loader: "#78c272",
+      loaderIcon: "#efffde",
+      instant: "#55ab4f",
+      secondary: "#70b15c",
+    },
+  },
+  map: { land: "#f5f3ef", block: "#ebe8e1", park: "#c6e8c4", water: "#9fd0f5", road: "#ffffff", major: "#fde293", stroke: "#f2c94c" },
+  names: ["#cc5049", "#d67722", "#955cdb", "#40a920", "#309eba", "#368ad1", "#c7508b"],
 };
 
 const DARK: Pal = {
@@ -321,6 +452,35 @@ const DARK: Pal = {
   },
   inputText: "#ffffff",
   cursor: "#54a1db",
+  // darkblue.attheme (incoming) + fillAccentColors light-text branch on the gradient (outgoing = white)
+  part: {
+    in: {
+      link: "#79c4fc",
+      underline: false,
+      line: "#79c4fc",
+      site: "#79c4fc",
+      fileName: "#ffffff",
+      fileInfo: "#798997",
+      loader: "#609dd2",
+      loaderIcon: "#ffffff",
+      instant: "#79c4fc",
+      secondary: "rgba(128, 145, 160, 0.851)",
+    },
+    out: {
+      link: "#ffffff",
+      underline: true,
+      line: "#ffffff",
+      site: "#ffffff",
+      fileName: "#ffffff",
+      fileInfo: "rgba(255, 255, 255, 0.7)",
+      loader: "#ffffff",
+      loaderIcon: "#258de5",
+      instant: "#ffffff",
+      secondary: "rgba(255, 255, 255, 0.7)",
+    },
+  },
+  map: { land: "#242f3e", block: "#2b3747", park: "#263c3f", water: "#17263c", road: "#38414e", major: "#746855", stroke: "#1f2835" },
+  names: ["#e88878", "#e8ab5a", "#8c8dea", "#7dd071", "#53ccc6", "#5cadea", "#e8749a"],
 };
 
 /* ------------------------------------------------------------------ */
@@ -546,6 +706,11 @@ interface RowCtx {
   pinnedBottom: boolean;
   react?: Reaction | null;
   quote?: Quote | null;
+  /** time label incl. the "edited" prefix (ChatMessageCell currentTimeString) */
+  time: string;
+  /** group chats: sender name drawn at the top of the first bubble of a run */
+  name?: { text: string; color: string } | null;
+  s: TgaStrings;
 }
 
 /** UserObject.getColorId for a user without a custom colour: id % 7 (the name stands in for the id). */
@@ -555,16 +720,28 @@ function nameColorIndex(name: string): number {
   return h % 7;
 }
 
-function quoteOf(target: Message | undefined, me: Person, them: Person, s: (typeof TGA_STRINGS)[Lang]): Quote | null {
+function quoteOf(target: Message | undefined, authorOf: (m: Message) => { person: Person; idx: number }, s: TgaStrings): Quote | null {
   if (!target) return null;
-  const author = target.sender === "me" ? me : them;
-  const base = { name: author.name, nameIdx: nameColorIndex(author.name) };
+  const author = authorOf(target);
+  const base = { name: author.person.name, nameIdx: author.idx };
   if (target.type === "voice") return { ...base, text: s.voice, media: true, thumb: null, hasThumb: false };
+  if (target.type === "sticker") return { ...base, text: `${target.text.trim()} ${s.sticker}`.trim(), media: true, thumb: null, hasThumb: false };
+  if (target.type === "location") return { ...base, text: target.location?.live ? s.liveLocation : s.location, media: true, thumb: null, hasThumb: false };
+  if (target.type === "file") return { ...base, text: target.file?.name || s.file, media: false, thumb: null, hasThumb: false };
+  if (target.type === "call") return { ...base, text: callTitle(target, s), media: true, thumb: null, hasThumb: false };
   if (target.type === "image") {
     const caption = target.text.replace(/\s+/g, " ").trim();
     return { ...base, text: caption || s.photo, media: !caption, thumb: target.imageSrc ?? null, hasThumb: true };
   }
   return { ...base, text: target.text.replace(/\s+/g, " ").trim(), media: false, thumb: null, hasThumb: false };
+}
+
+/** ChatMessageCell.getCallMessageText: outgoing (missed = cancelled) / incoming (missed) × voice / video. */
+function callTitle(m: Message, s: TgaStrings): string {
+  const c = m.call ?? { video: false, missed: false };
+  const cs = s.call;
+  if (m.sender === "me") return c.missed ? (c.video ? cs.vCancelled : cs.cancelled) : c.video ? cs.vOut : cs.out;
+  return c.missed ? (c.video ? cs.vMissed : cs.missed) : c.video ? cs.vIn : cs.in;
 }
 
 function withAlpha(hex: string, a: number): string {
@@ -627,7 +804,7 @@ function ReplyBlock({ q, t, outgoing, style }: { q: Quote; t: Pal; outgoing: boo
 }
 
 /** Time + checks inside a text/voice/caption bubble. */
-function BubbleMeta({ m, ctx }: { m: Message; ctx: RowCtx }) {
+function BubbleMeta({ ctx }: { m?: Message; ctx: RowCtx }) {
   const { t, mine, status, pinnedBottom } = ctx;
   const lift = pinnedBottom ? 1 : 0;
   return (
@@ -643,7 +820,7 @@ function BubbleMeta({ m, ctx }: { m: Message; ctx: RowCtx }) {
           color: mine ? t.outTime : t.inTime,
         }}
       >
-        {m.time}
+        {ctx.time}
       </span>
       {mine && <Checks status={status} color={t.outCheck} bottom={5 + lift} edge={0} />}
     </>
@@ -659,7 +836,25 @@ function bubbleRadii(onRight: boolean, pinnedTop: boolean, pinnedBottom: boolean
 }
 
 /** Text block with Telegram's time slot: inline when it fits on the last line, else a 14dp line (always for RTL). */
-function TextBlock({ text, ctx, time, extraTop = 0, fit = true }: { text: string; ctx: RowCtx; time: string; extraTop?: number; fit?: boolean }) {
+function TextBlock({
+  text,
+  ctx,
+  time,
+  extraTop = 0,
+  fit = true,
+  noTime = false,
+  maxW = 280,
+}: {
+  text: string;
+  ctx: RowCtx;
+  time: string;
+  extraTop?: number;
+  fit?: boolean;
+  /** the time is laid out after attached content (webpage preview), not on the last text line */
+  noTime?: boolean;
+  /** max text width (W − 80, minus 52 next to group avatars) */
+  maxW?: number;
+}) {
   const { mine, pinnedTop } = ctx;
   const tw = timeWidth(time);
   const rtl = HAS_RTL.test(text);
@@ -672,7 +867,7 @@ function TextBlock({ text, ctx, time, extraTop = 0, fit = true }: { text: string
       style={{
         margin: 0,
         boxSizing: "content-box",
-        maxWidth: 280,
+        maxWidth: maxW,
         // with reactions the time moves to the reaction row: the text keeps no slot and the row adds 34dp
         padding: `${7.05 + pt + extraTop}px 11px ${(ctx.react ? 4.95 : 6.95) - pt}px`,
         fontSize: 16,
@@ -682,8 +877,10 @@ function TextBlock({ text, ctx, time, extraTop = 0, fit = true }: { text: string
         color: mine ? ctx.t.outText : ctx.t.inText,
       }}
     >
-      <span style={{ lineHeight: "18.75px" }}>{text}</span>
-      {ctx.react ? null : rtl ? (
+      <span style={{ lineHeight: "18.75px" }}>
+        {linkify(text, (mine ? ctx.t.part.out : ctx.t.part.in).link, (mine ? ctx.t.part.out : ctx.t.part.in).underline)}
+      </span>
+      {ctx.react || noTime ? null : rtl ? (
         <span aria-hidden style={{ display: "block", height: 14, width: mine ? tw + 17 : tw }} />
       ) : (
         <span aria-hidden style={{ display: "inline-block", height: 0, width: mine ? tw + 26.5 : tw + 10, verticalAlign: "baseline" }} />
@@ -729,7 +926,7 @@ function VoiceBody({ m, ctx }: { m: Message; ctx: RowCtx }) {
   const { t, mine, status } = ctx;
   const v = mine ? t.vOut : t.vIn;
   const dur = m.voiceDuration || "0:00";
-  const tw = timeWidth(m.time);
+  const tw = timeWidth(ctx.time);
   const dw = timeWidth(dur);
   const bodyW = 174 + tw + dw - 13; // backgroundWidth = 174dp + time + duration; body = bW − 13
   const waveW = bodyW + 13 - 92; // seekBarWaveform width = backgroundWidth − 92
@@ -778,16 +975,16 @@ function PhotoPlaceholder({ t }: { t: Pal }) {
 }
 
 /** Time pill on a photo (shouldDrawTimeOnMedia): 17dp, r 8, mediaTimeBackground × 0.6. */
-function MediaTime({ m, ctx }: { m: Message; ctx: RowCtx }) {
+function MediaTime({ ctx }: { m?: Message; ctx: RowCtx }) {
   const { mine, status } = ctx;
-  const tw = timeWidth(m.time);
+  const tw = timeWidth(ctx.time);
   return (
     <span
       className="pointer-events-none absolute"
       style={{ right: 5, bottom: 6, height: 17, width: tw + 12 + (mine ? 20 : 0), borderRadius: 8, background: "rgba(0, 0, 0, 0.24)" }}
     >
       <span dir="ltr" className="absolute whitespace-nowrap" style={{ left: 6, top: 1.7, fontSize: 12, lineHeight: "14px", color: "#ffffff" }}>
-        {m.time}
+        {ctx.time}
       </span>
       {mine && <Checks status={status} color="#ffffff" bottom={2.5} edge={0} media />}
     </span>
@@ -795,9 +992,9 @@ function MediaTime({ m, ctx }: { m: Message; ctx: RowCtx }) {
 }
 
 /** Service-coloured time pill for stickers / big emoji (chat_actionBackground shader at 60%). */
-function ServiceTime({ m, ctx, round }: { m: Message; ctx: RowCtx; round: boolean }) {
+function ServiceTime({ ctx, round }: { m?: Message; ctx: RowCtx; round: boolean }) {
   const { mine, status, t } = ctx;
-  const tw = timeWidth(m.time);
+  const tw = timeWidth(ctx.time);
   return (
     <span className="pointer-events-none relative inline-block" style={{ height: 17, width: tw + 12 + (mine ? 24 : 0), borderRadius: round ? 8.5 : 4 }}>
       <span
@@ -807,11 +1004,420 @@ function ServiceTime({ m, ctx, round }: { m: Message; ctx: RowCtx; round: boolea
         style={{ borderRadius: round ? 8.5 : 4, opacity: 0.6, backgroundImage: `url("${t.svc}")`, backgroundColor: t.dark ? "#2c384c" : "#71a753" }}
       />
       <span dir="ltr" className="absolute whitespace-nowrap" style={{ left: 6, top: 1.7, fontSize: 12, lineHeight: "14px", color: "#ffffff" }}>
-        {m.time}
+        {ctx.time}
       </span>
       {mine && <Checks status={status} color="#ffffff" bottom={2.5} edge={-0.5} media />}
     </span>
   );
+}
+
+/* ------------------------------------------------------------------ */
+/* Round 5: groups, link previews, sticker, location, file, call         */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Sources (DrKLO/Telegram master, ChatMessageCell.java / Theme.java / ThemeColors.java / strings.xml):
+ *  - Groups: chat_namePaint bold (Roboto Medium) smallerDp = 14dp in avatar_nameInMessage* colours at the top of
+ *    the first bubble; avatar 42dp at x 6dp next to the last bubble; incoming bubbles shift by 52dp and lose
+ *    52dp of max width (drawAvatar). Header: Members_other "%1$d members"; IsTypingGroup "%1$s is typing...".
+ *  - Edited: currentTimeString = EditedMessage ("edited") + " " + time.
+ *  - Webpage: ReplyMessageLine block (3dp bar chat_in/outPreviewLine, fill × .1), site name bold 14 in
+ *    chat_in/outSiteNameText, title bold 14, description 14, small 48dp thumbnail at the right; links in the text
+ *    chat_messageLinkIn/Out (#2678b6).
+ *  - Document (createDocumentLayout): 44dp loader circle (chat_in/outLoader, ICON_FILE), name chat_docNamePaint
+ *    bold 15 in chat_in/outFileNameText, info chat_infoPaint 12 = formatFileSize + " " + extension
+ *    (chat_in/outFileInfoText); cell 70dp.
+ *  - Call (TYPE_PHONE_CALL): backgroundWidth min(W − 50, 270); title chat_audioTitlePaint bold 16 at (x, 12);
+ *    "time, formatCallDuration" chat_contactPhonePaint 13 at (x + 19, 37) in the time colour; arrow
+ *    chat_calls_outgoing / chat_calls_incoming (green #00c853, red fill_RedNormal #eb5e5e) at (x − 1, 37);
+ *    chat_calls_voice / chat_calls_video (chat_in/outInstant) at backgroundWidth − 70; cell 65dp; no time/checks.
+ *  - Venue (TYPE_GEO): backgroundWidth min(W − 50, 289) − 4, map photoWidth = bw − 17 × 195dp, title bold 15
+ *    (chat_locationTitlePaint) at photo + 6 / photoY2 + 8, address 13 (+21dp); live = AttachLiveLocation +
+ *    "updated just now" with the sender's avatar pin. Map = Google static map with its red marker.
+ *  - No "deleted" placeholder exists: deleted-for-everyone messages vanish, so those rows are not rendered.
+ */
+
+const URL_RE_A = /(https?:\/\/[^\s]+|www\.[^\s]+)/g;
+
+function linkify(text: string, color: string, underline: boolean): ReactNode {
+  const parts = text.split(URL_RE_A);
+  if (parts.length === 1) return text;
+  return parts.map((p, i) =>
+    i % 2 === 1 ? (
+      <span key={i} style={{ color, textDecoration: underline ? "underline" : undefined }}>
+        {p}
+      </span>
+    ) : (
+      p
+    ),
+  );
+}
+
+function hostOfA(url: string): string {
+  return url.replace(/^[a-z]+:\/\//i, "").replace(/^www\./i, "").split(/[/?#]/)[0];
+}
+
+/** AvatarDrawable gradients (avatar_background*, avatar_background2*) in avatar_nameInMessage order. */
+const TGA_AVATAR_GRADIENTS: [string, string][] = [
+  ["#ff845e", "#d45246"],
+  ["#febb5b", "#f68136"],
+  ["#b694f9", "#6c61df"],
+  ["#9ad164", "#46ba43"],
+  ["#5bcbe3", "#359ad4"],
+  ["#5caffa", "#408acf"],
+  ["#ff8aac", "#d95574"],
+];
+
+function lettersOf(name: string): string {
+  const words = name
+    .trim()
+    .split(/\s+/)
+    .filter((w) => /^\p{L}/u.test(w));
+  if (!words.length) return Array.from(name.trim())[0] ?? "";
+  const first = Array.from(words[0])[0] ?? "";
+  const last = words.length > 1 ? (Array.from(words[words.length - 1])[0] ?? "") : "";
+  return (first + last).toUpperCase();
+}
+
+/** AvatarDrawable with a fixed colour index (group members / group placeholder). */
+function TgaAvatar({ person, size, idx }: { person: Person; size: number; idx: number }) {
+  if (person.avatar) return <Avatar person={person} size={size} />;
+  const [top, bottom] = TGA_AVATAR_GRADIENTS[idx % 7];
+  return (
+    <span
+      className="flex shrink-0 items-center justify-center rounded-full text-white"
+      style={{
+        width: size,
+        height: size,
+        backgroundImage: `linear-gradient(180deg, ${top}, ${bottom})`,
+        fontSize: Math.round(size * 0.42),
+        fontWeight: 500,
+        lineHeight: 1,
+      }}
+    >
+      {lettersOf(person.name)}
+    </span>
+  );
+}
+
+function NameLine({ ctx, style }: { ctx: RowCtx; style?: CSSProperties }) {
+  if (!ctx.name) return null;
+  return (
+    <div
+      dir="auto"
+      className="relative overflow-hidden whitespace-nowrap"
+      style={{
+        padding: `${ctx.pinnedTop ? 6 : 7}px 11px 0`,
+        fontSize: 14,
+        lineHeight: "17px",
+        fontWeight: 500,
+        color: ctx.name.color,
+        textAlign: "left",
+        textOverflow: "ellipsis",
+        maxWidth: 280,
+        ...style,
+      }}
+    >
+      {ctx.name.text}
+    </div>
+  );
+}
+
+function WebpageBlockA({ ctx, link, width }: { ctx: RowCtx; link: NonNullable<Message["link"]>; width: number }) {
+  const p = ctx.mine ? ctx.t.part.out : ctx.t.part.in;
+  const text = ctx.mine ? ctx.t.outText : ctx.t.inText;
+  const site = link.siteName?.trim() || hostOfA(link.url);
+  const thumb = !!link.image;
+  const row: CSSProperties = { fontSize: 14, lineHeight: "16.4px", textAlign: "start" };
+  const clamp = (n: number): CSSProperties => ({ display: "-webkit-box", WebkitLineClamp: n, WebkitBoxOrient: "vertical", overflow: "hidden" });
+  return (
+    <div
+      className="relative overflow-hidden"
+      style={{
+        width,
+        margin: "0 11px",
+        borderRadius: 5,
+        background: withAlpha(p.line, ctx.mine && ctx.t.dark ? 0.12 : 0.1),
+        padding: `5px ${thumb ? 8 + 48 + 6 : 8}px 7px 10px`,
+        minHeight: thumb ? 48 + 12 : undefined,
+      }}
+    >
+      <span aria-hidden className="absolute inset-y-0 left-0 block" style={{ width: 3, background: p.line }} />
+      {thumb && link.image && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={link.image} alt="" draggable={false} className="absolute block object-cover" style={{ right: 6, top: 6, width: 48, height: 48, borderRadius: 5 }} />
+      )}
+      <div dir="auto" className="overflow-hidden whitespace-nowrap" style={{ ...row, fontWeight: 500, color: p.site, textOverflow: "ellipsis" }}>
+        {site}
+      </div>
+      {link.title && (
+        <div dir="auto" style={{ ...row, ...clamp(2), fontWeight: 500, color: text, marginTop: 1 }}>
+          {link.title}
+        </div>
+      )}
+      {link.description && (
+        <div dir="auto" style={{ ...row, ...clamp(3), color: text, marginTop: 1 }}>
+          {link.description}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function rand01A(seed: string, k: number): number {
+  let h = 2166136261 ^ k;
+  for (let i = 0; i < seed.length; i++) h = Math.imul(h ^ seed.charCodeAt(i), 16777619);
+  h ^= h >>> 13;
+  return ((h >>> 0) % 1000) / 1000;
+}
+
+/** Plausible Google static map (formapMapUrl): blocks, a park, water, white streets, a yellow arterial. */
+function MapArtA({ t, w, h, seed }: { t: Pal; w: number; h: number; seed: string }) {
+  const m = t.map;
+  const j = (k: number, span: number) => (rand01A(seed, k) - 0.5) * span;
+  const xs = [0.2, 0.52, 0.84].map((f, i) => f * w + j(i, 24));
+  const ys = [0.22, 0.58, 0.86].map((f, i) => f * h + j(10 + i, 16));
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden className="block">
+      <rect width={w} height={h} fill={m.land} />
+      {[0, 1, 2, 3].map((cx) =>
+        [0, 1, 2, 3].map((cy) => {
+          const x0 = cx === 0 ? -10 : xs[cx - 1] + 5;
+          const x1 = cx === 3 ? w + 10 : xs[cx] - 5;
+          const y0 = cy === 0 ? -10 : ys[cy - 1] + 5;
+          const y1 = cy === 3 ? h + 10 : ys[cy] - 5;
+          const park = cx === 1 && cy === 0;
+          return <rect key={`${cx}-${cy}`} x={x0} y={y0} width={Math.max(0, x1 - x0)} height={Math.max(0, y1 - y0)} rx={2} fill={park ? m.park : m.block} />;
+        }),
+      )}
+      <path d={`M${w} ${h * 0.62} C ${w * 0.9} ${h * 0.7} ${w * 0.86} ${h * 0.9} ${w * 0.74} ${h + 4} L${w} ${h + 4} Z`} fill={m.water} />
+      {xs.map((x, i) => (
+        <line key={`v${i}`} x1={x} y1={-4} x2={x + j(20 + i, 10)} y2={h + 4} stroke={m.road} strokeWidth={i === 1 ? 6 : 4.5} />
+      ))}
+      {ys.map((y, i) => (
+        <line key={`h${i}`} x1={-4} y1={y} x2={w + 4} y2={y + j(30 + i, 8)} stroke={m.road} strokeWidth={4.5} />
+      ))}
+      <line x1={-6} y1={h * 0.1} x2={w + 6} y2={h * 0.92} stroke={m.stroke} strokeWidth={9} />
+      <line x1={-6} y1={h * 0.1} x2={w + 6} y2={h * 0.92} stroke={m.major} strokeWidth={7} />
+    </svg>
+  );
+}
+
+/** Google's red marker (static map) or, for live locations, msgAvatarLiveLocation: a pin holding the avatar. */
+function MapMarkerA({ live, person, idx }: { live: boolean; person: Person; idx: number }) {
+  if (live) {
+    return (
+      <span className="absolute block" style={{ left: "50%", top: "50%", width: 62, height: 70, transform: "translate(-50%, -100%)" }}>
+        <svg width="62" height="70" viewBox="0 0 62 70" aria-hidden className="block" style={{ filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.3))" }}>
+          <path d="M31 69c-2-6-6-10-11-12.5A30 30 0 1 1 42 56.5C37 59 33 63 31 69Z" fill="#ffffff" />
+        </svg>
+        <span className="absolute block" style={{ left: 5, top: 5 }}>
+          <TgaAvatar person={person} size={52} idx={idx} />
+        </span>
+      </span>
+    );
+  }
+  return (
+    <span className="absolute block" style={{ left: "50%", top: "50%", width: 27, height: 43, transform: "translate(-50%, -100%)" }}>
+      <svg width="27" height="43" viewBox="0 0 27 43" aria-hidden className="block">
+        <path d="M13.5 1C6.6 1 1 6.6 1 13.5c0 9.4 10.6 16.6 12.5 28.5C15.4 30.1 26 22.9 26 13.5 26 6.6 20.4 1 13.5 1Z" fill="#ea4335" stroke="#a52714" strokeWidth="1" />
+        <circle cx="13.5" cy="13.5" r="4.6" fill="#7b1a10" />
+      </svg>
+    </span>
+  );
+}
+
+function LocationBodyA({ m, ctx, author, maxBody }: { m: Message; ctx: RowCtx; author: { person: Person; idx: number }; maxBody: number }) {
+  const loc = m.location ?? { title: "" };
+  const live = !!loc.live;
+  const p = ctx.mine ? ctx.t.part.out : ctx.t.part.in;
+  const w = maxBody - 6;
+  const h = 195;
+  const title = live ? ctx.s.liveLocation : loc.title;
+  const sub = live ? ctx.s.updatedJustNow : (loc.subtitle ?? "");
+  const rtlSub = HAS_RTL.test(sub || title);
+  const top = ctx.name ? 0 : ctx.pinnedTop ? 3 : 15;
+  return (
+    <div className="relative" style={{ width: w + 6 }}>
+      <NameLine ctx={ctx} style={{ paddingBottom: 5 }} />
+      <div
+        className="relative overflow-hidden"
+        style={{
+          margin: "3px 3px 0",
+          width: w,
+          height: h,
+          borderTopLeftRadius: ctx.name ? 4 : ctx.mine ? 15 : top,
+          borderTopRightRadius: ctx.name ? 4 : ctx.mine ? top : 15,
+          borderBottomLeftRadius: 4,
+          borderBottomRightRadius: 4,
+        }}
+      >
+        <MapArtA t={ctx.t} w={w} h={h} seed={m.id} />
+        <MapMarkerA live={live} person={author.person} idx={author.idx} />
+      </div>
+      <div style={{ padding: `7px ${live ? 48 : 9}px ${rtlSub ? 22 : live ? 8 : 7}px 9px` }}>
+        <div dir="auto" className="overflow-hidden whitespace-nowrap" style={{ fontSize: 15, lineHeight: "18px", fontWeight: 500, color: ctx.mine ? ctx.t.outText : ctx.t.inText, textAlign: "start", textOverflow: "ellipsis" }}>
+          {title}
+        </div>
+        <div dir="auto" className="overflow-hidden whitespace-nowrap" style={{ fontSize: 13, lineHeight: "16px", marginTop: 3, color: p.secondary, textAlign: "start", textOverflow: "ellipsis" }}>
+          {sub}
+          {!rtlSub && !live && <span aria-hidden style={{ display: "inline-block", width: timeWidth(ctx.time) + (ctx.mine ? 30 : 12) }} />}
+        </div>
+      </div>
+      {live && (
+        <span className="absolute block" style={{ right: 12, bottom: 22 }}>
+          <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden className="block">
+            <circle cx="14" cy="14" r="12" fill="none" stroke={withAlpha(ctx.t.dark ? "#ffffff" : "#000000", 0.1)} strokeWidth="2" />
+            <path d="M14 2a12 12 0 1 1-11.4 8.3" fill="none" stroke={p.loader} strokeWidth="2" strokeLinecap="round" />
+            <text x="14" y="18" textAnchor="middle" fontSize="11" fontWeight="500" fill={p.loader}>
+              15
+            </text>
+          </svg>
+        </span>
+      )}
+      {ctx.react && (
+        <div style={{ padding: "0 9px 10px" }}>
+          <ReactionChip r={ctx.react} t={ctx.t} outgoing={ctx.mine} />
+        </div>
+      )}
+      <BubbleMeta m={m} ctx={ctx} />
+    </div>
+  );
+}
+
+function FileIconA({ color, grad }: { color: string; grad: boolean }) {
+  // MediaActionDrawable.ICON_FILE: page with a folded corner, 24dp, centred in the 44dp loader
+  return (
+    <span
+      aria-hidden
+      data-tga-bg={grad ? "grad" : undefined}
+      className="absolute block"
+      style={{
+        left: 14,
+        top: 12,
+        width: 16,
+        height: 20,
+        ...bubbleBg(color, grad),
+        clipPath: "path(evenodd, 'M2 0H10.2L16 5.8V18A2 2 0 0 1 14 20H2A2 2 0 0 1 0 18V2A2 2 0 0 1 2 0ZM9.6 1.4V5A1.4 1.4 0 0 0 11 6.4H14.6Z')",
+      }}
+    />
+  );
+}
+
+function FileBodyA({ m, ctx }: { m: Message; ctx: RowCtx }) {
+  const f = m.file ?? { name: "" };
+  const p = ctx.mine ? ctx.t.part.out : ctx.t.part.in;
+  const ext = (f.name.split(".").pop() ?? "").toUpperCase();
+  const info = [f.size, f.name.includes(".") ? ext : ""].filter(Boolean).join(" ");
+  const grad = ctx.mine && ctx.t.outGradient;
+  return (
+    <div className="relative" style={{ minWidth: 200 }}>
+      <NameLine ctx={ctx} />
+      <div className="relative" style={{ height: ctx.name ? 56 : 62 }}>
+        <span className="absolute block rounded-full" style={{ left: 10, top: ctx.name ? 4 : 9, width: 44, height: 44, background: p.loader }}>
+          <FileIconA color={p.loaderIcon} grad={grad} />
+        </span>
+        <div style={{ position: "absolute", left: 64, right: 11, top: ctx.name ? 6 : 11 }}>
+          <div dir="auto" className="overflow-hidden whitespace-nowrap" style={{ fontSize: 15, lineHeight: "18px", fontWeight: 500, color: p.fileName, textAlign: "start", textOverflow: "ellipsis" }}>
+            {f.name || ctx.s.file}
+          </div>
+          <div dir="ltr" className="whitespace-nowrap" style={{ fontSize: 12, lineHeight: "14px", marginTop: 4, color: p.fileInfo, textAlign: "left" }}>
+            {info}
+          </div>
+        </div>
+        {/* width: name or info + time, like createDocumentLayout + timeWidth */}
+        <div aria-hidden style={{ visibility: "hidden", height: 0, overflow: "hidden", paddingLeft: 64, paddingRight: 11, fontSize: 15, fontWeight: 500, whiteSpace: "nowrap", maxWidth: 270 }}>
+          {f.name}
+        </div>
+        <div aria-hidden style={{ visibility: "hidden", height: 0, overflow: "hidden", paddingLeft: 64, fontSize: 12, whiteSpace: "nowrap" }}>
+          {info}
+          <span style={{ display: "inline-block", width: timeWidth(ctx.time) + (ctx.mine ? 40 : 24) }} />
+        </div>
+      </div>
+      {ctx.react && (
+        <div style={{ padding: "0 11px 10px" }}>
+          <ReactionChip r={ctx.react} t={ctx.t} outgoing={ctx.mine} />
+        </div>
+      )}
+      <BubbleMeta m={m} ctx={ctx} />
+    </div>
+  );
+}
+
+function CallArrowA({ outgoing, color }: { outgoing: boolean; color: string }) {
+  // chat_calls_outgoing / chat_calls_incoming (16dp arrow)
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden className="block">
+      <path
+        d={outgoing ? "M4.5 11.5 11 5M6 4.6h5.4V10" : "M11.5 4.5 5 11M10 11.4H4.6V6"}
+        stroke={color}
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function CallGlyphA({ video, color }: { video: boolean; color: string }) {
+  return video ? (
+    <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden className="block">
+      <rect x="2.5" y="6" width="13" height="12" rx="3" fill={color} />
+      <path d="M17 10.2 20.6 8c.6-.4 1.4.1 1.4.8v6.4c0 .7-.8 1.2-1.4.8L17 13.8Z" fill={color} />
+    </svg>
+  ) : (
+    <CallIcon color={color} />
+  );
+}
+
+function CallBodyA({ m, ctx, bodyW }: { m: Message; ctx: RowCtx; bodyW: number }) {
+  const c = m.call ?? { video: false, missed: false };
+  const p = ctx.mine ? ctx.t.part.out : ctx.t.part.in;
+  const secs = (() => {
+    const v = (c.duration ?? "").split(":").map((x) => parseInt(x, 10) || 0);
+    return v.length === 3 ? v[0] * 3600 + v[1] * 60 + v[2] : v.length === 2 ? v[0] * 60 + v[1] : v[0] || 0;
+  })();
+  const label = !c.missed && secs > 0 ? `${m.time}${ctx.s.callSep}${ctx.s.duration(secs)}` : m.time;
+  const arrow = c.missed ? "#eb5e5e" : "#00c853";
+  return (
+    <div className="relative" style={{ width: bodyW }}>
+      <NameLine ctx={ctx} />
+      <div className="relative" style={{ height: ctx.name ? 50 : 58 }}>
+        <div
+          dir="auto"
+          className="absolute overflow-hidden whitespace-nowrap"
+          style={{ left: 14, right: 60, top: ctx.name ? 3 : 10, fontSize: 16, lineHeight: "19px", fontWeight: 500, color: ctx.mine ? ctx.t.outText : ctx.t.inText, textAlign: "start", textOverflow: "ellipsis" }}
+        >
+          {callTitle(m, ctx.s)}
+        </div>
+        <span className="absolute block" style={{ left: 13 - 1, top: ctx.name ? 26 : 33 }}>
+          <CallArrowA outgoing={ctx.mine} color={arrow} />
+        </span>
+        <span
+          dir="auto"
+          className="absolute overflow-hidden whitespace-nowrap"
+          style={{ left: 33, right: 60, top: ctx.name ? 26 : 33, fontSize: 13, lineHeight: "16px", color: ctx.mine ? ctx.t.outTime : ctx.t.inTime, textAlign: "start" }}
+        >
+          {label}
+        </span>
+        <span className="absolute block" style={{ left: bodyW - 42, top: ctx.name ? 10 : 17 }}>
+          <CallGlyphA video={c.video} color={p.instant} />
+        </span>
+      </div>
+      {ctx.react && (
+        <div style={{ padding: "0 11px 10px" }}>
+          <ReactionChip r={ctx.react} t={ctx.t} outgoing={ctx.mine} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Bubble runs: same sender — and, in a group, the same member. */
+function runInfoA(list: Message[], i: number, grouped: boolean): { first: boolean; last: boolean } {
+  const key = (m: Message | undefined) => (m ? `${m.sender}:${grouped && m.sender === "them" ? (m.authorIndex ?? 0) : 0}` : "");
+  const k = key(list[i]);
+  return { first: key(list[i - 1]) !== k, last: key(list[i + 1]) !== k };
 }
 
 /* ------------------------------------------------------------------ */
@@ -962,7 +1568,8 @@ function syncBackgrounds(root: HTMLElement, sc: HTMLElement) {
   const ox = (W - bw) / 2;
   const oy = (H - bh) / 2;
   root.querySelectorAll<HTMLElement>("[data-tga-wall]").forEach((el) => {
-    const g = wallGeometry(W, H, el.dataset.tgaWall === "bottom" ? "bottom" : "top");
+    const zone = el.dataset.tgaWall === "bottom" ? "bottom" : "top";
+    const g = wallGeometry(W, H, zone, zone === "bottom" ? el.offsetTop : undefined);
     el.style.backgroundSize = String(g.backgroundSize);
     el.style.backgroundPosition = String(g.backgroundPosition);
   });
@@ -1080,7 +1687,25 @@ function Cursor({ color, clock }: { color: string; clock?: { since: number } }) 
   );
 }
 
-function Composer({ t, hint, text, clockMs, rtlUi }: { t: Pal; hint: string; text: string | null; clockMs?: number; rtlUi: boolean }) {
+function Composer({
+  t,
+  hint,
+  text,
+  clockMs,
+  rtlUi,
+  bottom = NAV_H + 9,
+  lift,
+}: {
+  t: Pal;
+  hint: string;
+  text: string | null;
+  clockMs?: number;
+  rtlUi: boolean;
+  /** island bottom: nav bar + 9dp, or keyboard inset + 9dp while the IME is up */
+  bottom?: number;
+  /** CSS transition for the keyboard lift (undefined = none) */
+  lift?: string;
+}) {
   const on = text !== null;
   const sw = useSwitchClock(on ? "on" : "off", clockMs);
   const keyClock = useSwitchClock(text ?? "", clockMs);
@@ -1134,7 +1759,7 @@ function Composer({ t, hint, text, clockMs, rtlUi }: { t: Pal; hint: string; tex
   }
   const anim = !exporting;
   return (
-    <div className="absolute" style={{ left: 7, right: 7, bottom: NAV_H + 9, minHeight: 44, ...glassInput(t) }}>
+    <div className="absolute" style={{ left: 7, right: 7, bottom, minHeight: 44, ...glassInput(t), transition: lift }}>
       {on ? (
         <DraftText text={text} color={t.inputText} innerRef={textRef} caret={<Cursor key={text.length} color={t.cursor} clock={keyClock} />} />
       ) : (
@@ -1188,9 +1813,57 @@ export function TelegramAndroid({ scenario, playback, lang, rtl }: PlatformProps
   const byId = new Map(scenario.messages.map((m) => [m.id, m] as const));
   const rootRef = useRef<HTMLDivElement>(null);
 
+  // Group chat: "them" messages pick a member through authorIndex (stable per-member colour index).
+  const group = scenario.group ?? null;
+  const members = group && group.members.length > 0 ? group.members : null;
+  const authorOf = (m: Message): { person: Person; idx: number } => {
+    if (m.sender === "me") return { person: scenario.me, idx: nameColorIndex(scenario.me.name) };
+    if (!members) return { person: scenario.them, idx: nameColorIndex(scenario.them.name) };
+    const k = Math.max(0, Math.min(members.length - 1, m.authorIndex ?? 0));
+    return { person: members[k], idx: k % 7 };
+  };
+  // deleted-for-everyone messages simply vanish in Telegram
+  const visible = messages.filter((m) => m.type !== "deleted");
+
+  // IME: the island rides 9dp above the keyboard (which draws the nav bar itself) and the list shrinks
+  const kb = useKeyboardInset();
+  const kbUp = kb.inset > 0;
+  const islandBottom = kbUp ? kb.inset + 9 : NAV_H + 9;
+  const lift = kb.transition === "none" ? undefined : `bottom ${kb.transition}`;
+  const fadeBottomH = kbUp ? FADE_BOTTOM - NAV_H : FADE_BOTTOM;
+  const kbRef = useRef(kb.inset);
+  useLayoutEffect(() => {
+    const sc = scrollRef.current;
+    if (sc && kbRef.current !== kb.inset) sc.scrollTop = sc.scrollHeight;
+    kbRef.current = kb.inset;
+  }, [scrollRef, kb.inset]);
+  useEffect(() => {
+    // keep the newest message above the island while the list animates with the keyboard
+    const sc = scrollRef.current;
+    if (!sc || typeof ResizeObserver === "undefined") return;
+    let first = true;
+    let lastH = sc.clientHeight;
+    const ro = new ResizeObserver(() => {
+      const h = sc.clientHeight;
+      if (!first && h !== lastH) sc.scrollTop = sc.scrollHeight;
+      first = false;
+      lastH = h;
+    });
+    ro.observe(sc);
+    return () => ro.disconnect();
+  }, [scrollRef]);
+
   const showTyping = typing || scenario.presence === "typing";
-  const subtitle = scenario.presence === "online" ? s.online : scenario.lastSeenText.trim() || s.lastSeenRecently;
-  const subtitleAccent = showTyping || scenario.presence === "online";
+  const nextThem = scenario.messages.slice(messages.length).find((m) => m.sender === "them");
+  const typer = members ? (nextThem ? authorOf(nextThem).person : members[0]) : null;
+  const subtitle = members
+    ? s.members(members.length + 1)
+    : scenario.presence === "online"
+      ? s.online
+      : scenario.lastSeenText.trim() || s.lastSeenRecently;
+  const subtitleAccent = showTyping || (!members && scenario.presence === "online");
+  const typingLabel = typer ? s.userTyping(typer.name.trim().split(/\s+/)[0]) : s.typing;
+  const headerName = group ? group.name : scenario.them.name;
 
   useLayoutEffect(() => {
     const sc = scrollRef.current;
@@ -1236,8 +1909,8 @@ export function TelegramAndroid({ scenario, playback, lang, rtl }: PlatformProps
       {/* Chat list — full screen, scrolls under the glass header and input island */}
       <div
         ref={scrollRef}
-        className="rcss-scroll absolute inset-0 overflow-y-auto overflow-x-hidden"
-        style={{ paddingTop: STATUS_H + BAR_H + 4, paddingBottom: NAV_H + 16 }}
+        className="rcss-scroll absolute inset-x-0 top-0 overflow-y-auto overflow-x-hidden"
+        style={{ bottom: kb.inset, paddingTop: STATUS_H + BAR_H + 4, paddingBottom: kbUp ? 16 : NAV_H + 16, transition: lift }}
       >
         <div className="flex flex-col">
           {/* ChatActionCell date: 4dp + 22.4dp chip + ~4dp */}
@@ -1256,22 +1929,32 @@ export function TelegramAndroid({ scenario, playback, lang, rtl }: PlatformProps
             </span>
           </div>
 
-          {messages.map((m, i) => {
+          {visible.map((m, i) => {
             const mine = m.sender === "me";
-            const { firstOfGroup, lastOfGroup } = groupInfo(messages, i);
+            const { first: firstOfGroup, last: lastOfGroup } = runInfoA(visible, i, !!members);
             const pinnedTop = !firstOfGroup;
             const pinnedBottom = !lastOfGroup;
-            const prevPinnedTop = i > 0 && !groupInfo(messages, i - 1).firstOfGroup;
+            const prevPinnedTop = i > 0 && !runInfoA(visible, i - 1, !!members).first;
             const status = playback.statusOf(m);
+            const author = authorOf(m);
+            const withAvatar = !!members && !mine;
+            const emojiN0 = m.type === "text" ? emojiOnlyCount(m.text) : 0;
+            const bubbleless = m.type === "sticker" || emojiN0 > 0;
             const ctx: RowCtx = {
               t,
               mine,
               status,
               pinnedTop,
               pinnedBottom,
-              react: m.reaction ? { emoji: m.reaction, by: mine ? scenario.them : scenario.me, chosen: !mine } : null,
-              quote: m.replyToId ? quoteOf(byId.get(m.replyToId), scenario.me, scenario.them, s) : null,
+              react: m.reaction ? { emoji: m.reaction, by: mine ? (members ? members[0] : scenario.them) : scenario.me, chosen: !mine } : null,
+              quote: m.replyToId ? quoteOf(byId.get(m.replyToId), authorOf, s) : null,
+              time: m.edited ? `${s.edited} ${m.time}` : m.time,
+              name: withAvatar && firstOfGroup && !bubbleless ? { text: author.person.name, color: t.names[author.idx] } : null,
+              s,
             };
+            // drawAvatar: incoming bubbles move right by 52dp and lose that much max width
+            const maxText = withAvatar ? 280 - 52 : 280;
+            const link = m.type === "text" ? (m.link ?? null) : null;
             // a reply block sits 9dp under the body top (7 when grouped above); body text then starts 3dp below it
             const replyTop = pinnedTop ? 7 : 9;
             const gap = i === 0 ? 3 : pinnedTop ? 2 : prevPinnedTop ? 7 : 6;
@@ -1284,7 +1967,33 @@ export function TelegramAndroid({ scenario, playback, lang, rtl }: PlatformProps
             const tail = !pinnedBottom;
 
             let body: ReactNode;
-            if (emojiN === 1) {
+            if (m.type === "sticker") {
+              // Sticker (TYPE_STICKER): no bubble, ~160dp, service time pill in its bottom-right corner.
+              const emo = m.text.trim();
+              const n = emojiOnlyCount(emo) || 1;
+              body = (
+                <div className="relative" style={{ width: 160, marginTop: 2, marginBottom: 2 }}>
+                  <div className="relative" style={{ width: 160, height: 160 }}>
+                    {m.imageSrc ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={m.imageSrc} alt="" draggable={false} className="block h-full w-full object-contain" />
+                    ) : (
+                      <span dir="ltr" className="absolute inset-0 flex items-center justify-center whitespace-nowrap" style={{ fontSize: n === 1 ? 128 : n === 2 ? 66 : 46, lineHeight: 1 }}>
+                        {emo}
+                      </span>
+                    )}
+                    <span className="absolute" style={{ right: 0, bottom: 6 }}>
+                      <ServiceTime m={m} ctx={ctx} round />
+                    </span>
+                  </div>
+                  {ctx.react && (
+                    <div className={`flex ${mine ? "justify-end" : "justify-start"}`} style={{ marginTop: 4 }}>
+                      <ReactionChip r={ctx.react} t={t} outgoing={mine} bg={ctx.react.chosen ? t.inBubble : t.dark ? "rgba(0, 0, 0, 0.32)" : "rgba(0, 0, 0, 0.22)"} />
+                    </div>
+                  )}
+                </div>
+              );
+            } else if (emojiN === 1) {
               // Animated-emoji sticker: 112.5dp box, time pill inside its bottom-right corner.
               body = (
                 <div className="relative" style={{ width: 112, height: 112, marginTop: 2, marginBottom: 2 }}>
@@ -1334,8 +2043,12 @@ export function TelegramAndroid({ scenario, playback, lang, rtl }: PlatformProps
                     className="relative"
                     style={{ padding: 2, ...bubbleBg(fill, grad), boxShadow: mine ? t.outShadow : t.inShadow, ...r }}
                   >
-                    {ctx.quote && <ReplyBlock q={ctx.quote} t={t} outgoing={mine} style={{ margin: `${replyTop - 2}px 10px 6px`, width: PHOTO_W - 20 }} />}
-                    <div className="relative overflow-hidden" style={{ width: PHOTO_W, ...pr }}>
+                    <NameLine ctx={ctx} style={{ padding: "5px 9px 5px" }} />
+                    {ctx.quote && <ReplyBlock q={ctx.quote} t={t} outgoing={mine} style={{ margin: `${ctx.name ? 2 : replyTop - 2}px 10px 6px`, width: PHOTO_W - 20 }} />}
+                    <div
+                      className="relative overflow-hidden"
+                      style={{ width: PHOTO_W, ...pr, ...(ctx.name ? { borderTopLeftRadius: 4, borderTopRightRadius: 4 } : {}) }}
+                    >
                       {m.imageSrc ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={m.imageSrc} alt="" draggable={false} className="block w-full object-cover" style={{ maxHeight: 360, minHeight: 100 }} />
@@ -1362,14 +2075,24 @@ export function TelegramAndroid({ scenario, playback, lang, rtl }: PlatformProps
                     className="relative"
                     style={{ ...bubbleBg(fill, grad), boxShadow: mine ? t.outShadow : t.inShadow, ...bubbleRadii(onRight, pinnedTop, pinnedBottom, tail) }}
                   >
-                    {isVoice ? (
+                    {m.type === "location" ? (
+                      <LocationBodyA m={m} ctx={ctx} author={author} maxBody={withAvatar ? 254 - 9 : 285 - 9} />
+                    ) : m.type === "file" ? (
+                      <FileBodyA m={m} ctx={ctx} />
+                    ) : m.type === "call" ? (
+                      <CallBodyA m={m} ctx={ctx} bodyW={withAvatar ? 244 : 256} />
+                    ) : isVoice ? (
                       <>
-                        {ctx.quote && <ReplyBlock q={ctx.quote} t={t} outgoing={mine} style={{ margin: `${replyTop}px 12px -6px` }} />}
-                        <VoiceBody m={m} ctx={ctx} />
+                        <NameLine ctx={ctx} style={{ paddingBottom: ctx.quote ? 0 : 0 }} />
+                        {ctx.quote && <ReplyBlock q={ctx.quote} t={t} outgoing={mine} style={{ margin: `${ctx.name ? 4 : replyTop}px 12px -6px` }} />}
+                        <div style={{ marginTop: ctx.name && !ctx.quote ? -6 : 0 }}>
+                          <VoiceBody m={m} ctx={ctx} />
+                        </div>
                       </>
                     ) : isImage ? (
                       <div className="relative">
-                        {ctx.quote && <ReplyBlock q={ctx.quote} t={t} outgoing={mine} style={{ margin: `${replyTop}px 12px 4px`, width: PHOTO_W - 20 }} />}
+                        <NameLine ctx={ctx} style={{ paddingBottom: ctx.quote ? 0 : 4 }} />
+                        {ctx.quote && <ReplyBlock q={ctx.quote} t={t} outgoing={mine} style={{ margin: `${ctx.name ? 4 : replyTop}px 12px 4px`, width: PHOTO_W - 20 }} />}
                         <div style={{ padding: "2px 2px 0" }}>
                           <div
                             className="overflow-hidden"
@@ -1390,18 +2113,36 @@ export function TelegramAndroid({ scenario, playback, lang, rtl }: PlatformProps
                           </div>
                         </div>
                         <div style={{ width: PHOTO_W + 4 }}>
-                          <TextBlock text={caption} ctx={{ ...ctx, pinnedTop: false }} time={m.time} extraTop={-0.5} fit={false} />
-                          <ReactionRow ctx={ctx} time={m.time} />
+                          <TextBlock text={caption} ctx={{ ...ctx, pinnedTop: false }} time={ctx.time} extraTop={-0.5} fit={false} />
+                          <ReactionRow ctx={ctx} time={ctx.time} />
                         </div>
                         <BubbleMeta m={m} ctx={ctx} />
                       </div>
                     ) : (
                       <div className="relative">
+                        <NameLine ctx={ctx} />
                         {ctx.quote && (
-                          <ReplyBlock q={ctx.quote} t={t} outgoing={mine} style={{ margin: `${replyTop}px 12px 0`, maxWidth: 278 }} />
+                          <ReplyBlock q={ctx.quote} t={t} outgoing={mine} style={{ margin: `${ctx.name ? 4 : replyTop}px 12px 0`, maxWidth: maxText - 2 }} />
                         )}
-                        <TextBlock text={m.text} ctx={ctx} time={m.time} extraTop={ctx.quote ? 3 - 7.05 - (pinnedTop ? 1 : 0) : 0} />
-                        <ReactionRow ctx={ctx} time={m.time} />
+                        <TextBlock
+                          text={m.text}
+                          ctx={ctx}
+                          time={ctx.time}
+                          maxW={maxText}
+                          noTime={!!link}
+                          fit={!link}
+                          extraTop={ctx.quote ? 3 - 7.05 - (pinnedTop ? 1 : 0) : ctx.name ? -5 - (pinnedTop ? 1 : 0) : 0}
+                        />
+                        {link && (
+                          <>
+                            <div style={{ marginTop: -2 }}>
+                              <WebpageBlockA ctx={ctx} link={link} width={maxText} />
+                            </div>
+                            {!ctx.react && <div style={{ height: 19 }} />}
+                            {ctx.react && <div style={{ height: 6 }} />}
+                          </>
+                        )}
+                        <ReactionRow ctx={ctx} time={ctx.time} />
                         <BubbleMeta m={m} ctx={ctx} />
                       </div>
                     )}
@@ -1415,13 +2156,18 @@ export function TelegramAndroid({ scenario, playback, lang, rtl }: PlatformProps
                 key={m.id}
                 data-mid={m.id}
                 data-sender={m.sender}
-                className={`flex ${mine ? "justify-end" : "justify-start"} ${live ? "tga-enter" : ""}`}
+                className={`relative flex ${mine ? "justify-end" : "justify-start"} ${live ? "tga-enter" : ""}`}
                 style={{
                   marginTop: gap,
-                  paddingLeft: mine ? 0 : emojiN ? 13 : SIDE,
-                  paddingRight: mine ? (emojiN ? 13 : SIDE) : 0,
+                  paddingLeft: mine ? 0 : (bubbleless ? 13 : SIDE) + (withAvatar ? 52 : 0),
+                  paddingRight: mine ? (bubbleless ? 13 : SIDE) : 0,
                 }}
               >
+                {withAvatar && lastOfGroup && (
+                  <span className="absolute block" style={{ left: 6, bottom: bubbleless ? 2 : 0 }}>
+                    <TgaAvatar person={author.person} size={42} idx={author.idx} />
+                  </span>
+                )}
                 {body}
               </div>
             );
@@ -1439,13 +2185,16 @@ export function TelegramAndroid({ scenario, playback, lang, rtl }: PlatformProps
           key={zone}
           aria-hidden
           data-tga-wall={zone}
-          className={`pointer-events-none absolute inset-x-0 ${zone === "top" ? "top-0" : "bottom-0"}`}
+          className={`pointer-events-none absolute inset-x-0 ${zone === "top" ? "top-0" : ""}`}
           style={{
-            height: zone === "top" ? FADE_TOP : FADE_BOTTOM,
+            // the bottom zone (nav + input) rides on the keyboard and drops the nav part meanwhile
+            bottom: zone === "top" ? undefined : kb.inset,
+            height: zone === "top" ? FADE_TOP : fadeBottomH,
             ...wallpaperStyle(t.dark),
-            ...wallGeometry(360, 780, zone),
-            WebkitMaskImage: zone === "top" ? FADE_MASK_TOP : FADE_MASK_BOTTOM,
-            maskImage: zone === "top" ? FADE_MASK_TOP : FADE_MASK_BOTTOM,
+            ...wallGeometry(360, 780, zone, zone === "top" ? 0 : 780 - kb.inset - fadeBottomH),
+            WebkitMaskImage: zone === "top" ? FADE_MASK_TOP : fadeMaskBottom(fadeBottomH),
+            maskImage: zone === "top" ? FADE_MASK_TOP : fadeMaskBottom(fadeBottomH),
+            transition: lift ? `${lift}, height ${kb.transition}` : undefined,
           }}
         />
       ))}
@@ -1464,9 +2213,13 @@ export function TelegramAndroid({ scenario, playback, lang, rtl }: PlatformProps
         </span>
 
         {/* title pill: avatar + name + status */}
-        <div className="absolute" style={{ left: 58, right: 96, top: 5, height: 46, ...glassHeader(t, 23) }}>
+        <div className="absolute" style={{ left: 58, right: group ? 58 : 96, top: 5, height: 46, ...glassHeader(t, 23) }}>
           <span className="absolute block" style={{ left: 3, top: 3 }}>
-            <Avatar person={scenario.them} size={40} />
+            {group ? (
+              <TgaAvatar person={{ name: group.name, avatar: group.avatar }} size={40} idx={nameColorIndex(group.name)} />
+            ) : (
+              <Avatar person={scenario.them} size={40} />
+            )}
           </span>
           <div
             className="absolute overflow-hidden whitespace-nowrap"
@@ -1484,7 +2237,7 @@ export function TelegramAndroid({ scenario, playback, lang, rtl }: PlatformProps
               maskImage: TITLE_MASK,
             }}
           >
-            {scenario.them.name}
+            {headerName}
           </div>
           <div
             className="absolute flex items-center overflow-hidden whitespace-nowrap"
@@ -1505,7 +2258,7 @@ export function TelegramAndroid({ scenario, playback, lang, rtl }: PlatformProps
                 <span style={{ marginTop: -1.5, marginRight: 4 }}>
                   <TypingDots color={t.status} clockMs={playback.clockMs} />
                 </span>
-                <span dir="auto">{s.typing}</span>
+                <span dir="auto">{typingLabel}</span>
               </>
             ) : (
               <span dir="auto">{subtitle}</span>
@@ -1513,19 +2266,27 @@ export function TelegramAndroid({ scenario, playback, lang, rtl }: PlatformProps
           </div>
         </div>
 
-        {/* menu pill: call + overflow */}
-        <div className="absolute" style={{ right: 6, top: 5, width: 84, height: 46, ...glassHeader(t, 23) }}>
-          <span className="absolute block" style={{ left: 11, top: 11 }}>
-            <CallIcon color={t.icon} />
-          </span>
-          <span className="absolute block" style={{ left: 49, top: 11 }}>
-            <MoreIcon color={t.icon} />
-          </span>
-        </div>
+        {/* menu pill: call + overflow (groups have no call item: overflow only) */}
+        {group ? (
+          <div className="absolute" style={{ right: 6, top: 5, width: 46, height: 46, ...glassHeader(t, 23) }}>
+            <span className="absolute block" style={{ left: 11, top: 11 }}>
+              <MoreIcon color={t.icon} />
+            </span>
+          </div>
+        ) : (
+          <div className="absolute" style={{ right: 6, top: 5, width: 84, height: 46, ...glassHeader(t, 23) }}>
+            <span className="absolute block" style={{ left: 11, top: 11 }}>
+              <CallIcon color={t.icon} />
+            </span>
+            <span className="absolute block" style={{ left: 49, top: 11 }}>
+              <MoreIcon color={t.icon} />
+            </span>
+          </div>
+        )}
       </div>
 
-      {/* Input island */}
-      <Composer t={t} hint={s.message} text={draftText} clockMs={playback.clockMs} rtlUi={rtl} />
+      {/* Input island (rides on the keyboard while it is up) */}
+      <Composer t={t} hint={s.message} text={draftText} clockMs={playback.clockMs} rtlUi={rtl} bottom={islandBottom} lift={lift} />
 
       {/* Samsung navigation bar (edge-to-edge, drawn over the wallpaper) */}
       <div className="absolute inset-x-0 bottom-0" dir={rtl ? "rtl" : "ltr"}>
@@ -1538,7 +2299,8 @@ export function TelegramAndroid({ scenario, playback, lang, rtl }: PlatformProps
 const TITLE_MASK = "linear-gradient(to right, #000 calc(100% - 14px), transparent)";
 
 const FADE_MASK_TOP = `linear-gradient(to bottom, rgba(0,0,0,0.814) 0px, rgba(0,0,0,0.814) ${FADE_TOP - 48}px, rgba(0,0,0,0.618) ${FADE_TOP - 32}px, rgba(0,0,0,0.337) ${FADE_TOP - 16}px, rgba(0,0,0,0) 100%)`;
-const FADE_MASK_BOTTOM = `linear-gradient(to top, rgba(0,0,0,0.814) 0px, rgba(0,0,0,0.814) ${FADE_BOTTOM - 48}px, rgba(0,0,0,0.618) ${FADE_BOTTOM - 32}px, rgba(0,0,0,0.337) ${FADE_BOTTOM - 16}px, rgba(0,0,0,0) 100%)`;
+const fadeMaskBottom = (h: number) =>
+  `linear-gradient(to top, rgba(0,0,0,0.814) 0px, rgba(0,0,0,0.814) ${h - 48}px, rgba(0,0,0,0.618) ${h - 32}px, rgba(0,0,0,0.337) ${h - 16}px, rgba(0,0,0,0) 100%)`;
 const TGA_CSS = `
 @keyframes tga-enter { from { transform: translateY(100%); } to { transform: none; } }
 .tga-enter { animation: tga-enter ${ENTER_MS}ms cubic-bezier(${ENTER_BEZIER.join(", ")}) both; }

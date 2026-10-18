@@ -46,6 +46,21 @@
  * Compose typing: chips row hides, sticker/photo/mic → 34pt cyan send disc with a white up
  * arrow, 2pt cyan caret (UIKit 530ms blink), pill grows to 5 lines.
  * Font: TikTok Sans (`--font-tiktok-sans`) before the device stack.
+ *
+ * Round 5 — from TikTok's web DM client (tiktok.com chunks 64027 / 99682 + en/ar string tables):
+ *  - Group header: name + "{n} members" (PGroupSize, key group_chat_number_of_members with its
+ *    Arabic plural forms); default group picture = two member photos on the diagonal.
+ *  - Sender nickname above a member's run: DivChatItemSenderNameContainer (12, TextTertiary,
+ *    aligned with the bubble start after the avatar column).
+ *  - Recalled message: isRecalled → PChatTipContainer (centred P3 TextTertiary, 8px 0, 0 50px)
+ *    "You deleted a message" (dm_deleteMsg_chatpage_inline_youDel) / "{name} deleted a message"
+ *    (creatorChatRoom_creators_inline_deletedMessage) — no bubble.
+ *  - Sticker: no bubble, 112pt box (140 for wide stickers), radius 8 (DivStickerContainer).
+ *  - Links in text: AMessageLink = same colour, semiBold.
+ *  - Link preview, location, file, call and "Edited" have no web counterpart: drawn in TikTok's
+ *    share-card / bubble language (neutral 16pt-radius cards, TUX red #FE2C55 for pin / missed).
+ *  - Keyboard: the composer lifts onto the keyboard (paddingBottom = inset), the home-indicator
+ *    band and the quick-reply chips go away while the field is focused.
  */
 
 import { Fragment, useEffect, type CSSProperties, type ReactNode, type RefObject } from "react";

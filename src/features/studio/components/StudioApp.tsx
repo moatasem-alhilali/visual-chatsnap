@@ -35,6 +35,7 @@ import { TemplateGallery } from "./studio/TemplateGallery";
 import { TranscriptDialog, type TranscriptImport } from "./studio/TranscriptDialog";
 import { ProjectsDialog } from "./studio/ProjectsDialog";
 import { ShareDialog } from "./studio/ShareDialog";
+import { AiScenarioDialog } from "./studio/AiScenarioDialog";
 import { fmt, formatSeconds, stepBounds } from "./studio/timing";
 
 /** Centre zone: the phone on a studio backdrop with floating controls. */
@@ -468,6 +469,7 @@ export function StudioApp() {
         />
       )}
       {activeDialog === "share" && <ShareDialog open onOpenChange={closeDialog} t={t} scenario={scenario} />}
+      {activeDialog === "ai" && <AiScenarioDialog open onOpenChange={closeDialog} />}
 
       <Dialog
         open={confirmClear}

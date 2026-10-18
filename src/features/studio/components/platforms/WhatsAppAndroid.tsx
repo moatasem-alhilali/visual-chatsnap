@@ -171,6 +171,8 @@ interface AndroidPalette {
   pill: string;
   pillRing: string;
   pillShadow: string;
+  /** in-text links + link-preview tint */
+  link: string;
 }
 
 /* ======================================================================
@@ -671,6 +673,7 @@ const LIGHT: AndroidPalette = {
   pill: "#ffffff",
   pillRing: "#f5f2ec",
   pillShadow: "0 1px 1px rgba(11,20,26,0.12)",
+  link: "#027eb5",
 };
 
 const DARK: AndroidPalette = {
@@ -723,6 +726,7 @@ const DARK: AndroidPalette = {
   pill: "#20272b",
   pillRing: "#081010",
   pillShadow: "none",
+  link: "#53bdeb",
 };
 
 /** WhatsApp's single / double check glyphs (16×10.6 box). */
@@ -888,6 +892,7 @@ function AndroidQuote({
   inMine,
   s,
   themName,
+  themColor,
   uiDir,
 }: {
   target: Message;
@@ -895,6 +900,8 @@ function AndroidQuote({
   inMine: boolean;
   s: (typeof STR)[Lang];
   themName: string;
+  /** group chats: the quoted member's name colour (bar + name) */
+  themColor?: string;
   uiDir: "rtl" | "ltr";
 }) {
   const fromMe = target.sender === "me";
@@ -907,7 +914,19 @@ function AndroidQuote({
       <path d={d} fill={p.quoteSnippet} />
     </svg>
   );
-  if (target.type === "voice") {
+  if (target.type === "location") {
+    snippet = `📍 ${target.location?.live ? s.liveLocation : target.location?.title || s.location}`;
+  } else if (target.type === "file") {
+    snipDir = "ltr";
+    snippet = `📄 ${target.file?.name ?? ""}`;
+  } else if (target.type === "sticker") {
+    snippet = s.sticker;
+  } else if (target.type === "call") {
+    const k = target.call;
+    snippet = k?.missed ? (k.video ? s.missedVideo : s.missedVoice) : k?.video ? s.videoCall : s.voiceCall;
+  } else if (target.type === "deleted") {
+    snippet = target.sender === "me" ? s.deletedMine : s.deleted;
+  } else if (target.type === "voice") {
     snippet = (
       <>
         {icon(P.micFill)}
@@ -932,12 +951,12 @@ function AndroidQuote({
       className="relative flex overflow-hidden"
       style={{ background: inMine ? p.quoteOut : p.quoteIn, borderRadius: QUOTE_R, minWidth: 0 }}
     >
-      <span style={{ width: 4, background: fromMe ? p.quoteYouBar : p.quoteThemBar, flexShrink: 0 }} />
+      <span style={{ width: 4, background: fromMe ? p.quoteYouBar : (themColor ?? p.quoteThemBar), flexShrink: 0 }} />
       <div className="min-w-0 flex-1" style={{ padding: "6px 0 7px", paddingInline: "9px 10px" }}>
         <div
           className="truncate"
           dir="auto"
-          style={{ fontSize: 14, lineHeight: "20px", fontWeight: 500, color: fromMe ? p.quoteYouName : p.quoteThemName, textAlign: "start" }}
+          style={{ fontSize: 14, lineHeight: "20px", fontWeight: 500, color: fromMe ? p.quoteYouName : (themColor ?? p.quoteThemName), textAlign: "start" }}
         >
           {fromMe ? s.you : themName}
         </div>
@@ -1039,10 +1058,36 @@ export function WhatsAppAndroid({ scenario, playback, lang, rtl }: PlatformProps
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   };
 
-  const subtitle = presenceText(typing, scenario.presence, scenario.lastSeenText, c.online, c.typing);
-  const lastSender = messages.length ? messages[messages.length - 1].sender : null;
-  const typingStartsGroup = lastSender !== "them";
+  // group chat: members, per-author runs, who is typing
+  const group = scenario.group && scenario.group.members.length ? scenario.group : null;
+  const memberAt = (idx: number): Author | null => {
+    if (!group) return null;
+    const n = group.members.length;
+    const i = ((idx % n) + n) % n;
+    return { index: i, person: group.members[i], color: memberColor(i, dark) };
+  };
+  const authorOf = (m: Message): Author | null => (m.sender === "them" ? memberAt(m.authorIndex ?? 0) : null);
+  const sameRun = (a?: Message, b?: Message) =>
+    !!a && !!b && a.sender === b.sender && (!group || a.sender === "me" || (a.authorIndex ?? 0) === (b.authorIndex ?? 0));
+  const shown = new Set(messages.map((m) => m.id));
+  const nextThem = scenario.messages.find((m) => !shown.has(m.id) && m.sender === "them");
+  const typer = group ? memberAt(nextThem?.authorIndex ?? 0) : null;
+
+  const subtitle = group
+    ? typing || scenario.presence === "typing"
+      ? s.isTyping(typer?.person.name ?? "")
+      : [...group.members.map((x) => x.name), s.you].join(s.listSep)
+    : presenceText(typing, scenario.presence, scenario.lastSeenText, c.online, c.typing);
+  const lastMsg = messages.length ? messages[messages.length - 1] : undefined;
+  const typingStartsGroup =
+    !lastMsg || lastMsg.sender !== "them" || (!!group && authorOf(lastMsg)?.index !== typer?.index);
   const byId = new Map(scenario.messages.map((m) => [m.id, m] as const));
+
+  // OS keyboard (adjustResize): the whole window above it shrinks; the nav bar
+  // is drawn by the keyboard while it is up
+  const kb = useKeyboardInset();
+  const NAV_H = 48;
+  const bottomPad = Math.max(NAV_H, kb.inset);
 
   // compose typing: the draft replaces the placeholder; once there is text the
   // camera icon leaves, the clip slides to the end and the mic FAB turns into send
@@ -1051,7 +1096,15 @@ export function WhatsAppAndroid({ scenario, playback, lang, rtl }: PlatformProps
   const draftDir = draft && draft.text ? dirOf(draft.text) : uiDir;
 
   return (
-    <div className="flex h-full w-full flex-col" style={{ background: p.bar, color: p.text }}>
+    <div
+      className="relative flex h-full w-full flex-col"
+      style={{
+        background: p.bar,
+        color: p.text,
+        paddingBottom: bottomPad,
+        transition: kb.transition === "none" ? undefined : `padding-bottom ${kb.transition}`,
+      }}
+    >
       <style>{STYLE}</style>
       <SamsungStatusBar tint={dark ? "light" : "dark"} background={p.bar} lang={lang} />
 
@@ -1063,11 +1116,11 @@ export function WhatsAppAndroid({ scenario, playback, lang, rtl }: PlatformProps
           </Svg>
         </div>
         <div style={{ marginInlineStart: 4 }}>
-          <Avatar person={scenario.them} size={38} />
+          {group ? <GroupAvatar src={group.avatar} size={38} dark={dark} /> : <Avatar person={scenario.them} size={38} />}
         </div>
         <div className="flex min-w-0 flex-1 flex-col justify-center" style={{ paddingInlineStart: 12, paddingInlineEnd: 4 }}>
           <div className="truncate" style={{ fontSize: 17.5, lineHeight: "22px", fontWeight: 400, color: p.ink }}>
-            {scenario.them.name}
+            {group ? group.name : scenario.them.name}
           </div>
           <div className="truncate" style={{ fontSize: 12, lineHeight: "16px", marginTop: 1.3, color: p.sub }}>
             {subtitle}
@@ -1141,10 +1194,14 @@ export function WhatsAppAndroid({ scenario, playback, lang, rtl }: PlatformProps
             <div style={{ height: 12 - GAP_BETWEEN }} />
 
             {messages.map((m, i) => {
-              const { firstOfGroup } = groupInfo(messages, i);
               const prev = messages[i - 1];
-              // A bubble right after a bare big-emoji message of the same sender gets its tail back.
-              const afterBare = !!prev && !firstOfGroup && prev.type === "text" && bigEmojiCount(prev.text) > 0;
+              const firstOfGroup = !sameRun(prev, m);
+              // A bubble right after a bare big-emoji / sticker of the same sender gets its tail back.
+              const afterBare =
+                !!prev && !firstOfGroup && (prev.type === "sticker" || (prev.type === "text" && !prev.replyToId && !prev.link && bigEmojiCount(prev.text) > 0));
+              const author = group ? authorOf(m) : null;
+              const quote = m.replyToId ? (byId.get(m.replyToId) ?? null) : null;
+              const quoteAuthor = quote && group ? authorOf(quote) : null;
               return (
                 <AndroidRow
                   afterBare={afterBare}
@@ -1155,25 +1212,32 @@ export function WhatsAppAndroid({ scenario, playback, lang, rtl }: PlatformProps
                   uiDir={uiDir}
                   firstOfGroup={firstOfGroup}
                   status={playback.statusOf(m)}
-                  person={m.sender === "me" ? scenario.me : scenario.them}
+                  person={m.sender === "me" ? scenario.me : (author?.person ?? scenario.them)}
                   live={live}
-                  quote={m.replyToId ? (byId.get(m.replyToId) ?? null) : null}
+                  quote={quote}
                   s={s}
-                  themName={scenario.them.name}
+                  themName={quoteAuthor?.person.name ?? scenario.them.name}
+                  themColor={quoteAuthor?.color}
+                  author={author}
                 />
               );
             })}
 
             {typing && (
               <div
-                className={`flex ${live && clock === undefined ? "wa-android-enter" : ""}`}
+                className={`relative flex ${live && clock === undefined ? "wa-android-enter" : ""}`}
                 style={{
                   justifyContent: "flex-start",
-                  paddingInlineStart: EDGE,
+                  paddingInlineStart: typer ? GROUP_EDGE : EDGE,
                   paddingInlineEnd: FAR,
                   marginTop: typingStartsGroup ? GAP_BETWEEN : GAP_IN_GROUP,
                 }}
               >
+                {typer && typingStartsGroup && (
+                  <span className="absolute" style={{ top: 0, insetInlineStart: AV_START }}>
+                    <MemberAvatar author={typer} size={AV} />
+                  </span>
+                )}
                 <div
                   className="relative flex items-center justify-center"
                   style={{
@@ -1302,7 +1366,10 @@ export function WhatsAppAndroid({ scenario, playback, lang, rtl }: PlatformProps
         </div>
       </div>
 
-      <SystemBottomBar device="android" bg={p.nav} fg={p.navFg} />
+      {/* 3-button nav (the root reserves its 48dp; gone while the keyboard is up) */}
+      <div className="absolute inset-x-0 bottom-0">
+        <SystemBottomBar device="android" bg={p.nav} fg={p.navFg} />
+      </div>
     </div>
   );
 }
@@ -1324,6 +1391,8 @@ function AndroidRow({
   quote,
   s,
   themName,
+  themColor,
+  author,
 }: {
   m: Message;
   p: AndroidPalette;
@@ -1337,16 +1406,37 @@ function AndroidRow({
   quote: Message | null;
   s: (typeof STR)[Lang];
   themName: string;
+  themColor?: string;
+  /** group chats: the member who wrote this incoming message */
+  author: Author | null;
 }) {
   const mine = m.sender === "me";
   const onRight = mine ? !rtl : rtl;
   const bg = mine ? p.outBubble : p.inBubble;
   const caption = m.type === "image" ? m.text.trim() : "";
   const textDir = dirOf(m.text);
+  const deleted = m.type === "deleted";
+  const sticker = m.type === "sticker";
   // a reply always gets a bubble (the quote lives inside it)
-  const emojiCount = m.type === "text" && !quote ? bigEmojiCount(m.text) : 0;
+  const emojiCount = m.type === "text" && !quote && !m.link ? bigEmojiCount(m.text) : 0;
   const reaction = m.reaction?.trim() || "";
-  const quoteEl = quote ? <AndroidQuote target={quote} p={p} inMine={mine} s={s} themName={themName} uiDir={uiDir} /> : null;
+  const quoteEl = quote ? (
+    <AndroidQuote target={quote} p={p} inMine={mine} s={s} themName={themName} themColor={themColor} uiDir={uiDir} />
+  ) : null;
+  const showName = !!author && firstOfGroup;
+  const nameText = showName && author ? author.person.name : "";
+  const nameLine = (pad: string) =>
+    nameText ? (
+      <div
+        className="truncate"
+        dir={uiDir}
+        style={{ fontSize: 14, lineHeight: "19px", fontWeight: 500, color: author?.color, textAlign: "start", padding: pad }}
+      >
+        {nameText}
+      </div>
+    ) : null;
+  const subColor = p.meta;
+  const innerFill = mine ? p.quoteOut : p.quoteIn;
 
   const meta = (overlay: boolean) => (
     <span
@@ -1359,27 +1449,57 @@ function AndroidRow({
         textShadow: overlay ? "0 1px 1px rgba(0,0,0,0.35)" : undefined,
       }}
     >
-      {m.time}
-      {mine && <Ticks status={status} color={overlay ? "#ffffff" : p.meta} readColor={overlay ? "#53bdeb" : p.read} />}
+      {m.edited && !deleted && <span style={{ marginInlineEnd: 2 }}>{s.edited}</span>}
+      <span dir="ltr">{m.time}</span>
+      {mine && !deleted && <Ticks status={status} color={overlay ? "#ffffff" : p.meta} readColor={overlay ? "#53bdeb" : p.read} />}
     </span>
   );
+  const reserve =
+    metaReserve(m.time, mine && !deleted) + (m.edited && !deleted ? Math.ceil(s.edited.length * 6.3) + 5 : 0);
 
   // Physical corner radii: square only under the tail.
-  const tail = (firstOfGroup || afterBare) && m.type !== "image" && emojiCount === 0;
+  const tail =
+    (firstOfGroup || afterBare) && (m.type !== "image" || (!!author && firstOfGroup)) && emojiCount === 0 && !sticker;
   const radius: CSSProperties = { borderRadius: RADIUS };
   if (tail) {
     if (onRight) radius.borderTopRightRadius = 0;
     else radius.borderTopLeftRadius = 0;
   }
+  // a link preview stretches the bubble to the full width
+  const fullWidth = m.type === "text" && !!m.link;
 
   let content: ReactNode;
 
-  if (emojiCount > 0) {
-    // Big emoji: no bubble; the time sits in a small bubble-coloured pill.
+  if (emojiCount > 0 || sticker) {
+    // Big emoji / sticker: no bubble; the time sits in a small bubble-coloured pill.
     const size = emojiCount === 1 ? 56 : emojiCount === 2 ? 44 : 38;
     content = (
       <div className="flex flex-col" style={{ alignItems: "flex-end" }} dir={uiDir}>
-        <span style={{ fontSize: size, lineHeight: 1.18, whiteSpace: "nowrap" }}>{m.text.trim()}</span>
+        {nameText && (
+          <span
+            className="truncate"
+            style={{
+              alignSelf: "flex-start",
+              maxWidth: 220,
+              background: bg,
+              borderRadius: 9,
+              padding: "2px 8px",
+              marginBottom: 3,
+              fontSize: 13.5,
+              lineHeight: "18px",
+              fontWeight: 500,
+              color: author?.color,
+              boxShadow: p.shadow,
+            }}
+          >
+            {nameText}
+          </span>
+        )}
+        {sticker ? (
+          <StickerArt m={m} size={STICKER} />
+        ) : (
+          <span style={{ fontSize: size, lineHeight: 1.18, whiteSpace: "nowrap" }}>{m.text.trim()}</span>
+        )}
         <span
           style={{
             alignSelf: "flex-end",
@@ -1398,22 +1518,26 @@ function AndroidRow({
     content = (
       <div className="relative" dir={uiDir} style={{ background: bg, boxShadow: p.shadow, ...radius, width: "100%" }}>
         {tail && <Tail side={onRight ? "right" : "left"} color={bg} />}
+        {nameLine("7px 12px 0")}
         {quoteEl && <div style={{ padding: "4px 4px 0" }}>{quoteEl}</div>}
         <AndroidVoice m={m} p={p} mine={mine} status={status} person={person} meta={meta(false)} />
       </div>
     );
   } else if (m.type === "image") {
     const W = 262;
-    // a photo reply: quote on top, the photo inset 4dp below it
-    const r = quote ? QUOTE_R : RADIUS;
+    // a photo reply (or a group photo with the sender name): the photo inset 4dp
+    const inset = !!quote || !!nameText;
+    const r = inset ? QUOTE_R : RADIUS;
     const imgRadius: CSSProperties = caption ? { borderTopLeftRadius: r, borderTopRightRadius: r } : { borderRadius: r };
-    if (quote) Object.assign(imgRadius, { margin: caption ? "4px 4px 0" : 4 });
+    if (inset) Object.assign(imgRadius, { margin: caption ? "4px 4px 0" : 4 });
     content = (
       <div
-        className="relative overflow-hidden"
+        className={inset ? "relative" : "relative overflow-hidden"}
         dir={caption ? textDir : uiDir}
-        style={{ width: W, maxWidth: "100%", background: bg, boxShadow: p.shadow, borderRadius: RADIUS }}
+        style={{ width: W, maxWidth: "100%", background: bg, boxShadow: p.shadow, borderRadius: RADIUS, ...(tail ? radius : {}) }}
       >
+        {tail && <Tail side={onRight ? "right" : "left"} color={bg} />}
+        {nameLine("6px 11px 0")}
         {quoteEl && <div style={{ padding: "4px 4px 0" }}>{quoteEl}</div>}
         <div className="relative overflow-hidden" style={imgRadius}>
           {m.imageSrc ? (
@@ -1448,7 +1572,7 @@ function AndroidRow({
             <span className="whitespace-pre-wrap break-words" style={{ fontSize: 16, lineHeight: "21px" }}>
               {caption}
             </span>
-            <span style={{ display: "inline-block", width: metaReserve(m.time, mine), height: 1 }} />
+            <span style={{ display: "inline-block", width: reserve, height: 1 }} />
             <span className="absolute" style={{ bottom: 5.4, insetInlineEnd: 8 }}>
               {meta(false)}
             </span>
@@ -1456,20 +1580,161 @@ function AndroidRow({
         )}
       </div>
     );
-  } else {
+  } else if (m.type === "location" || m.type === "file") {
+    // cards: 4dp inner padding, the media block concentric with the bubble
+    const loc = m.location;
+    const file = m.file;
+    const kind = file ? docKind(file.name) : null;
+    // each part isolated so "245 KB" / "PDF" keep their order inside the Arabic UI
+    const metaLine = file
+      ? [file.pages, file.size, kind?.ext]
+          .filter(Boolean)
+          .map((part, i) => (
+            <span key={i}>
+              {i > 0 && " • "}
+              <bdi>{part}</bdi>
+            </span>
+          ))
+      : null;
     content = (
       <div
         className="relative"
-        dir={textDir}
-        style={{ background: bg, color: p.text, boxShadow: p.shadow, padding: "9px 12px 10px", minWidth: 0, ...radius }}
+        dir={uiDir}
+        style={{ width: CARD_W, maxWidth: "100%", background: bg, color: p.text, boxShadow: p.shadow, padding: 4, ...radius }}
       >
         {tail && <Tail side={onRight ? "right" : "left"} color={bg} />}
-        {/* quoted reply: 4dp in from the bubble edges, 8dp above the text */}
-        {quoteEl && <div style={{ margin: "-5px -8px 8px" }}>{quoteEl}</div>}
-        <span className="whitespace-pre-wrap break-words" style={{ fontSize: 16, lineHeight: "21px" }}>
-          {m.text}
+        {nameLine("2px 7px 4px")}
+        {quoteEl && <div style={{ marginBottom: 4 }}>{quoteEl}</div>}
+        {m.type === "location" ? (
+          <>
+            <div className="relative overflow-hidden" style={{ borderRadius: QUOTE_R, height: 150 }}>
+              <MapArt w={CARD_W - 8} h={150} dark={p.dark} live={!!loc?.live} />
+              {loc?.live && (
+                <span
+                  className="absolute rounded-full"
+                  style={{ left: "50%", top: "50%", transform: "translate(-50%,-50%)", padding: 3, background: "#ffffff", boxShadow: "0 1px 4px rgba(0,0,0,0.3)" }}
+                >
+                  <Avatar person={person} size={34} />
+                </span>
+              )}
+            </div>
+            <div className="relative" style={{ padding: "6px 8px 3px" }}>
+              {loc?.live && <div style={{ fontSize: 15, lineHeight: "20px", fontWeight: 500 }}>{s.liveLocation}</div>}
+              <div dir="auto" style={{ fontSize: 15, lineHeight: "20px", fontWeight: loc?.live ? 400 : 500, color: loc?.live ? subColor : p.text, textAlign: "start" }}>
+                {loc?.title || s.location}
+              </div>
+              <div dir="auto" style={{ fontSize: 13, lineHeight: "18px", color: subColor, textAlign: "start" }}>
+                {loc?.subtitle}
+                <span style={{ display: "inline-block", width: reserve, height: 1 }} />
+              </div>
+              <span className="absolute" style={{ bottom: 2, insetInlineEnd: 4 }}>
+                {meta(false)}
+              </span>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="overflow-hidden" style={{ borderRadius: QUOTE_R }}>
+              {kind?.ext === "PDF" && <PdfPage w={CARD_W - 8} h={96} />}
+              <div className="flex items-center" style={{ background: innerFill, padding: "10px 12px 10px 10px", gap: 10 }}>
+                <DocIcon name={file?.name ?? ""} />
+                <div
+                  dir="auto"
+                  className="min-w-0 flex-1"
+                  style={{
+                    fontSize: 15,
+                    lineHeight: "20px",
+                    color: p.text,
+                    overflow: "hidden",
+                    display: "-webkit-box",
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: "vertical",
+                    wordBreak: "break-all",
+                    textAlign: "start",
+                  }}
+                >
+                  {file?.name}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center justify-between" style={{ padding: "5px 4px 1px 6px", gap: 8 }}>
+              <span className="truncate" style={{ fontSize: 12, lineHeight: "15px", color: subColor }}>
+                {metaLine}
+              </span>
+              {meta(false)}
+            </div>
+          </>
+        )}
+      </div>
+    );
+  } else if (m.type === "call") {
+    const k = m.call ?? { video: false, missed: false };
+    const title = k.missed && !mine ? (k.video ? s.missedVideo : s.missedVoice) : k.video ? s.videoCall : s.voiceCall;
+    const sub = k.missed ? (mine ? s.noAnswer : s.tapToCallBack) : k.duration || s.noAnswer;
+    const red = p.dark ? "#f15c6d" : "#ea0038";
+    content = (
+      <div
+        className="relative"
+        dir={uiDir}
+        style={{ background: bg, color: p.text, boxShadow: p.shadow, padding: "8px 12px 8px 8px", ...radius }}
+      >
+        {tail && <Tail side={onRight ? "right" : "left"} color={bg} />}
+        {nameLine("0 4px 6px")}
+        <div className="flex items-center" style={{ gap: 11, minWidth: 210 }}>
+          <span
+            className="flex shrink-0 items-center justify-center rounded-full"
+            style={{ width: 40, height: 40, background: p.dark ? "rgba(255,255,255,0.08)" : "rgba(11,20,26,0.06)" }}
+          >
+            <CallIcon video={k.video} missed={k.missed} mine={mine} color={k.missed ? red : p.composerIcon} />
+          </span>
+          <div className="min-w-0">
+            <div style={{ fontSize: 16, lineHeight: "21px", color: p.text }}>{title}</div>
+            <div style={{ fontSize: 13.5, lineHeight: "18px", color: subColor }}>
+              {sub}
+              <span style={{ display: "inline-block", width: reserve, height: 1 }} />
+            </div>
+          </div>
+        </div>
+        <span className="absolute" style={{ bottom: 6.5, insetInlineEnd: 8 }}>
+          {meta(false)}
         </span>
-        <span style={{ display: "inline-block", width: metaReserve(m.time, mine), height: 1 }} />
+      </div>
+    );
+  } else {
+    const link = m.link ?? null;
+    content = (
+      <div
+        className="relative"
+        dir={deleted ? uiDir : textDir}
+        style={{
+          background: bg,
+          color: p.text,
+          boxShadow: p.shadow,
+          padding: "9px 12px 10px",
+          minWidth: 0,
+          width: fullWidth ? "100%" : undefined,
+          ...radius,
+        }}
+      >
+        {tail && <Tail side={onRight ? "right" : "left"} color={bg} />}
+        {nameLine("0 0 2px")}
+        {/* quoted reply: 4dp in from the bubble edges, 8dp above the text */}
+        {quoteEl && <div style={{ margin: nameText ? "0 -8px 8px" : "-5px -8px 8px" }}>{quoteEl}</div>}
+        {link && (
+          <div style={{ margin: nameText || quoteEl ? "0 -8px 8px" : "-5px -8px 8px" }}>
+            <AndroidLinkCard link={link} p={p} mine={mine} uiDir={uiDir} />
+          </div>
+        )}
+        {deleted ? (
+          <span style={{ fontSize: 16, lineHeight: "21px", fontStyle: uiDir === "rtl" ? "normal" : "italic", color: subColor }}>
+            <BlockGlyph color={subColor} /> {mine ? s.deletedMine : s.deleted}
+          </span>
+        ) : (
+          <span className="whitespace-pre-wrap break-words" style={{ fontSize: 16, lineHeight: "21px" }}>
+            {linkify(m.text, p.link)}
+          </span>
+        )}
+        <span style={{ display: "inline-block", width: reserve, height: 1 }} />
         <span className="absolute" style={{ bottom: 5.4, insetInlineEnd: 8 }}>
           {meta(false)}
         </span>
@@ -1477,32 +1742,70 @@ function AndroidRow({
     );
   }
 
+  const groupIn = !!author;
   return (
     <div
       data-mid={m.id}
       data-sender={m.sender}
-      className={`flex ${live ? "wa-android-enter" : ""}`}
+      className={`relative flex ${live ? "wa-android-enter" : ""}`}
       style={{
         justifyContent: mine ? "flex-end" : "flex-start",
-        paddingInlineStart: mine ? FAR : EDGE,
+        paddingInlineStart: mine ? FAR : groupIn ? GROUP_EDGE : EDGE,
         paddingInlineEnd: mine ? EDGE : FAR,
         marginTop: firstOfGroup ? GAP_BETWEEN : GAP_IN_GROUP,
         // the reaction pill hangs under the bubble and pushes the next row down
         paddingBottom: reaction ? PILL_H - PILL_OVERLAP : 0,
       }}
     >
+      {/* group chats: the member photo sits beside the top of the first bubble [GR] */}
+      {author && firstOfGroup && (
+        <span className="absolute" style={{ top: 0, insetInlineStart: AV_START }}>
+          <MemberAvatar author={author} size={AV} />
+        </span>
+      )}
       <div
         className="relative"
         style={{
           maxWidth: "100%",
           minWidth: 0,
-          width: m.type === "voice" ? "100%" : undefined,
+          width: m.type === "voice" || fullWidth ? "100%" : undefined,
           display: "flex",
           justifyContent: mine ? "flex-end" : "flex-start",
         }}
       >
         {content}
         {reaction && <AndroidReaction emoji={reaction} p={p} onRight={onRight} />}
+      </div>
+    </div>
+  );
+}
+
+/** Link preview block at the top of a text bubble: image, title, description, domain. */
+function AndroidLinkCard({ link, p, mine, uiDir }: { link: LinkPreview; p: AndroidPalette; mine: boolean; uiDir: "rtl" | "ltr" }) {
+  const clamp = (n: number): CSSProperties => ({
+    overflow: "hidden",
+    display: "-webkit-box",
+    WebkitLineClamp: n,
+    WebkitBoxOrient: "vertical",
+  });
+  return (
+    <div className="overflow-hidden" dir={uiDir} style={{ background: mine ? p.quoteOut : p.quoteIn, borderRadius: QUOTE_R }}>
+      {link.image && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={link.image} alt="" draggable={false} style={{ display: "block", width: "100%", height: 140, objectFit: "cover" }} />
+      )}
+      <div style={{ padding: "8px 10px 9px" }}>
+        <div dir="auto" style={{ ...clamp(2), fontSize: 14.5, lineHeight: "19px", fontWeight: 500, color: p.text, textAlign: "start" }}>
+          {link.title}
+        </div>
+        {link.description && (
+          <div dir="auto" style={{ ...clamp(2), marginTop: 2, fontSize: 13.5, lineHeight: "18px", color: p.quoteSnippet, textAlign: "start" }}>
+            {link.description}
+          </div>
+        )}
+        <div dir="ltr" className="truncate" style={{ marginTop: 2, fontSize: 13.5, lineHeight: "18px", color: p.quoteSnippet, textAlign: uiDir === "rtl" ? "right" : "left" }}>
+          {siteOf(link)}
+        </div>
       </div>
     </div>
   );

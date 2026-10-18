@@ -1105,7 +1105,7 @@ function ViberRow({
       >
         <span
           className="inline-flex items-center"
-          style={{ fontSize: 16, lineHeight: `${BODY_LH}px`, fontStyle: "italic", color: p.quoteText, gap: 5, flex: "1 1 auto" }}
+          style={{ fontSize: 16, lineHeight: `${BODY_LH}px`, fontStyle: dirOf(s.deleted) === "rtl" ? "normal" : "italic", color: p.quoteText, gap: 5, flex: "1 1 auto" }}
         >
           <BanGlyph color={p.quoteText} />
           {s.deleted}

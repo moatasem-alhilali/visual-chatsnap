@@ -439,6 +439,12 @@
     "timeLockedHint": "Locked: “Generate times” keeps it",
     "addAttachment": "Add sticker, location, file or call",
     "groupBadge": "Group",
+    "aiCreate": "Create with AI",
+    "aiCreateHint": "Describe the chat you want and let AI write it",
+    "aiCreateMenu": "Create with AI…",
+    "aiWrite": "Write it with AI",
+    "aiWriteHint": "Describe your idea, get a ready conversation in seconds",
+    "scAi": "Create a chat with AI",
     "templateItems": {
       "ecommerce": {
         "title": "Order on its way",

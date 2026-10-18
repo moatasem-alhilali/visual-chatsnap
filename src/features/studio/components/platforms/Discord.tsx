@@ -1292,7 +1292,7 @@ export function Discord({ scenario, playback, lang }: PlatformProps) {
     if (m.type === "location") {
       // Discord has no location sharing: the shared Google Maps link and its unfurl.
       const loc = m.location ?? { title: m.text.trim() || "Dropped pin" };
-      const url = `https://maps.app.goo.gl/${shortId(m.id, 17)}`;
+      const url = `https://maps.app.goo.gl/${shortId(m.id, 14)}`;
       return (
         <>
           <div dir="ltr" style={textStyle}>

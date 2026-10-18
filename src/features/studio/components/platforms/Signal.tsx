@@ -801,6 +801,7 @@ function TextBlock({
   fontsTick,
   fill,
   maxText = MAX_TEXT,
+  lead,
 }: {
   text: string;
   size: number;
@@ -813,6 +814,8 @@ function TextBlock({
   fill?: boolean;
   /** text column width limit (group threads are narrower) */
   maxText?: number;
+  /** inline glyph before the text (deleted-message symbol) */
+  lead?: ReactNode;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLSpanElement>(null);
@@ -821,16 +824,16 @@ function TextBlock({
   const dir = dirOf(text);
   const lineH = size * SF_LINE;
   const footerH = CAPTION_LINE + (borderless ? 6 : 0);
-  const footerKey = footer ? `${footer.time}|${footer.status ?? ""}` : "";
+  const footerKey = footer ? `${footer.time}|${footer.status ?? ""}|${footer.edited ?? ""}` : "";
 
   useLayoutEffect(() => {
     const wrap = wrapRef.current;
     const span = textRef.current;
     if (!wrap || !span) return;
     const prev = wrap.style.width;
-    wrap.style.width = `${MAX_TEXT}px`;
+    wrap.style.width = `${maxText}px`;
     const box = wrap.getBoundingClientRect();
-    const k = box.width / MAX_TEXT || 1;
+    const k = box.width / maxText || 1;
     const range = document.createRange();
     range.selectNodeContents(span);
     const rects = Array.from(range.getClientRects()).filter((r) => r.width > 0 && r.height > 0);
@@ -857,11 +860,11 @@ function TextBlock({
       const textRight = dir === "rtl";
       const footerRight = !uiRtl;
       const collide = textRight === footerRight;
-      if (overlapW <= MAX_TEXT && !collide) next = { w: Math.ceil(overlapW), overlap: true };
+      if (overlapW <= maxText && !collide) next = { w: Math.ceil(overlapW), overlap: true };
       else next = { w: Math.max(textW, fw), overlap: false };
     }
     setLay((old) => (old && old.w === next.w && old.overlap === next.overlap ? old : next));
-  }, [text, size, footerKey, uiRtl, dir, lineH, footer, fontsTick]);
+  }, [text, size, footerKey, uiRtl, dir, lineH, footer, fontsTick, maxText]);
 
   // Footer geometry from CVComponentMessage.tryToOverlapBodyTextAndFooter.
   const fontOuter = Math.max(0, lineH - size * (SF_CAP + SF_DESC)) * 0.5;
@@ -874,9 +877,9 @@ function TextBlock({
       className="relative"
       style={{
         display: "flow-root",
-        width: fill ? "100%" : lay ? lay.w : MAX_TEXT,
+        width: fill ? "100%" : lay ? lay.w : maxText,
         minWidth: fill && lay ? lay.w : 0,
-        maxWidth: MAX_TEXT,
+        maxWidth: maxText,
       }}
     >
       <div
@@ -891,7 +894,10 @@ function TextBlock({
           marginBottom: extra,
         }}
       >
-        <span ref={textRef}>{text}</span>
+        <span ref={textRef}>
+          {lead}
+          {richText(text)}
+        </span>
       </div>
       {footer && (
         <div className="absolute bottom-0" style={uiRtl ? { left: 0 } : { right: 0 }}>
@@ -1099,6 +1105,11 @@ function ReactionPill({
 
 /* ------------------------------- bubbles ------------------------------- */
 
+interface SenderSpec {
+  name: string;
+  color: string;
+}
+
 interface BubbleCtx {
   p: Palette;
   rtl: boolean;
@@ -1111,13 +1122,42 @@ interface BubbleCtx {
   /** the bubble's top corners touch a clustered neighbour (sharp) — start / end side */
   topStartSharp: boolean;
   topEndSharp: boolean;
+  /** [CS] maxMessageWidth: 317, or 285 in a group thread */
+  maxBubble: number;
+  /** group threads: CVComponentSenderName on the first message of an author's run */
+  sender: SenderSpec | null;
 }
 
-/** Quote at the top of a bubble: 7pt top inset (textInsets.top), 8pt side margins. */
-function QuoteHeader({ ctx }: { ctx: BubbleCtx }) {
+/**
+ * CVComponentSenderName: footnote semibold in the member's GroupNameColors
+ * colour, leading-aligned at the top of the bubble (textInsets top / sides).
+ */
+function SenderLabel({ ctx, pad }: { ctx: BubbleCtx; pad?: string }) {
+  if (!ctx.sender) return null;
+  return (
+    <div
+      dir={ctx.rtl ? "rtl" : "ltr"}
+      className="truncate"
+      style={{
+        padding: pad ?? `${TEXT_INSET_Y}px ${TEXT_INSET_X}px 0`,
+        color: ctx.sender.color,
+        fontSize: 13,
+        lineHeight: `${FOOTNOTE_LINE}px`,
+        fontWeight: 600,
+        letterSpacing: "-0.08px",
+        maxWidth: ctx.maxBubble,
+      }}
+    >
+      <bdi>{ctx.sender.name}</bdi>
+    </div>
+  );
+}
+
+/** Quote at the top of a bubble: 7pt top inset (5 under a sender name), 8pt side margins. */
+function QuoteHeader({ ctx, top = TEXT_INSET_Y }: { ctx: BubbleCtx; top?: number }) {
   if (!ctx.quote) return null;
   return (
-    <div style={{ padding: `${TEXT_INSET_Y}px 8px 0` }}>
+    <div style={{ padding: `${top}px 8px 0` }}>
       <QuoteBlock
         q={ctx.quote}
         mine={ctx.mine}
@@ -1137,25 +1177,109 @@ function bubbleFill(ctx: BubbleCtx): { className: string; style: CSSProperties }
     : { className: "", style: { background: ctx.p.inBubble } };
 }
 
-function TextBubble({ text, ctx }: { text: string; ctx: BubbleCtx }) {
+/**
+ * CVLinkPreviewView, compact adapter (Signal-iOS 2026): r10 card filled with
+ * fillTertiary (LightBase for incoming, ColorBase for outgoing), 10pt margins,
+ * 64pt image (r6) then 12pt, text stack with 4pt spacing: title subheadline
+ * semibold ×2, description footnote ×3, lower-cased domain caption1. Outgoing
+ * text is labelInverted (black / black 70%).
+ */
+function LinkCard({ link, ctx }: { link: LinkPreview; ctx: BubbleCtx }) {
+  const { mine, dark, p, rtl } = ctx;
+  const bg = mine
+    ? dark
+      ? "rgba(255,255,255,0.48)"
+      : "rgba(255,255,255,0.6)"
+    : dark
+      ? "rgba(255,255,255,0.16)"
+      : "rgba(255,255,255,0.6)";
+  const fg = mine ? "#000000" : p.label;
+  const fg2 = mine ? "rgba(0,0,0,0.7)" : p.secondary;
+  const align: CSSProperties = { textAlign: rtl ? "right" : "left" };
+  const clamp = (n: number): CSSProperties => ({
+    display: "-webkit-box",
+    WebkitBoxOrient: "vertical",
+    WebkitLineClamp: n,
+    overflow: "hidden",
+    overflowWrap: "anywhere",
+  });
+  return (
+    <div
+      dir={rtl ? "rtl" : "ltr"}
+      className="flex items-start overflow-hidden"
+      style={{ borderRadius: 10, background: bg, padding: 10, gap: 12 }}
+    >
+      {link.image && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={link.image}
+          alt=""
+          draggable={false}
+          className="block shrink-0"
+          style={{ width: 64, height: 64, borderRadius: 6, objectFit: "cover" }}
+        />
+      )}
+      <div className="flex min-w-0 flex-1 flex-col" style={{ gap: 4 }}>
+        {link.title && (
+          <div
+            style={{
+              ...align,
+              ...clamp(2),
+              color: fg,
+              fontSize: 15,
+              lineHeight: `${SUBHEAD_LINE}px`,
+              fontWeight: 600,
+              letterSpacing: "-0.23px",
+            }}
+          >
+            <bdi>{link.title}</bdi>
+          </div>
+        )}
+        {link.description && (
+          <div style={{ ...align, ...clamp(3), color: fg2, fontSize: 13, lineHeight: `${FOOTNOTE_LINE}px`, letterSpacing: "-0.08px" }}>
+            <bdi>{link.description}</bdi>
+          </div>
+        )}
+        <div className="truncate" style={{ ...align, color: fg2, fontSize: 12, lineHeight: `${CAPTION_LINE}px` }}>
+          <bdi>{domainOf(link)}</bdi>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TextBubble({ m, text, ctx }: { m: Message; text: string; ctx: BubbleCtx }) {
   const fill = bubbleFill(ctx);
-  const quoted = !!ctx.quote;
+  const link = m.link ?? null;
+  const stacked = !!ctx.quote || !!ctx.sender || !!link;
+  const maxText = ctx.maxBubble - TEXT_INSET_X * 2;
+  // CVComponentMessage spacings: name→quote 5, name→large 5, quote→large 8,
+  // large→body 7, name→body 1
+  const quoteTop = ctx.sender ? 5 : TEXT_INSET_Y;
+  const linkTop = ctx.quote ? 8 : ctx.sender ? 5 : TEXT_INSET_Y;
+  const bodyTop = link || ctx.quote ? TEXT_INSET_Y : ctx.sender ? 1 : TEXT_INSET_Y;
   return (
     <div
       className={`relative ${fill.className}`}
       style={{
         ...fill.style,
         borderRadius: ctx.radii,
-        padding: quoted ? 0 : `${TEXT_INSET_Y}px ${TEXT_INSET_X}px`,
+        padding: stacked ? 0 : `${TEXT_INSET_Y}px ${TEXT_INSET_X}px`,
         minWidth: R_WIDE * 2,
-        maxWidth: MAX_BUBBLE,
-        display: quoted ? "flex" : undefined,
-        flexDirection: quoted ? "column" : undefined,
+        maxWidth: ctx.maxBubble,
+        width: link ? ctx.maxBubble : undefined,
+        display: stacked ? "flex" : undefined,
+        flexDirection: stacked ? "column" : undefined,
       }}
     >
-      <QuoteHeader ctx={ctx} />
-      {/* quote → body text: 7pt ("large component" spacing), then the usual 7pt bottom inset */}
-      <div style={quoted ? { padding: `${TEXT_INSET_Y}px ${TEXT_INSET_X}px` } : undefined}>
+      <SenderLabel ctx={ctx} />
+      <QuoteHeader ctx={ctx} top={quoteTop} />
+      {link && (
+        <div style={{ padding: `${linkTop}px 8px 0` }}>
+          <LinkCard link={link} ctx={ctx} />
+        </div>
+      )}
+      <div style={stacked ? { padding: `${bodyTop}px ${TEXT_INSET_X}px ${TEXT_INSET_Y}px` } : undefined}>
         <TextBlock
           text={text}
           size={BODY}
@@ -1163,7 +1287,62 @@ function TextBubble({ text, ctx }: { text: string; ctx: BubbleCtx }) {
           footer={ctx.footer}
           uiRtl={ctx.rtl}
           fontsTick={ctx.fontsTick}
-          fill={quoted}
+          fill={stacked}
+          maxText={maxText}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** SignalSymbol.xCircle, inline before the remotely-deleted text. */
+function XCircle({ color, size }: { color: string; size: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 20 20"
+      fill="none"
+      style={{ display: "inline-block", verticalAlign: `${-size * 0.17}px`, marginInlineEnd: size * 0.28 }}
+    >
+      <circle cx="10" cy="10" r="8.35" stroke={color} strokeWidth="1.5" />
+      <path d="M7 7l6 6M13 7l-6 6" stroke={color} strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/**
+ * Remotely deleted (CVComponentBodyText.textViewConfigForRemotelyDeleted +
+ * CVComponentMessage.bubbleChatColor/bubbleStroke): background-coloured bubble
+ * with a 1pt transparentSeparator stroke, xCircle + "<name> deleted this
+ * message" / "You deleted this message" in secondaryLabel, secondary footer.
+ */
+function DeletedBubble({ text, ctx }: { text: string; ctx: BubbleCtx }) {
+  const { p, dark } = ctx;
+  const footer = ctx.footer ? { ...ctx.footer, status: undefined, color: p.secondary } : null;
+  return (
+    <div
+      className="relative flex flex-col"
+      style={{
+        background: p.bg,
+        border: `1px solid ${dark ? SEPARATOR.dark : SEPARATOR.light}`,
+        boxSizing: "border-box",
+        borderRadius: ctx.radii,
+        minWidth: R_WIDE * 2,
+        maxWidth: ctx.maxBubble,
+      }}
+    >
+      <SenderLabel ctx={ctx} pad={`${TEXT_INSET_Y - 1}px ${TEXT_INSET_X - 1}px 0`} />
+      <div style={{ padding: `${ctx.sender ? 1 : TEXT_INSET_Y - 1}px ${TEXT_INSET_X - 1}px ${TEXT_INSET_Y - 1}px` }}>
+        <TextBlock
+          text={text}
+          size={BODY}
+          color={p.secondary}
+          footer={footer}
+          uiRtl={ctx.rtl}
+          fontsTick={ctx.fontsTick}
+          maxText={ctx.maxBubble - TEXT_INSET_X * 2}
+          lead={<XCircle color={p.secondary} size={17} />}
         />
       </div>
     </div>
@@ -1175,7 +1354,101 @@ function JumboBubble({ text, count, ctx }: { text: string; count: number; ctx: B
   const footer = ctx.footer ? { ...ctx.footer, color: ctx.p.secondary } : null;
   return (
     <div style={{ padding: `${TEXT_INSET_Y}px ${TEXT_INSET_X}px` }}>
+      {ctx.sender && <SenderLabel ctx={ctx} pad="0 0 1px" />}
       <TextBlock text={text.trim()} size={size} color={ctx.p.label} footer={footer} uiRtl={ctx.rtl} borderless fontsTick={ctx.fontsTick} />
+    </div>
+  );
+}
+
+/**
+ * Borderless sticker message (CVComponentMessage borderless stack:
+ * [senderName, sticker, footer]); CVComponentSticker is 175pt square. An
+ * emoji "sticker" is drawn as the big emoji artwork.
+ */
+function StickerBubble({ m, ctx }: { m: Message; ctx: BubbleCtx }) {
+  const footer = ctx.footer ? { ...ctx.footer, color: ctx.p.secondary } : null;
+  const emoji = m.text.trim() || "🙂";
+  return (
+    <div className="flex flex-col" style={{ alignItems: "flex-start" }}>
+      {ctx.sender && <SenderLabel ctx={ctx} pad={`0 ${TEXT_INSET_X}px 5px`} />}
+      <div className="relative flex items-center justify-center" style={{ width: STICKER, height: STICKER }}>
+        {m.imageSrc ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={m.imageSrc} alt="" draggable={false} className="block h-full w-full" style={{ objectFit: "contain" }} />
+        ) : (
+          <span style={{ fontSize: 132, lineHeight: `${STICKER}px`, letterSpacing: 0 }}>{emoji}</span>
+        )}
+      </div>
+      {footer && (
+        <div style={{ alignSelf: "flex-end" }}>
+          <Footer spec={footer} rtl={ctx.rtl} borderless />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Symbols.xcassets generic-attachment: 36×48 page with a folded corner. */
+function DocIcon({ ext }: { ext: string }) {
+  return (
+    <div className="relative shrink-0" style={{ width: 36, height: 48 }}>
+      <svg width="36" height="48" viewBox="0 0 36 48" style={{ display: "block" }}>
+        <path d="M5 0.5h18.6L35.5 12.4V43a4.5 4.5 0 0 1-4.5 4.5H5A4.5 4.5 0 0 1 0.5 43V5A4.5 4.5 0 0 1 5 0.5Z" fill="#ffffff" stroke="rgba(0,0,0,0.12)" />
+        <path d="M23.6 0.5V8a4.4 4.4 0 0 0 4.4 4.4h7.5Z" fill="#dcdcdc" />
+      </svg>
+      <span
+        className="absolute inset-x-0 flex justify-center"
+        style={{ top: 21, fontSize: ext.length > 3 ? 9.5 : 12, lineHeight: "14px", fontWeight: 600, color: "#1b1b1b" }}
+      >
+        {ext}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * CVComponentGenericAttachment: hStack (8pt, 5pt vertical margins) of the
+ * generic-attachment icon with the upper-cased extension (caption1 semibold,
+ * gray90) and a vStack (1pt) of the file name (subheadline, bubble text
+ * colour) over the size (caption1, bubble secondary). Footer 5pt below.
+ */
+function FileBubble({ m, ctx }: { m: Message; ctx: BubbleCtx }) {
+  const { p, mine } = ctx;
+  const fill = bubbleFill(ctx);
+  const f = m.file ?? { name: "Document" };
+  const dot = f.name.lastIndexOf(".");
+  const ext = dot > 0 ? f.name.slice(dot + 1).toUpperCase().slice(0, 4) : "";
+  const top = ctx.quote ? 8 : ctx.sender ? 5 : TEXT_INSET_Y;
+  return (
+    <div
+      className={`relative flex flex-col ${fill.className}`}
+      style={{ ...fill.style, borderRadius: ctx.radii, maxWidth: ctx.maxBubble, minWidth: 0 }}
+    >
+      <SenderLabel ctx={ctx} />
+      <QuoteHeader ctx={ctx} top={ctx.sender ? 5 : TEXT_INSET_Y} />
+      <div style={{ padding: `${top}px ${TEXT_INSET_X}px ${TEXT_INSET_Y}px` }}>
+        <div dir={ctx.rtl ? "rtl" : "ltr"} className="flex items-center" style={{ gap: 8, padding: "5px 0" }}>
+          <DocIcon ext={ext} />
+          <div className="flex min-w-0 flex-col" style={{ gap: 1 }}>
+            <div
+              className="truncate"
+              style={{ color: mine ? p.outText : p.inText, fontSize: 15, lineHeight: `${SUBHEAD_LINE}px`, letterSpacing: "-0.23px" }}
+            >
+              <bdi>{f.name}</bdi>
+            </div>
+            {f.size && (
+              <div style={{ color: mine ? p.outSecondary : p.secondary, fontSize: 12, lineHeight: `${CAPTION_LINE}px` }}>
+                <bdi>{f.size}</bdi>
+              </div>
+            )}
+          </div>
+        </div>
+        {ctx.footer && (
+          <div className="flex" style={{ justifyContent: "flex-end", marginTop: 5 }}>
+            <Footer spec={ctx.footer} rtl={ctx.rtl} />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1192,10 +1465,12 @@ function VoiceBubble({ m, ctx }: { m: Message; ctx: BubbleCtx }) {
   const glyph = mine ? "#ffffff" : p.label;
   const timeColor = mine ? "rgba(255,255,255,0.8)" : p.secondary;
   const dotColor = mine ? p.outSecondary : p.secondary;
+  const top = ctx.quote ? TEXT_INSET_Y : ctx.sender ? 5 : TEXT_INSET_Y;
   return (
     <div className={`relative ${fill.className}`} style={{ ...fill.style, borderRadius: ctx.radii, width: AUDIO_W }}>
-      <QuoteHeader ctx={ctx} />
-      <div style={{ padding: `${TEXT_INSET_Y}px ${TEXT_INSET_X}px` }}>
+      <SenderLabel ctx={ctx} />
+      <QuoteHeader ctx={ctx} top={ctx.sender ? 5 : TEXT_INSET_Y} />
+      <div style={{ padding: `${top}px ${TEXT_INSET_X}px ${TEXT_INSET_Y}px` }}>
       <div dir="ltr" className="flex items-center" style={{ height: 48, padding: "4px 0" }}>
         <span
           className="flex shrink-0 items-center justify-center rounded-full"
@@ -1236,42 +1511,99 @@ function VoiceBubble({ m, ctx }: { m: Message; ctx: BubbleCtx }) {
   );
 }
 
-function MediaBubble({ m, ctx }: { m: Message; ctx: BubbleCtx }) {
+/**
+ * Shared location (LocationPicker.swift): a 256pt-square MKMapSnapshotter
+ * image with a legacy MKPinAnnotationView tinted Signal accent, sent as a
+ * photo whose caption is "<address>\n\n<maps.google.com URL>". The map art
+ * below is a plausible Apple Maps street grid (light / dark).
+ */
+function MapArt({ dark, accent }: { dark: boolean; accent: string }) {
+  const c = dark
+    ? { land: "#242426", block: "#2c2c2f", park: "#22322a", water: "#1a2a3c", road: "#3d3d41", casing: "#1c1c1e", major: "#6b5a33", majorCasing: "#3a3222" }
+    : { land: "#f6f2ea", block: "#ece7dd", park: "#cfe7c0", water: "#a6d2f2", road: "#ffffff", casing: "#ddd8cd", major: "#fbd877", majorCasing: "#e8bf55" };
+  const minor = ["M-10 52H266", "M-10 118H266", "M-10 188H266", "M40 -10V266", "M104 -10V266", "M176 -10V266", "M226 -10V266"];
+  return (
+    <svg viewBox="0 0 256 256" preserveAspectRatio="xMidYMid slice" className="absolute inset-0 block h-full w-full">
+      <rect width="256" height="256" fill={c.land} />
+      {[
+        [6, 8, 28, 38], [50, 8, 48, 38], [114, 8, 56, 38], [186, 8, 34, 38], [236, 8, 20, 38],
+        [6, 60, 28, 52], [50, 60, 48, 22], [50, 88, 48, 24], [186, 60, 34, 52], [236, 60, 20, 52],
+        [6, 126, 28, 56], [114, 126, 56, 56], [186, 126, 34, 56], [236, 126, 20, 56],
+        [6, 196, 28, 56], [50, 196, 48, 56], [114, 196, 56, 56], [186, 196, 34, 56],
+      ].map(([x, y, w, h], i) => (
+        <rect key={i} x={x} y={y} width={w} height={h} rx="2" fill={c.block} />
+      ))}
+      <rect x="114" y="60" width="56" height="52" rx="3" fill={c.park} />
+      <rect x="50" y="126" width="48" height="56" rx="3" fill={c.park} />
+      <path d="M232 196C244 210 250 232 262 256H226C226 236 224 214 232 196Z" fill={c.water} />
+      {minor.map((d) => (
+        <path key={`c${d}`} d={d} stroke={c.casing} strokeWidth="9" fill="none" />
+      ))}
+      {minor.map((d) => (
+        <path key={d} d={d} stroke={c.road} strokeWidth="7" fill="none" />
+      ))}
+      <path d="M-10 214L266 34" stroke={c.majorCasing} strokeWidth="13" fill="none" />
+      <path d="M-10 214L266 34" stroke={c.major} strokeWidth="10" fill="none" />
+      {/* legacy MKPinAnnotationView: needle + glossy head, point on the coordinate */}
+      <path d="M128 128V109" stroke={dark ? "#8e8e93" : "#7a7a7f"} strokeWidth="2" strokeLinecap="round" />
+      <ellipse cx="128.5" cy="128.5" rx="4" ry="1.6" fill="rgba(0,0,0,0.22)" />
+      <circle cx="128" cy="102" r="8" fill={accent} />
+      <circle cx="128" cy="102" r="8" fill="none" stroke="rgba(0,0,0,0.18)" strokeWidth="0.8" />
+      <circle cx="125.4" cy="99.4" r="2.6" fill="rgba(255,255,255,0.7)" />
+    </svg>
+  );
+}
+
+interface MediaOverride {
+  node: ReactNode;
+  /** natural aspect (w / h) */
+  ratio: number;
+  caption: string;
+}
+
+function MediaBubble({ m, ctx, override }: { m: Message; ctx: BubbleCtx; override?: MediaOverride }) {
   const { p, mine } = ctx;
   const [ratio, setRatio] = useState<number | null>(null);
-  const hasCaption = m.text.trim().length > 0;
-  // CVMediaAlbumView single-item sizing inside the 317pt square.
-  let mw = MAX_BUBBLE;
-  let mh = MAX_BUBBLE;
-  if (m.imageSrc && ratio) {
-    const r = Math.min(1 / 0.35, Math.max(0.35, ratio));
-    mw = MAX_BUBBLE * r;
-    mh = MAX_BUBBLE;
-    if (mw > MAX_BUBBLE) {
-      mw = MAX_BUBBLE;
-      mh = MAX_BUBBLE / r;
+  const max = ctx.maxBubble;
+  const caption = override ? override.caption : m.text;
+  const hasCaption = caption.trim().length > 0;
+  const src = override ? null : m.imageSrc;
+  const r0 = override ? override.ratio : src ? ratio : null;
+  // CVMediaAlbumView single-item sizing inside the max-width square.
+  let mw = max;
+  let mh = max;
+  if (r0) {
+    const r = Math.min(1 / 0.35, Math.max(0.35, r0));
+    mw = max * r;
+    mh = max;
+    if (mw > max) {
+      mw = max;
+      mh = max / r;
     }
     mw = Math.round(mw);
     mh = Math.round(mh);
-  } else if (m.imageSrc) {
-    mw = Math.round(MAX_BUBBLE * 0.75);
+  } else if (src) {
+    mw = Math.round(max * 0.75);
   }
   const fill = bubbleFill(ctx);
-  // a quote above the media gives the bubble its fill [QR]
-  const filled = hasCaption || !!ctx.quote;
+  // a quote or a group sender name above the media gives the bubble its fill
+  const filled = hasCaption || !!ctx.quote || !!ctx.sender;
   const overlay = !hasCaption && ctx.footer ? { ...ctx.footer, color: "#ffffff" } : null;
   return (
     <div
       className={`relative overflow-hidden ${filled ? fill.className : ""}`}
-      style={{ ...(filled ? fill.style : {}), borderRadius: ctx.radii, display: "flex", flexDirection: "column", minWidth: mw, maxWidth: MAX_BUBBLE }}
+      style={{ ...(filled ? fill.style : {}), borderRadius: ctx.radii, display: "flex", flexDirection: "column", minWidth: mw, maxWidth: max }}
     >
-      <QuoteHeader ctx={ctx} />
-      {ctx.quote && <div style={{ height: 8 }} />}
+      <SenderLabel ctx={ctx} />
+      <QuoteHeader ctx={ctx} top={ctx.sender ? 5 : TEXT_INSET_Y} />
+      {(ctx.quote || ctx.sender) && <div style={{ height: ctx.quote ? 8 : 5 }} />}
       <div className="relative" style={{ width: "100%", height: mh, background: p.mediaFill }}>
-        {m.imageSrc ? (
+        {override ? (
+          override.node
+        ) : src ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={m.imageSrc}
+            src={src}
             alt=""
             draggable={false}
             onLoad={(e) => {
@@ -1316,12 +1648,13 @@ function MediaBubble({ m, ctx }: { m: Message; ctx: BubbleCtx }) {
       {hasCaption && (
         <div style={{ padding: `7px ${TEXT_INSET_X}px ${TEXT_INSET_Y}px` }}>
           <TextBlock
-            text={m.text}
+            text={caption}
             size={BODY}
             color={mine ? p.outText : p.inText}
             footer={ctx.footer}
             uiRtl={ctx.rtl}
             fontsTick={ctx.fontsTick}
+            maxText={max - TEXT_INSET_X * 2}
           />
         </div>
       )}
@@ -1329,11 +1662,122 @@ function MediaBubble({ m, ctx }: { m: Message; ctx: BubbleCtx }) {
   );
 }
 
+/* --------------------------- call rows [SM] --------------------------- */
+
+/** SignalSymbol .phone / .video, inline at footnote size. */
+function CallGlyph({ video, color }: { video: boolean; color: string }) {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill={color}
+      style={{ display: "inline-block", verticalAlign: "-2.5px", marginInlineEnd: 4 }}
+    >
+      {(video ? I_VIDEO : I_PHONE).map((d, i) => (
+        <path key={i} d={d} fillRule="evenodd" />
+      ))}
+    </svg>
+  );
+}
+
+/**
+ * CVComponentSystemMessage for a TSCall / OWSGroupCallMessage: centred
+ * footnote "<symbol> <text> · <time>" in secondaryLabel (emphasisLabel red for
+ * a missed incoming call); 1:1 calls carry a "Call Back" / "Call Again" pill
+ * (UIButton .gray(), secondaryFill, footnote medium, 10/5 insets) with the
+ * bubble margins growing to 8/12/14.
+ */
+function CallRow({
+  m,
+  l,
+  p,
+  dark,
+  rtl,
+  groupAuthor,
+}: {
+  m: Message;
+  l: LocalStrings;
+  p: Palette;
+  dark: boolean;
+  rtl: boolean;
+  /** group thread: the member who started the call (null in 1:1) */
+  groupAuthor: string | null;
+}) {
+  const c = m.call ?? { video: false, missed: false };
+  const mine = m.sender === "me";
+  let text: string;
+  let button: string | null = null;
+  let red = false;
+  let video = c.video;
+  if (groupAuthor !== null) {
+    text = mine ? l.groupCallYou : l.groupCallBy(groupAuthor);
+    video = true;
+  } else if (mine) {
+    text = c.missed ? (c.video ? l.unansweredVideo : l.unansweredVoice) : c.video ? l.outgoingVideo : l.outgoingVoice;
+    button = l.callAgain;
+  } else {
+    text = c.missed ? (c.video ? l.missedVideo : l.missedVoice) : c.video ? l.incomingVideo : l.incomingVoice;
+    red = c.missed;
+    button = l.callBack;
+  }
+  const color = red ? (dark ? EMPHASIS.dark : EMPHASIS.light) : p.secondary;
+  return (
+    <div className="flex justify-center" style={{ paddingInline: GUTTER }}>
+      <div
+        className="flex flex-col items-center"
+        style={{ padding: button ? "8px 14px 12px" : "4px 10px 1px", gap: 8, borderRadius: 12, background: p.bg }}
+      >
+        <div
+          dir={rtl ? "rtl" : "ltr"}
+          style={{ color, fontSize: 13, lineHeight: `${FOOTNOTE_LINE}px`, letterSpacing: "-0.08px", textAlign: "center" }}
+        >
+          <CallGlyph video={video} color={color} />
+          {text}
+          {" · "}
+          <bdi>{clock(m.time)}</bdi>
+        </div>
+        {button && (
+          <span
+            className="rounded-full"
+            style={{
+              background: dark ? SECONDARY_FILL.dark : SECONDARY_FILL.light,
+              padding: "5px 10px",
+              color: p.label,
+              fontSize: 13,
+              lineHeight: `${FOOTNOTE_LINE}px`,
+              fontWeight: 500,
+              letterSpacing: "-0.08px",
+            }}
+          >
+            {button}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ------------------------------ typing [TI] ------------------------------ */
 
-function TypingBubble({ p, live, clockMs }: { p: Palette; live: boolean; clockMs?: number }) {
+function TypingBubble({
+  p,
+  live,
+  clockMs,
+  avatar,
+}: {
+  p: Palette;
+  live: boolean;
+  clockMs?: number;
+  /** group threads: the typist's 28pt avatar, 8pt before the bubble */
+  avatar?: Person | null;
+}) {
   return (
-    <div className={`flex ${live ? "sig-ios-anim" : ""}`} style={{ paddingInlineStart: GUTTER }}>
+    <div
+      className={`flex items-end ${live ? "sig-ios-anim" : ""}`}
+      style={{ paddingInlineStart: avatar ? GROUP_GUTTER : GUTTER, gap: avatar ? 8 : 0 }}
+    >
+      {avatar && <SignalAvatar person={avatar} size={GROUP_AVATAR} />}
       <div
         dir="ltr"
         className="flex items-center"
@@ -1371,20 +1815,30 @@ function TypingBubble({ p, live, clockMs }: { p: Palette; live: boolean; clockMs
 
 /* --------------------------- thread details [TD] --------------------------- */
 
-function ThreadDetails({ person, p, text }: { person: Person; p: Palette; text: string }) {
+function ThreadDetails({
+  person,
+  group,
+  p,
+  text,
+}: {
+  person: Person;
+  group?: GroupChat | null;
+  p: Palette;
+  text: string;
+}) {
   return (
     <div className="flex justify-center" style={{ padding: "8px 0 16px" }}>
-      <div className="relative flex flex-col items-center" style={{ padding: "0 25px 24px" }}>
+      <div className="relative flex flex-col items-center" style={{ padding: "0 25px 24px", maxWidth: 276 + 50 }}>
         <div
           className="absolute inset-x-0 bottom-0"
           style={{ top: 16, borderRadius: 40, border: `2px solid ${p.tertiaryFill}`, boxSizing: "border-box" }}
         />
         <div className="relative">
-          <SignalAvatar person={person} size={74} />
+          {group ? <GroupAvatar group={group} size={74} /> : <SignalAvatar person={person} size={74} />}
         </div>
         <div style={{ height: 8 }} />
         <div
-          dir={dirOf(person.name)}
+          dir={dirOf(group ? group.name : person.name)}
           className="relative truncate"
           style={{
             color: p.label,
@@ -1396,12 +1850,20 @@ function ThreadDetails({ person, p, text }: { person: Person; p: Palette; text: 
             padding: "0 4px",
           }}
         >
-          {person.name}
+          {group ? group.name : person.name}
         </div>
         <div style={{ height: 8 }} />
-        <div className="relative flex items-center" style={{ color: p.label, fontSize: 15, lineHeight: "18px", letterSpacing: "-0.23px", gap: 6 }}>
-          <Icon24 d={I_GROUP} color={p.label} size={17} />
-          <span>{text}</span>
+        {/* "group-resizable" image + two spaces + the members / mutual-groups text */}
+        <div
+          className="relative text-center"
+          style={{ color: p.label, fontSize: 15, lineHeight: "18px", letterSpacing: "-0.23px", maxWidth: 226 }}
+        >
+          <svg width="17" height="17" viewBox="0 0 24 24" fill={p.label} style={{ display: "inline-block", verticalAlign: "-3px", marginInlineEnd: 6 }}>
+            {I_GROUP.map((d, i) => (
+              <path key={i} d={d} fillRule="evenodd" />
+            ))}
+          </svg>
+          {text}
         </div>
       </div>
     </div>
@@ -1442,6 +1904,8 @@ function IosComposer({
   text,
   clockMs,
   fieldRef,
+  lift,
+  liftTransition,
 }: {
   p: Palette;
   dark: boolean;
@@ -1450,6 +1914,9 @@ function IosComposer({
   text: string;
   clockMs?: number;
   fieldRef: React.Ref<HTMLDivElement>;
+  /** keyboard lift above the normal safe-area position */
+  lift: number;
+  liftTransition?: string;
 }) {
   const exporting = clockMs !== undefined;
   const anyInput = text.length > 0;
@@ -1460,7 +1927,7 @@ function IosComposer({
     <div
       dir="ltr"
       className="pointer-events-none absolute z-20 flex items-end"
-      style={{ left: GUTTER, right: GUTTER, bottom: SAFE_BOTTOM + 8 }}
+      style={{ left: GUTTER, right: GUTTER, bottom: SAFE_BOTTOM + 8 + lift, transition: liftTransition }}
     >
       <div
         className="flex shrink-0 items-center justify-center rounded-full"
@@ -1581,6 +2048,19 @@ export function Signal({ scenario, playback, lang, rtl }: PlatformProps) {
   const live = playback.isLive;
   const typing = playback.typing || (!live && scenario.presence === "typing");
   const draftText = playback.draft?.text ?? "";
+  // group thread: Scenario.group replaces Scenario.them
+  const group = scenario.group && scenario.group.members.length > 0 ? scenario.group : null;
+  const members = group?.members ?? [];
+  const authorOf = (m: Message): Person => (group ? (members[m.authorIndex ?? 0] ?? members[0]) : scenario.them);
+  const nameColor = (m: Message): string => {
+    const c = NAME_COLORS[(m.authorIndex ?? 0) % NAME_COLORS.length];
+    return dark ? c[1] : c[0];
+  };
+  const maxBubble = group ? MAX_BUBBLE_GROUP : MAX_BUBBLE;
+  // OS keyboard: the toolbar rides the keyboard layout guide (max(keyboard, safe area))
+  const kb = useKeyboardInset();
+  const lift = Math.max(0, kb.inset - SAFE_BOTTOM);
+  const liftTransition = kb.transition === "none" ? undefined : `bottom ${kb.transition}`;
   // [IT] the field grows with the draft; the list keeps its newest row above it
   const fieldRef = useRef<HTMLDivElement>(null);
   const [fieldH, setFieldH] = useState(FIELD_H);
@@ -1588,10 +2068,23 @@ export function Signal({ scenario, playback, lang, rtl }: PlatformProps) {
     const h = fieldRef.current ? Math.round(fieldRef.current.offsetHeight) : FIELD_H;
     if (h && h !== fieldH) setFieldH(h);
   }, [draftText, fieldH]);
-  const bodyBottom = BODY_BOTTOM + (fieldH - FIELD_H);
+  const bodyBottom = BODY_BOTTOM + (fieldH - FIELD_H) + lift;
   const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}-${fieldH}`);
   const rootRef = useRef<HTMLDivElement>(null);
   const [fontsTick, setFontsTick] = useState(0);
+
+  // The content inset grows with the keyboard: keep the newest row in view.
+  const prevLift = useRef(lift);
+  useLayoutEffect(() => {
+    const sc = scrollRef.current;
+    const delta = lift - prevLift.current;
+    prevLift.current = lift;
+    if (!sc || delta <= 0) return;
+    const atBottom = sc.scrollHeight - delta - sc.clientHeight - sc.scrollTop < 48;
+    if (!atBottom) return;
+    if (kb.transition === "none") sc.scrollTop = sc.scrollHeight;
+    else sc.scrollTo({ top: sc.scrollHeight, behavior: "smooth" });
+  }, [lift, kb.transition, scrollRef]);
 
   // Re-measure text once web fonts have settled.
   useEffect(() => {
@@ -1626,16 +2119,51 @@ export function Signal({ scenario, playback, lang, rtl }: PlatformProps) {
     const mine = m.sender === "me";
     const prev = messages[i - 1];
     const next = messages[i + 1];
+    const anim = live ? "sig-ios-anim" : "";
+
+    // [SM] calls are centred system rows (20pt system-message spacing)
+    if (m.type === "call") {
+      rows.push(
+        <div
+          key={m.id}
+          data-mid={m.id}
+          data-sender={m.sender}
+          className={anim}
+          style={{ marginTop: i === 0 ? GAP_DEFAULT : SYSTEM_SPACING }}
+        >
+          <CallRow m={m} l={l} p={p} dark={dark} rtl={rtl} groupAuthor={group ? authorOf(m).name : null} />
+        </div>,
+      );
+      return;
+    }
+
     const first = !prev || !canCluster(prev, m);
     const last = !next || !canCluster(m, next);
     const status = mine ? playback.statusOf(m) : undefined;
+    // [IVS] an edited message always keeps its footer
     const hideFooter =
-      !last && !!next && clock(next.time) === clock(m.time) && (!mine || playback.statusOf(next) === status);
+      !m.edited &&
+      !last &&
+      !!next &&
+      clock(next.time) === clock(m.time) &&
+      (!mine || playback.statusOf(next) === status);
     const footer: FooterSpec | null = hideFooter
       ? null
-      : { time: m.time, status, color: mine ? p.outSecondary : p.secondary };
+      : {
+          time: m.time,
+          status: m.type === "deleted" ? undefined : status,
+          color: mine ? p.outSecondary : p.secondary,
+          edited: m.edited && m.type !== "deleted" ? l.edited : undefined,
+        };
     const target = m.replyToId ? scenario.messages.find((x) => x.id === m.replyToId) : undefined;
-    const quote = target ? quoteOf(target, scenario.them, l) : null;
+    const quote = target ? quoteOf(target, authorOf(target), l) : null;
+    // [IVS] group: the sender name heads an author's run, the avatar ends it
+    const incomingGroup = !!group && !mine;
+    const sameAuthor = (o?: Message) =>
+      !!o && o.sender === "them" && o.type !== "call" && (o.authorIndex ?? 0) === (m.authorIndex ?? 0);
+    const author = authorOf(m);
+    const sender = incomingGroup && !sameAuthor(prev) ? { name: author.name, color: nameColor(m) } : null;
+    const showAvatar = incomingGroup && !sameAuthor(next);
     const ctx: BubbleCtx = {
       p,
       rtl,
@@ -1647,15 +2175,36 @@ export function Signal({ scenario, playback, lang, rtl }: PlatformProps) {
       quote,
       topStartSharp: !mine && !first,
       topEndSharp: mine && !first,
+      maxBubble,
+      sender,
     };
-    // a quoted message always has a bubble (no borderless jumbomoji)
-    const jumbo = m.type === "text" && !quote ? emojiCount(m.text) : 0;
+    // a quoted message / link preview always has a bubble (no borderless jumbomoji)
+    const jumbo = m.type === "text" && !quote && !m.link ? emojiCount(m.text) : 0;
 
     let content: ReactNode;
     if (m.type === "voice") content = <VoiceBubble m={m} ctx={ctx} />;
     else if (m.type === "image") content = <MediaBubble m={m} ctx={ctx} />;
-    else if (jumbo) content = <JumboBubble text={m.text} count={jumbo} ctx={ctx} />;
-    else content = <TextBubble text={m.text} ctx={ctx} />;
+    else if (m.type === "sticker") content = <StickerBubble m={m} ctx={ctx} />;
+    else if (m.type === "file") content = <FileBubble m={m} ctx={ctx} />;
+    else if (m.type === "deleted")
+      content = <DeletedBubble text={mine ? l.youDeleted : l.deletedBy(author.name)} ctx={ctx} />;
+    else if (m.type === "location") {
+      const loc = m.location ?? { title: "" };
+      const address = [loc.title, loc.subtitle].filter((x) => x && x.trim()).join(", ");
+      const url = mapsUrl(loc.title || m.id);
+      content = (
+        <MediaBubble
+          m={m}
+          ctx={ctx}
+          override={{
+            node: <MapArt dark={dark} accent={dark ? ACCENT.dark : ACCENT.light} />,
+            ratio: 1,
+            caption: address ? `${address}\n\n${url}` : url,
+          }}
+        />
+      );
+    } else if (jumbo) content = <JumboBubble text={m.text} count={jumbo} ctx={ctx} />;
+    else content = <TextBubble m={m} text={m.text} ctx={ctx} />;
 
     const reaction = m.reaction?.trim();
     // the pill sits on the bubble edge that faces the middle of the screen
@@ -1666,15 +2215,23 @@ export function Signal({ scenario, playback, lang, rtl }: PlatformProps) {
         key={m.id}
         data-mid={m.id}
         data-sender={m.sender}
-        className={`flex ${live ? "sig-ios-anim" : ""}`}
+        className={`flex items-end ${anim}`}
         style={{
           justifyContent: mine ? "flex-end" : "flex-start",
-          paddingInline: GUTTER,
-          marginTop: i === 0 ? GAP_DEFAULT : first ? GAP_DEFAULT : GAP_CLUSTER,
+          paddingInlineStart: incomingGroup ? GROUP_GUTTER : GUTTER,
+          paddingInlineEnd: GUTTER,
+          marginTop:
+            i === 0 ? GAP_DEFAULT : prev?.type === "call" ? SYSTEM_SPACING : first ? GAP_DEFAULT : GAP_CLUSTER,
           // hOuterStack bottom inset = reaction protrusion (24 − 7)
           paddingBottom: reaction ? REACTION_H - REACTION_OVERLAP : 0,
         }}
       >
+        {incomingGroup && (
+          // 28pt sender-avatar column, bottom-aligned with the bubble, 8pt before it
+          <div className="shrink-0" style={{ width: GROUP_AVATAR, height: GROUP_AVATAR, marginInlineEnd: 8 }}>
+            {showAvatar && <SignalAvatar person={author} size={GROUP_AVATAR} />}
+          </div>
+        )}
         {reaction ? (
           <div className="relative" style={{ minWidth: 0 }}>
             {content}
@@ -1687,9 +2244,15 @@ export function Signal({ scenario, playback, lang, rtl }: PlatformProps) {
     );
   });
 
+  // the member who is typing: author of the next (not yet revealed) message
+  const pending = scenario.messages[messages.length];
+  const typist = group ? (pending && pending.sender === "them" ? authorOf(pending) : members[0]) : null;
+  const memberNames = members.map((x) => x.name).sort((a, b) => a.localeCompare(b, lang));
+
   const dateText = (
     <span style={{ fontSize: 13, lineHeight: "15.5px", fontWeight: 500, letterSpacing: "-0.08px" }}>{l.today}</span>
   );
+  const title = group ? group.name : scenario.them.name;
 
   return (
     <div
@@ -1702,7 +2265,12 @@ export function Signal({ scenario, playback, lang, rtl }: PlatformProps) {
       {/* ------------------------------ thread ------------------------------ */}
       <div ref={scrollRef} className="rcss-scroll absolute inset-0 overflow-y-auto">
         <div style={{ paddingTop: CONTENT_TOP, paddingBottom: bodyBottom }}>
-          <ThreadDetails person={scenario.them} p={p} text={l.noGroups} />
+          <ThreadDetails
+            person={scenario.them}
+            group={group}
+            p={p}
+            text={group ? l.members(memberNames) : l.noGroups}
+          />
           <div className="flex justify-center" style={{ marginTop: GAP_DEFAULT }}>
             <div data-sig-date style={{ padding: "3px 12px", color: p.secondary }}>
               {dateText}
@@ -1712,7 +2280,7 @@ export function Signal({ scenario, playback, lang, rtl }: PlatformProps) {
             {rows}
             {typing && (
               <div style={{ marginTop: GAP_DEFAULT }}>
-                <TypingBubble p={p} live={live} clockMs={clockMs} />
+                <TypingBubble p={p} live={live} clockMs={clockMs} avatar={typist} />
               </div>
             )}
           </div>
@@ -1749,35 +2317,47 @@ export function Signal({ scenario, playback, lang, rtl }: PlatformProps) {
             </span>
           </div>
           <div className="flex min-w-0 flex-1 items-center" style={{ paddingInlineStart: 12, gap: 12 }}>
-            <SignalAvatar person={scenario.them} size={40} />
+            {group ? <GroupAvatar group={group} size={40} /> : <SignalAvatar person={scenario.them} size={40} />}
             <span
               className="truncate"
-              dir={dirOf(scenario.them.name)}
+              dir={dirOf(title)}
               style={{ color: p.label, fontSize: 17, lineHeight: "21px", fontWeight: 600, letterSpacing: "-0.43px" }}
             >
-              {scenario.them.name}
+              {title}
             </span>
           </div>
-          <div
-            className="flex shrink-0 items-center rounded-full"
-            style={{ ...glass(dark), height: 44, width: 88, marginInlineStart: 8 }}
-          >
-            <span className="flex flex-1 items-center justify-center">
+          {group ? (
+            // groups: a single (group) video-call bar button
+            <div
+              className="flex shrink-0 items-center justify-center rounded-full"
+              style={{ ...glass(dark), height: 44, width: 44, marginInlineStart: 8 }}
+            >
               <Icon24 d={I_VIDEO} color={p.label} />
-            </span>
-            <span className="flex flex-1 items-center justify-center">
-              <Icon24 d={I_PHONE} color={p.label} />
-            </span>
-          </div>
+            </div>
+          ) : (
+            <div
+              className="flex shrink-0 items-center rounded-full"
+              style={{ ...glass(dark), height: 44, width: 88, marginInlineStart: 8 }}
+            >
+              <span className="flex flex-1 items-center justify-center">
+                <Icon24 d={I_VIDEO} color={p.label} />
+              </span>
+              <span className="flex flex-1 items-center justify-center">
+                <Icon24 d={I_PHONE} color={p.label} />
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
       {/* --------------------- bottom scroll-edge effect --------------------- */}
       <div
-        className="pointer-events-none absolute inset-x-0 bottom-0 z-10"
+        className="pointer-events-none absolute inset-x-0 z-10"
         style={{
-          height: bodyBottom,
-          background: `linear-gradient(to top, ${p.bg} 0px, ${p.bgA(0.9)} ${SAFE_BOTTOM - 8}px, ${p.bgA(0.55)} ${SAFE_BOTTOM + 22}px, ${p.bgA(0.18)} ${SAFE_BOTTOM + 48}px, ${p.bgA(0)} ${bodyBottom}px)`,
+          bottom: lift,
+          height: bodyBottom - lift,
+          transition: liftTransition,
+          background: `linear-gradient(to top, ${p.bg} 0px, ${p.bgA(0.9)} ${SAFE_BOTTOM - 8}px, ${p.bgA(0.55)} ${SAFE_BOTTOM + 22}px, ${p.bgA(0.18)} ${SAFE_BOTTOM + 48}px, ${p.bgA(0)} ${bodyBottom - lift}px)`,
         }}
       />
 
@@ -1790,6 +2370,8 @@ export function Signal({ scenario, playback, lang, rtl }: PlatformProps) {
         text={draftText}
         clockMs={clockMs}
         fieldRef={fieldRef}
+        lift={lift}
+        liftTransition={liftTransition}
       />
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20">

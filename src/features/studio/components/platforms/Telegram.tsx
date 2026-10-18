@@ -1609,7 +1609,7 @@ function NameHeader({ ctx, style }: { ctx: RowCtx; style?: CSSProperties }) {
   return (
     <div
       dir="auto"
-      className="truncate"
+      className="relative truncate"
       style={{
         padding: "6px 10px 0",
         fontSize: 14,
@@ -1781,10 +1781,10 @@ function LocationBubble({ ctx, avatar }: { ctx: RowCtx; avatar: { person: Person
         </div>
         <div dir="auto" style={{ fontSize: 14, lineHeight: "18px", color: part.fileDesc, textAlign: "start", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
           {sub}
-          {!live && (
-            <span aria-hidden style={{ display: "inline-block", width: 70 }} />
-          )}
+          {!live && dirOf(sub || title) === "ltr" && <span aria-hidden style={{ display: "inline-block", width: 70 }} />}
         </div>
+        {/* RTL last line: the date always drops to its own line */}
+        {!live && dirOf(sub || title) === "rtl" && <div style={{ height: 14 }} />}
         {live && (
           <span className="absolute block" style={{ right: 10, top: 9 }}>
             <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden className="block">

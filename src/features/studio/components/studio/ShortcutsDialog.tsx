@@ -47,6 +47,7 @@ export function ShortcutsDialog({
       title: t.scGeneral,
       rows: [
         { label: t.scSave, keys: [mod, "S"] },
+        { label: t.scAi, keys: ["I"] },
         { label: t.scRecord, keys: ["F"] },
         { label: t.scExport, keys: ["E"] },
         { label: t.scHelp, keys: ["?"] },
