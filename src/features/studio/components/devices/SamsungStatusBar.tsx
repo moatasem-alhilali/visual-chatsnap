@@ -5,6 +5,7 @@ import { useId } from "react";
 import { deviceFontFamily } from "../../data/fonts";
 import { useStudioStore } from "../../store";
 import { DEFAULT_STATUS_BAR } from "../../types";
+import type { Device } from "../../types";
 import type { Lang } from "../platforms/chrome";
 
 /*
@@ -29,8 +30,17 @@ function toArabicDigits(s: string): string {
   return s.replace(/[0-9]/g, (d) => map[Number(d)]);
 }
 
-const DEFAULT_TIME = "10:05";
-const BATTERY_LEVEL = 85;
+/**
+ * Clock and battery shown when the user has not set them: the single source
+ * for both status bars and the studio settings panel.
+ * iPhone: Apple's canonical 9:41 with a full battery; Samsung: One UI 10:05 / 85%.
+ */
+export const STATUS_BAR_DEFAULTS: Record<Device, { time: string; battery: number }> = {
+  iphone: { time: "9:41", battery: 100 },
+  android: { time: "10:05", battery: 85 },
+};
+const DEFAULT_TIME = STATUS_BAR_DEFAULTS.android.time;
+const BATTERY_LEVEL = STATUS_BAR_DEFAULTS.android.battery;
 /**
  * One UI paints the battery charge red at Android's low-battery warning level
  * (config_lowBatteryWarningLevel = 15 %) and below.

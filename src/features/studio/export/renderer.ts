@@ -389,7 +389,7 @@ export class FrameRenderer {
         const prev = lastRevealBefore(ev.at);
         const context = prev ? measureRow(prev.id) : null;
         const focus = this.measureComposer(ev.text);
-        if (focus) keys.push({ at: out(ev.at), focus, context });
+        if (focus) keys.push({ at: out(ev.at), focus, context, anchorBottom: true });
         continue;
       }
       const st = timeline.stateAt(ev.at + 1);
@@ -670,9 +670,11 @@ export class FrameRenderer {
     if (phoneChanged || camChanged || force || this.dirty) {
       this.composite(cam);
       if (this.o.caption) {
-        // pill-less captions get a scrim as the chat zooms in under them
+        // While the camera zooms in, the chat fills the caption band: fade the
+        // caption out (it would otherwise sit on top of bubbles) and bring it
+        // back as the camera returns to the full phone.
         const zoomed = Math.min(1, Math.max(0, ((cam?.scale ?? 1) - 1) / 0.18));
-        paintCaption(this.ctx, layout.W, layout.H, this.o.caption, 1, zoomed);
+        paintCaption(this.ctx, layout.W, layout.H, this.o.caption, 1 - zoomed, 0);
       }
       this.dirty = false;
     }

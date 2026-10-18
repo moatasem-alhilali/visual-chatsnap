@@ -5,6 +5,7 @@ import { useLocale } from "next-intl";
 
 import { CameraRig } from "../export/CameraRig";
 import { useLiveZoom } from "../export/zoomPrefs";
+import { usePreviewMotion } from "../hooks/usePreviewMotion";
 import type { PlaybackView } from "../playback/usePlayback";
 import type { Scenario } from "../types";
 import { DEVICE_SPEC, DeviceFrame, deviceOuter } from "./devices/DeviceFrame";
@@ -34,10 +35,15 @@ export function DeviceStage({
   const zoom = useLiveZoom();
   const hydrate = zoom.hydrate;
   useEffect(() => hydrate(), [hydrate]);
+  const animations = usePreviewMotion((s) => s.animations);
+  const hydrateMotion = usePreviewMotion((s) => s.hydrate);
+  useEffect(() => hydrateMotion(), [hydrateMotion]);
 
   return (
     <FitDevice width={outer.w} height={outer.h} maxScale={1} maxHeight={maxHeight}>
       <CameraRig
+        // "Motion → message animations" off: freeze every CSS animation/transition in the phone
+        className={animations ? undefined : "rcss-still"}
         enabled={zoom.hydrated && zoom.enabled}
         active={playback.isLive}
         typing={playback.typing}

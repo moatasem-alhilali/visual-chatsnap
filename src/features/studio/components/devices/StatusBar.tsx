@@ -7,7 +7,7 @@ import { deviceFontFamily } from "../../data/fonts";
 import { useStudioStore } from "../../store";
 import { DEFAULT_STATUS_BAR } from "../../types";
 import type { Device } from "../../types";
-import { batteryLevel, SamsungStatusBar, statusTime } from "./SamsungStatusBar";
+import { batteryLevel, SamsungStatusBar, STATUS_BAR_DEFAULTS, statusTime } from "./SamsungStatusBar";
 
 type Tint = "light" | "dark";
 
@@ -31,8 +31,8 @@ type Tint = "light" | "dark";
 
 const IOS_FONT = deviceFontFamily("iphone", "roboto");
 /** Apple's canonical marketing state: 9:41, full bars, full battery. */
-const IOS_DEFAULT_TIME = "9:41";
-const IOS_BATTERY_LEVEL = 100;
+const IOS_DEFAULT_TIME = STATUS_BAR_DEFAULTS.iphone.time;
+const IOS_BATTERY_LEVEL = STATUS_BAR_DEFAULTS.iphone.battery;
 /** iOS paints the charge systemRed at this level and below (Low Power Mode off). */
 const IOS_LOW_BATTERY = 20;
 /** UIColor.systemRed — light / dark appearance (Apple HIG colour table). */

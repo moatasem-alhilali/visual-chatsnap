@@ -74,19 +74,29 @@ Every template supports:
 - **Grouping,** with grouped corners and tails per app.
 - **Status:** delivery status (sent → delivered → read) with each app's own glyphs and labels, typing indicators, and presence (online / typing / last seen).
 - **Platform-specific entrance animations,** used by both live playback and video export.
+- **Reactions** (❤️ 😂 👍 …) drawn the way each app shows them: WhatsApp's hanging pill, iMessage tapbacks, Telegram reaction chips, Discord reaction counters, and so on.
+- **Quoted replies** with each app's real reply block (coloured bar and name, "You replied to…" labels, Discord's connector line, iMessage thread line).
+- **Compose typing:** before each of my messages is sent, it is typed into the composer character by character (with a caret), and the mic/like button turns into that app's send button. Timing is identical in the preview and the exported video.
 
 ### Realistic devices
 
 - **iPhone 15 Pro** (393 × 852 pt screen): Dynamic Island, titanium rail, real button positions, and an iOS 26 status bar measured from Apple's renders.
 - **Samsung Galaxy S25** (360 × 780 dp screen): centred punch-hole and a One UI 8 status bar with Arabic-Indic digits in Arabic and the ||| ○ < navigation bar.
 - **Fonts:** Samsung's system font can be switched (Roboto / Cairo / Tajawal). Arabic text renders in a proper Arabic face on both devices.
+- **Finishes:** iPhone Black / White / Blue / Natural Titanium, and Galaxy Navy / Icyblue / Silver Shadow / Mint.
+- **Status bar:** set the clock and battery level (the battery turns red when it's low, as on the real OS).
 
 ### Studio
 
 - **Layout:** a three-zone editor (setup · stage · messages) that becomes tabs on tablets and a bottom panel on phones.
 - **Message editor:** inline editing, sender switching, drag to reorder, duplicate and delete with undo, voice and image messages, per-message timing (delay, typing duration) and status.
 - **Playback bar:** a segmented timeline you can click to jump to a message, and a **recording mode** (a clean full-screen stage for screen capture).
-- **Saving and sharing:** autosave, save/load in the browser, import/export scenario JSON.
+- **Templates gallery:** 10 ready-made marketing chats (orders, bookings, real estate, clinics, support, abandoned cart, courses, car rental, testimonials, flash sales) in Gulf Arabic and English.
+- **Paste a chat:** paste a transcript (`Name: text`) or a WhatsApp export (iOS or Android, Arabic or English) and it becomes messages with senders and times.
+- **Smart timing:** natural delays and typing durations from message length, for the whole chat or one message.
+- **Reactions and replies** from each message's row; **undo / redo** for every edit.
+- **Projects and sharing:** autosave, multiple named projects in the browser, compressed share links (`#s=…`), and scenario JSON import/export.
+- **Motion menu:** turn the auto-zoom camera, message animations and compose typing on or off in the live preview to inspect your work as a still.
 - **Keyboard and appearance:** keyboard shortcuts, plus light and dark themes for the studio itself.
 - **Bilingual UI** (Arabic / English) with localized SEO metadata.
 
@@ -96,7 +106,9 @@ Every template supports:
 - **Output:** 30 or 60 fps, three quality levels, H.264 High with automatic HEVC / VP9 / AV1 fallback.
 - **Auto-zoom camera:** the camera glides to each new message and follows the conversation between both sides, Screen Studio style. It works live in the studio too.
 - **Look:** premium backgrounds (including a blurred-screen backdrop), and a shadow that adapts to the background.
-- **Timing and sound:** optional intro/outro holds and synthesized send/receive sounds.
+- **Timing and sound:** optional intro/outro holds, synthesized send/receive sounds, and **background music** (upload, trim, volume, fades, loop).
+- **Scenes:** an optional **notification intro** (iOS 26 / One UI 8 lock screen whose banner opens into the chat), an **end card** with your logo, headline and CTA button, and a **caption** above or below the phone for 9:16 and 4:5.
+- **Other outputs:** a high-resolution **image** (PNG/JPEG at 1–3×, any moment of the timeline) and an optimized **GIF**.
 - **Privacy:** nothing is uploaded. Rendering uses WebCodecs + [snapdom](https://github.com/zumerlab/snapdom) + [mp4-muxer](https://github.com/Vanilagy/mp4-muxer) in your browser.
 
 ## Screenshots
@@ -164,7 +176,8 @@ Open <http://localhost:3000>. It redirects to `/ar`; use `/en` for English. No e
 | <kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>D</kbd> | Duplicate message |
 | <kbd>Delete</kbd> | Delete message (with undo) |
 | <kbd>Alt</kbd> + <kbd>↑</kbd>/<kbd>↓</kbd> | Move message |
-| <kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>S</kbd> | Save scenario |
+| <kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>Z</kbd> / <kbd>Shift</kbd>+<kbd>Z</kbd> (or <kbd>Y</kbd>) | Undo / redo |
+| <kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>S</kbd> | Save project |
 | <kbd>F</kbd> | Recording mode (<kbd>H</kbd> hides controls, <kbd>Esc</kbd> exits) |
 | <kbd>E</kbd> | Export video |
 | <kbd>?</kbd> | Show all shortcuts |
@@ -182,7 +195,9 @@ Export renders the conversation **deterministically, frame by frame**, from the 
 | Frame rate | 30 / 60 fps |
 | Quality | Standard · High · Max (VBR, keyframe every 2 s, BT.709) |
 | Timing | Intro hold 0–2 s, outro hold 1–5 s |
-| Sound | Optional synthesized send/receive sounds (AAC, Opus fallback) |
+| Sound | Optional synthesized send/receive sounds and background music (AAC, Opus fallback) |
+| Scenes | Notification intro · end card (logo, headline, CTA, colours, 2–4 s) · caption with optional pill |
+| Output | MP4 video · GIF (360/480/640 px, 10–15 fps, size cap) · PNG/JPEG image (1–3×) |
 
 Files are named like `scenora-whatsapp-iphone-2026-10-17.mp4`. On phones you get a **Share / Save** button that uses the system share sheet.
 
@@ -303,12 +318,10 @@ Scenora is a **creative mockup tool**, intended for advertising concepts, tutori
 Ideas that would make great contributions:
 
 - [ ] Group chats (sender names, avatars per participant)
-- [ ] Replies / quoted messages and reactions
+- [ ] Multiple reactions per message and reaction counts in groups
 - [ ] Message editing ("edited"), deleted messages, link previews, stickers
 - [ ] More apps: Slack, LINE, Google Messages, LinkedIn, Microsoft Teams
 - [ ] More devices: iPhone 17 Pro, Pixel, foldables, Android gesture navigation bar
-- [ ] Notification banner / lock-screen intro scene
-- [ ] Shareable scenario links and a template gallery
 - [ ] Automated visual-regression tests for templates
 
 Have another idea? [Open a feature request](https://github.com/moatasem-alhilali/visual-chatsnap/issues/new?template=feature_request.yml).

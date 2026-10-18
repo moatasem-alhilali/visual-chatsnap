@@ -44,6 +44,25 @@
  *  - Motion: an outgoing bubble rises out of the composer (≈46pt, 340ms, decel);
  *    an incoming one fades + grows from its tail corner (260ms).
  *
+ * Round 4 (reactions, replies, compose typing):
+ *  - Typing state of the Liquid Glass chat bar (WABetaInfo, June 2026):
+ *    https://wabetainfo.com/whatsapp-is-rolling-out-liquid-glass-for-the-chat-interface-on-ios/
+ *    (WA_WHATSAPP_LIQUID_GLASS_INTERFACE_CHAT_SCREEN_FEATURE_IOS.webp): with text
+ *    in the field the camera + mic circles leave, the field stretches to a green
+ *    send circle (flat paper plane, light glyph in light mode, dark #0A1014-ish
+ *    glyph in dark mode), the sticker glyph stays at the field end, text 17pt
+ *    ~13pt from the field start. Caret = app tint (green).
+ *  - Reaction pill (WABetaInfo iOS captures, 3x):
+ *    https://wabetainfo.com/whatsapp-is-rolling-out-message-reactions-to-everyone/
+ *    https://wabetainfo.com/whatsapp-beta-for-ios-22-22-0-73-whats-new/
+ *    20pt tall incl. a 1.5pt ring in the background colour, ≥32pt wide, emoji
+ *    ~15pt, overlaps the bubble bottom by 3pt, 10.5pt in from the bubble's own
+ *    outer edge (end side for mine, start side for theirs); next row 3pt below.
+ *  - Quoted reply (same 22.22 capture + Android 2.25.25.8 threads capture):
+ *    block 4pt in from the bubble edges, 4pt bar, name semibold in the bar
+ *    colour (You = green, contact = purple), one-line snippet, photo thumb on
+ *    the trailing side; voice → mic + "Voice message (0:14)".
+ *
  * Shared WhatsApp helpers (doodle wallpaper, ticks, waveform, E2E notice
  * strings) are exported from here; WhatsAppAndroid.tsx may still import them.
  */

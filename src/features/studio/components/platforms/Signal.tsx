@@ -183,7 +183,8 @@ function glass(dark: boolean): CSSProperties {
 /**
  * [L10N] + quoted-reply strings (YOU, QUOTED_REPLY_TYPE_PHOTO,
  * QUOTED_REPLY_TYPE_VOICE_MESSAGE). The Arabic "Photo" really is
- * "صورة شخصية" in Signal-iOS ar.lproj.
+ * "صورة شخصية" in Signal-iOS ar.lproj — but that string means "profile photo"
+ * (shared key), so the quote uses plain "صورة" like SignalAndroid.
  */
 const LOCAL: Record<
   Lang,
@@ -202,7 +203,7 @@ const LOCAL: Record<
     placeholder: "رسالة",
     noGroups: "لا توجد مجموعات مُشتركة",
     you: "أنت",
-    photo: "صورة شخصية",
+    photo: "صورة",
     voice: "رسالة صوتية",
   },
 };

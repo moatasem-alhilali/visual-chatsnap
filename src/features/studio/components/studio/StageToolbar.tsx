@@ -1,18 +1,23 @@
 "use client";
 
-import { Check, ChevronDown, Moon, Sun, ZoomIn } from "lucide-react";
+import { useEffect } from "react";
+import { Check, ChevronDown, Moon, PauseCircle, Sparkles, Sun } from "lucide-react";
 
 import { Button } from "@/shared/components/ui/button";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/shared/components/ui/dropdown-menu";
 import { SegmentedControl } from "@/shared/components/ui/segmented";
 import { Tooltip } from "@/shared/components/ui/tooltip";
 import { cn } from "@/shared/lib/utils";
 import { useLiveZoom } from "../../export/zoomPrefs";
+import { usePreviewMotion } from "../../hooks/usePreviewMotion";
 import { useStudioStore } from "../../store";
 import type { ChatTheme, Device, Scenario } from "../../types";
 import { PLATFORMS } from "../platforms";
@@ -27,6 +32,13 @@ export function StageToolbar({ scenario, t, dir }: { scenario: Scenario; t: Stud
   const setTheme = useStudioStore((s) => s.setTheme);
   const zoomOn = useLiveZoom((s) => s.hydrated && s.enabled);
   const setZoom = useLiveZoom((s) => s.setEnabled);
+  const animOn = usePreviewMotion((s) => s.animations);
+  const setAnimations = usePreviewMotion((s) => s.setAnimations);
+  const hydrateMotion = usePreviewMotion((s) => s.hydrate);
+  useEffect(() => hydrateMotion(), [hydrateMotion]);
+  const setComposeTyping = useStudioStore((s) => s.setComposeTyping);
+  const composeOn = scenario.composeTyping !== false;
+  const motionCount = Number(animOn) + Number(zoomOn) + Number(composeOn);
 
   return (
     <div
@@ -85,19 +97,49 @@ export function StageToolbar({ scenario, t, dir }: { scenario: Scenario; t: Stud
 
       <span aria-hidden className="h-5 w-px bg-border" />
 
-      <Tooltip content={t.autoZoomHint}>
-        <Button
-          variant="ghost"
-          size="sm"
-          aria-pressed={zoomOn}
-          aria-label={t.autoZoom}
-          onClick={() => setZoom(!zoomOn)}
-          className={cn("h-7 gap-1.5 px-2", zoomOn ? "bg-primary/12 text-primary hover:bg-primary/18" : "text-muted-foreground")}
-        >
-          <ZoomIn className="size-4" />
-          <span className="hidden text-[13px] lg:inline">{t.autoZoom}</span>
-        </Button>
-      </Tooltip>
+      <DropdownMenu dir={dir}>
+        <Tooltip content={t.motionHint}>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label={`${t.motion}: ${motionCount}/3`}
+              className={cn(
+                "h-7 gap-1.5 px-2",
+                motionCount > 0 ? "bg-primary/12 text-primary hover:bg-primary/18" : "text-muted-foreground",
+              )}
+            >
+              {motionCount > 0 ? <Sparkles className="size-4" /> : <PauseCircle className="size-4" />}
+              <span className="hidden text-[13px] lg:inline">{motionCount > 0 ? t.motion : t.motionOff}</span>
+              <ChevronDown className="size-3.5 opacity-60" />
+            </Button>
+          </DropdownMenuTrigger>
+        </Tooltip>
+        <DropdownMenuContent align="end" className="w-64">
+          <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">{t.motionHint}</DropdownMenuLabel>
+          <DropdownMenuCheckboxItem checked={animOn} onCheckedChange={setAnimations} onSelect={(e) => e.preventDefault()}>
+            {t.motionAnimations}
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuCheckboxItem checked={zoomOn} onCheckedChange={setZoom} onSelect={(e) => e.preventDefault()}>
+            {t.autoZoom}
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuCheckboxItem checked={composeOn} onCheckedChange={setComposeTyping} onSelect={(e) => e.preventDefault()}>
+            {t.motionCompose}
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onSelect={() => {
+              const next = motionCount === 0;
+              setAnimations(next);
+              setZoom(next);
+              setComposeTyping(next);
+            }}
+          >
+            {motionCount === 0 ? <Sparkles className="size-4" /> : <PauseCircle className="size-4" />}
+            {motionCount === 0 ? t.motionAllOn : t.motionAllOff}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }

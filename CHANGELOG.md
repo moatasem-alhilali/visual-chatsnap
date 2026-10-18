@@ -6,6 +6,24 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- **Inside every template (22):**
+  - **Reactions:** each app's own reaction style.
+  - **Quoted replies:** each app's real reply block.
+  - **Compose typing:** my messages are typed into the composer, which switches to that app's send button, before they are sent. Live preview and export share the same timing (`playback/compose.ts`).
+- **Studio:**
+  - **Editing:** a reaction picker and a "reply to" picker on each message, plus undo/redo for every edit.
+  - **Content:** a gallery of 10 ready-made bilingual templates, paste-a-chat import (plain transcripts and WhatsApp exports), and smart timing.
+  - **Saving and sharing:** named projects and compressed share links.
+  - **Phone settings:** clock, battery level and phone colour.
+  - **Motion menu:** switches the preview's auto-zoom, message animations and compose typing on or off.
+- **Devices:**
+  - iPhone 15 Pro titanium finishes and Galaxy S25 colours.
+  - The status-bar clock and battery level can be customised, with low-battery colours.
+- **Export:**
+  - **Formats:** PNG/JPEG still images at 1–3× from any moment, and an optimised GIF encoder with a size cap.
+  - **Scenes:** an iOS 26 / One UI 8 lock-screen notification intro that opens into the chat, an end card with logo, headline and CTA, and a caption with an optional pill that fades out while the camera zooms in.
+  - **Audio:** background music (trim, volume, fades, loop) mixed with the sound effects.
+  - **Camera and phone:** the camera frames the composer while a message is being typed, and the exported phone uses the chosen colour.
 - **Six more apps, each with separate iPhone and Samsung templates (22 templates in total):**
   - **Messenger.**
   - **TikTok DMs:** measured from TikTok's 2025 product shots, and set in the official TikTok Sans font.
@@ -33,6 +51,10 @@ All notable changes to this project are documented here. The format follows [Kee
 - **Open-source project files:** README (EN/AR), contributing guide, code of conduct, security policy, issue and PR templates, CI and Dependabot.
 
 ### Fixed
+
+- The live auto-zoom in the studio framed the wrong area: it measured in screen pixels without dividing out the stage scale.
+- Saving export preferences no longer updates another component during render.
+- The `/preview` harness re-pins scroll until layout settles, and `scripts/shot.mjs` uses an isolated Chrome profile with a timeout.
 
 - The device frame was shrinking the phone screen. The iPhone screen was 365 pt wide instead of 393, and the Samsung screen 338 dp instead of 360.
 - Square black corners appeared behind the rounded phone in exported videos.

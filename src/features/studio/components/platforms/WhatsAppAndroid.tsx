@@ -26,6 +26,25 @@
  *      https://9to5google.com/2024/11/22/whatsapp-new-typing-indicator-more-users/
  *  [W] WhatsApp Design System tokens (web.whatsapp.com main CSS, "WDS-*" vars).
  *
+ *  [R] Reaction pill (1:1, 2022 capture, still the shipping placement):
+ *      https://wabetainfo.com/whatsapp-is-rolling-out-message-reactions-to-everyone/
+ *  [Q] Quoted replies, 2.25.25.8 (Sep 2025):
+ *      https://wabetainfo.com/whatsapp-introduces-threaded-message-replies-for-more-organized-conversations/
+ *
+ * Round 4 values
+ *  - Reaction [R]: pill ~30×27 incl. a 2dp ring in the wallpaper colour, fill =
+ *    incoming-bubble colour, emoji ~17sp, overlaps the bubble bottom by ~4dp,
+ *    10dp in from the bubble's outer edge (end for mine, start for theirs).
+ *  - Quote [Q]: block 4dp inside the bubble, radius concentric (14), 4dp bar in
+ *    the sender colour (You #1DAA61 / #21C063), name 14sp/500 in a darker shade
+ *    (#15603E measured for "You"), snippet 14sp rgba(0,0,0,.6), line 20, fill
+ *    rgba(11,20,26,.05) on white and a slightly darker green on #D9FDD3; photo
+ *    thumb at the trailing edge; text resumes ~8dp under the block.
+ *  - Compose typing: text 18sp in the field with a 2dp accent caret; the camera
+ *    leaves, the clip slides to the end, the mic FAB turns into the send FAB
+ *    (Material rounded "send", auto-mirrored in RTL); the field grows to 6 lines
+ *    with the side icons pinned to the bottom.
+ *
  * Key values (dp == CSS px on the 360dp Samsung screen)
  *  - Top app bar 56 tall. Back arrow centred 24 from the start edge, avatar 38
  *    at x=52, title at x=102. Title 17.5/400, subtitle 12/400, same ink as the

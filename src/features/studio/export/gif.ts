@@ -433,6 +433,14 @@ export class GifWriter {
 /** Rough size of a GIF of this kind (shown before rendering). */
 export function estimateGifBytes(W: number, H: number, frames: number, moving: boolean): number {
   const first = W * H * 0.55;
-  const perFrame = moving ? W * H * 0.32 : W * H * 0.035;
+  // calibrated on real exports (frame-diffed, 255 colours)
+  const perFrame = moving ? W * H * 0.18 : W * H * 0.035;
   return first + perFrame * Math.max(0, frames - 1);
+}
+
+/** Largest width (≤ `width`) whose estimated GIF fits in `capBytes`. */
+export function fitGifWidth(width: number, aspect: number, frames: number, moving: boolean, capBytes: number): number {
+  const est = estimateGifBytes(width, Math.round(width * aspect), frames, moving);
+  if (est <= capBytes * 0.9) return width;
+  return Math.max(200, Math.round(width * Math.sqrt((capBytes * 0.85) / est)));
 }

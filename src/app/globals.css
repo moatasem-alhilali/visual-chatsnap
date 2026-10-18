@@ -233,6 +233,18 @@
 }
 
 /* Hide scrollbars inside the phone screens for a clean recording */
+/* Studio "Motion → animations" off: show the phone as a still (no entrances,
+   typing-dot loops, receipt fades or transitions). Export is unaffected. */
+.rcss-still *,
+.rcss-still *::before,
+.rcss-still *::after {
+  animation: none !important;
+  transition: none !important;
+}
+.rcss-still .rcss-scroll {
+  scroll-behavior: auto !important;
+}
+
 .rcss-scroll {
   scrollbar-width: none;
   -ms-overflow-style: none;

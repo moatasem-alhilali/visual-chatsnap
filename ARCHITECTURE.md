@@ -58,11 +58,15 @@ src/
     shell/                 header and footer only
     studio/                Scenora chat scenario studio
       components/          studio-owned UI composition
-      data/                static defaults and font options
-      export/              video timeline and MP4 export logic
+        platforms/         one template per app × OS (22) + lazy registry (index.tsx)
+        devices/           phone shells (finishes) and iOS / One UI status bars
+        studio/            editor building blocks (pickers, rows, dialogs, toolbar)
+        dev/               dev-only /preview screenshot harness
+      data/                defaults, font options, ready-made templates (templates.ts)
+      export/              video timeline, renderer, camera, scenes, GIF/PNG, audio
       hooks/               studio-only client hooks
-      playback/            playback state machine hook
-      services/            persistence and file workflow adapters
+      playback/            playback state machine (usePlayback) + compose typing timing
+      services/            persistence, projects, share links, transcript import, smart timing
       store.ts             Zustand draft/UI state
       types.ts             scenario domain types
       validations/         Zod import/runtime contracts
@@ -140,8 +144,21 @@ Feature rules:
 - `services/scenario-storage.ts` owns the local draft/manual-save adapter.
 - `services/scenario-file.ts` owns JSON import/export browser workflows.
 - `validations/scenario.ts` is the runtime contract for imported scenario JSON.
+- `services/project-storage.ts` (named projects), `services/share-link.ts`
+  (compressed `#s=` links), `services/transcript.ts` (paste/WhatsApp-export parser)
+  and `services/smart-timing.ts` (natural delays) hold those workflows; components
+  only call them.
 - Video rendering stays in `export/` and `components/ExportDialog.tsx` because it is
   browser-only and tightly coupled to the recording UI.
+- **Templates contract** (`components/platforms/*`): each app × OS file renders the
+  whole screen from `PlatformProps`; puts `data-mid` + `data-sender` on every
+  message row; renders `Message.reaction`, `Message.replyToId` and
+  `PlaybackView.draft` (compose typing) the way that app does; derives looping
+  animations from `PlaybackView.clockMs` when set; and exports a `PlatformMotion`
+  that matches its CSS entrance. Register new templates in `platforms/index.tsx`.
+- **Timing parity**: `playback/compose.ts` and `export/schedule.ts` mirror
+  `usePlayback` exactly, so live preview, the studio timeline and exported video
+  agree to the millisecond. Change all three together.
 
 ## Import Direction
 

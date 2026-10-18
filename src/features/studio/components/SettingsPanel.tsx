@@ -34,14 +34,21 @@ import { DEFAULT_STATUS_BAR } from "../types";
 import { ANDROID_FONTS } from "../data/fonts";
 import { nowClock } from "../data/defaults";
 import { DEFAULT_DEVICE_FINISH, DEVICE_FINISHES } from "./devices/DeviceFrame";
+import { STATUS_BAR_DEFAULTS } from "./devices/SamsungStatusBar";
 import type { StudioLabels } from "./labels";
 import { FieldLabel, PanelSection } from "./studio/PanelSection";
 import { DevicePicker, PlatformPicker, platformName } from "./studio/Pickers";
 import { ParticipantCard } from "./studio/ParticipantCard";
 
 /** What each status bar shows when the user has not set a value (mirrors devices/*StatusBar). */
-const DEVICE_DEFAULT_TIME: Record<Device, string> = { iphone: "9:41", android: "10:05" };
-const DEVICE_DEFAULT_BATTERY: Record<Device, number> = { iphone: 100, android: 85 };
+const DEVICE_DEFAULT_TIME: Record<Device, string> = {
+  iphone: STATUS_BAR_DEFAULTS.iphone.time,
+  android: STATUS_BAR_DEFAULTS.android.time,
+};
+const DEVICE_DEFAULT_BATTERY: Record<Device, number> = {
+  iphone: STATUS_BAR_DEFAULTS.iphone.battery,
+  android: STATUS_BAR_DEFAULTS.android.battery,
+};
 const TIME_RE = /^([01]?\d|2[0-3])[:.][0-5]\d$/;
 
 /** Phone colour swatches (real retail finishes of the selected device). */

@@ -74,7 +74,9 @@
  *
  * Uncertain (no primary capture found): the 1:1 header's trailing call buttons
  * (phone + video drawn, from X's icon set), light-mode composer fills (taken from
- * the tokens), the Arabic receipt/typing strings, and the voice-bubble layout.
+ * the tokens), the Arabic receipt/typing strings, the native-iOS sizes of the reply/reaction
+ * elements (scaled from the web client), and the voice note (taken from the Chat
+ * client kit: 32pt play disc, 2pt bars, monospaced duration — same as Android).
  */
 
 import type { CSSProperties, ReactNode } from "react";
@@ -459,30 +461,43 @@ function TextBubble({ m, mine, p }: { m: Message; mine: boolean; p: Palette }) {
   );
 }
 
+/**
+ * X Chat voice note [C] (same kit as the Android template): a 32pt play disc
+ * (fg-inverted on theirs, white with a blue glyph on mine), 2pt bars at 50% ink,
+ * monospaced duration; pill 8pt top/bottom/leading, 16pt trailing.
+ */
 function VoiceBubble({ m, mine, p }: { m: Message; mine: boolean; p: Palette }) {
-  const fg = mine ? "#ffffff" : p.inText;
-  const dim = mine ? "rgba(255,255,255,0.55)" : p.secondary;
-  const bars = waveform(m.id);
+  const ink = mine ? "#ffffff" : p.inText;
+  const bars = waveform(m.id, 30);
   return (
     <div
       dir="ltr"
-      className="flex items-center"
-      style={{
-        height: 2 * RADIUS,
-        background: mine ? BLUE : p.inBubble,
-        borderRadius: RADIUS,
-        paddingLeft: 12,
-        paddingRight: 16,
-        gap: 10,
-      }}
+      className="inline-flex items-center"
+      style={{ background: mine ? BLUE : p.inBubble, borderRadius: 24, padding: "8px 16px 8px 8px", gap: 10 }}
     >
-      <PlayGlyph color={fg} size={22} />
-      <span className="flex items-center" style={{ gap: 2, height: 22 }}>
+      <span
+        className="flex shrink-0 items-center justify-center rounded-full"
+        style={{ width: 32, height: 32, background: mine ? "#ffffff" : p.fg, color: mine ? BLUE : p.bg }}
+      >
+        <span style={{ marginInlineStart: 2 }}>
+          <PlayGlyph color="currentColor" size={16} />
+        </span>
+      </span>
+      <span aria-hidden className="flex items-center" style={{ gap: 2, height: 28, flexShrink: 0 }}>
         {bars.map((b, i) => (
-          <span key={i} className="block rounded-full" style={{ width: 2.5, height: b, background: dim }} />
+          <span key={i} className="block rounded-full" style={{ width: 2, height: Math.min(26, Math.max(3, Math.round(b * 1.3))), background: ink, opacity: 0.5 }} />
         ))}
       </span>
-      <span style={{ color: fg, fontSize: 15, lineHeight: "20px", fontVariantNumeric: "tabular-nums" }}>
+      <span
+        className="shrink-0"
+        style={{
+          fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
+          fontSize: 15,
+          lineHeight: "20px",
+          fontVariantNumeric: "tabular-nums",
+          color: mine ? "rgba(255,255,255,0.8)" : p.secondary,
+        }}
+      >
         {(m.voiceDuration || "0:09").trim()}
       </span>
     </div>

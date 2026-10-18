@@ -219,8 +219,8 @@ export function paintCaption(ctx: Ctx2D, W: number, H: number, cfg: CaptionConfi
     const y0 = cfg.position === "top" ? 0 : H;
     const y1 = cfg.position === "top" ? reach : H - reach;
     const g = ctx.createLinearGradient(0, y0, 0, y1);
-    g.addColorStop(0, `rgba(0,0,0,${0.62 * scrim})`);
-    g.addColorStop(0.6, `rgba(0,0,0,${0.38 * scrim})`);
+    g.addColorStop(0, `rgba(0,0,0,${0.85 * scrim})`);
+    g.addColorStop(0.62, `rgba(0,0,0,${0.7 * scrim})`);
     g.addColorStop(1, "rgba(0,0,0,0)");
     ctx.fillStyle = g;
     ctx.fillRect(0, Math.min(y0, y1), W, reach);

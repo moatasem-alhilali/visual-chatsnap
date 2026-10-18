@@ -62,6 +62,8 @@ export interface CameraKey {
   focus: Rect | null;
   /** optional context (e.g. the message being replied to) kept in frame when it fits */
   context?: Rect | null;
+  /** sit the focus at the bottom of the view (the composer: the thread stays visible above it) */
+  anchorBottom?: boolean;
 }
 
 /** Start moving this long before the event, so the camera "anticipates" it. */
@@ -110,6 +112,7 @@ export function focusState(
   context?: Rect | null,
   /** hold this zoom (pan only) instead of picking a new one */
   lockScale?: number,
+  anchorBottom = false,
 ): CameraState {
   if (!focus) return WIDE(scene);
   if (lockScale) opts = { ...opts, maxZoom: lockScale };
@@ -121,7 +124,7 @@ export function focusState(
     const fitU = Math.min((scene.W * 0.9) / Math.max(1, u.w), (scene.H * 0.55 * avail) / Math.max(1, u.h));
     // context never lowers the zoom (that would pump in and out between messages)
     if (fitU >= opts.maxZoom) {
-      return focusState(u, scene, { ...opts, maxZoom: Math.min(opts.maxZoom, fitU) });
+      return focusState(u, scene, { ...opts, maxZoom: Math.min(opts.maxZoom, fitU) }, null, undefined, anchorBottom);
     }
   }
   const { W, H, phone } = scene;
@@ -138,6 +141,8 @@ export function focusState(
   // put the bubble a little below the centre of the free area (fixed overlays
   // such as a caption band are excluded): the context above stays readable
   let cy = focus.y + focus.h / 2 - vh * 0.08 * avail - (vh * (st - sb)) / 2;
+  // …or, anchored, with the focus resting on the bottom edge of the free area
+  if (anchorBottom) cy = focus.y + focus.h - vh / 2 + vh * sb + Math.min(vh * 0.04, Math.max(0, (vh * avail - focus.h) / 2));
   // …but the focused bubble itself must always be fully in view (with margin)
   const mx = Math.min(vw * 0.06, Math.max(0, (vw - focus.w) / 2));
   const my = Math.min(vh * 0.06 * avail, Math.max(0, (vh * avail - focus.h) / 2));
@@ -196,9 +201,9 @@ export function buildCameraPath(
   const targets: { from: number; st: CameraState }[] = [];
   let held = 1;
   for (const k of rawKeys) {
-    let st = focusState(k.focus, scene, opts, k.context);
+    let st = focusState(k.focus, scene, opts, k.context, undefined, k.anchorBottom);
     if (k.focus && held > 1 && st.scale > 1 && Math.abs(Math.log(st.scale / held)) < Math.log(1.2)) {
-      st = focusState(k.focus, scene, opts, k.context, held);
+      st = focusState(k.focus, scene, opts, k.context, held, k.anchorBottom);
     }
     held = st.scale;
     targets.push({ from: Math.max(0, k.at - CAMERA_LEAD_MS), st });

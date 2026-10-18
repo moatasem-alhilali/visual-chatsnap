@@ -69,7 +69,7 @@ import {
   type EndCardConfig,
   type SceneTiming,
 } from "../export/scenes";
-import { buildPalette, estimateGifBytes, GifWriter } from "../export/gif";
+import { buildPalette, estimateGifBytes, fitGifWidth, GifWriter } from "../export/gif";
 import { introChatStyle, NotificationIntro, type NoticeInfo } from "../export/NotificationIntro";
 import {
   canShareVideoFile,
@@ -1233,10 +1233,11 @@ export function ExportDialog({
   const finalMs = Math.max(0, timing.chatEnd - 1);
   const bitrate = bitrateFor(layout.W, layout.H, prefs.fps, prefs.quality);
 
-  const gifW = Math.min(prefs.gifWidth, layout.W);
-  const gifH = Math.round((gifW * layout.H) / layout.W);
   const gifFrames = Math.max(1, Math.round((totalMs / 1000) * prefs.gifFps));
   const gifCap = prefs.gifCapMb * 1_048_576;
+  // shrink up front when the estimate is over the cap (a restart costs a full render)
+  const gifW = fitGifWidth(Math.min(prefs.gifWidth, layout.W), layout.H / layout.W, gifFrames, prefs.zoom, gifCap);
+  const gifH = Math.round((gifW * layout.H) / layout.W);
 
   // Preview canvas pixel size: long side 720px (crisp on HiDPI, cheap to paint).
   const pk = 720 / Math.max(layout.W, layout.H);
@@ -1652,7 +1653,7 @@ export function ExportDialog({
           if (i === 0) firstBytes = writer.size;
           if (i % 4 === 0) await yieldToEventLoop();
           // project the final size early; restart smaller instead of finishing a file that's too big
-          if (attempt < 3 && i >= Math.max(12, totalFrames * 0.25)) {
+          if (attempt < 3 && i >= Math.max(10, totalFrames * 0.15)) {
             const projected = firstBytes + ((writer.size - firstBytes) / i) * (totalFrames - 1);
             if (projected > cap * 1.15) {
               tooBig = projected;
@@ -1673,6 +1674,9 @@ export function ExportDialog({
           const bytes = writer.finish();
           if (bytes.length > cap && attempt < 3) tooBig = bytes.length;
           else {
+            if (process.env.NODE_ENV !== "production") {
+              console.info("[export] " + JSON.stringify({ gif: `${W}x${H}@${fps}`, frames: totalFrames, attempts: attempt + 1, bytes: bytes.length, totalMs: Math.round(performance.now() - started) }));
+            }
             const blob = new Blob([bytes as BlobPart], { type: "image/gif" });
             const file = createExportFile(blob, scenario.platform, scenario.device, "gif");
             finishResult({

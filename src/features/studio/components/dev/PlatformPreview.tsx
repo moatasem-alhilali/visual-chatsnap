@@ -165,7 +165,11 @@ export function PlatformPreview() {
   // dev server) — a single timer was flaky under load. Live playback (play=1)
   // is left alone so the template's own auto-scroll is what gets captured.
   useEffect(() => {
-    if (play) return;
+    if (play) {
+      // live playback scrolls itself; just signal readiness for tooling
+      const t = setTimeout(() => (document.body.dataset.ready = "1"), 2500);
+      return () => clearTimeout(t);
+    }
     const pin = () =>
       document.querySelectorAll<HTMLElement>(".rcss-scroll").forEach((el) => {
         el.style.scrollBehavior = "auto";
