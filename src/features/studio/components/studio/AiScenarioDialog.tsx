@@ -53,7 +53,16 @@ const T = {
     applied: "تم تطبيق السيناريو",
     undo: "تراجع",
     replaceNote: "سيستبدل المحادثة الحالية، ويمكنك التراجع.",
-    msgs: "رسالة",
+    msgs: (n: number) => (n === 1 ? "رسالة واحدة" : n === 2 ? "رسالتان" : n <= 10 ? `${n} رسائل` : `${n} رسالة`),
+    kinds: {
+      image: "صورة",
+      voice: "رسالة صوتية",
+      sticker: "ملصق",
+      location: "موقع",
+      file: "ملف",
+      call: "مكالمة",
+      deleted: "رسالة محذوفة",
+    } as Record<string, string>,
     group: "مجموعة",
     members: "أعضاء",
     light: "فاتح",
@@ -108,7 +117,16 @@ const T = {
     applied: "Scenario applied",
     undo: "Undo",
     replaceNote: "Replaces the current chat. You can undo.",
-    msgs: "messages",
+    msgs: (n: number) => (n === 1 ? "1 message" : `${n} messages`),
+    kinds: {
+      image: "Photo",
+      voice: "Voice message",
+      sticker: "Sticker",
+      location: "Location",
+      file: "File",
+      call: "Call",
+      deleted: "Deleted message",
+    } as Record<string, string>,
     group: "Group",
     members: "members",
     light: "Light",
@@ -420,7 +438,7 @@ export function AiScenarioDialog({ open, onOpenChange }: { open: boolean; onOpen
                     </div>
                     <div className="truncate text-xs text-muted-foreground">
                       {appLabel} · {sum.device === "iphone" ? s.iphone : s.android} · {sum.theme === "dark" ? s.dark : s.light} ·{" "}
-                      {sum.messages.length} {s.msgs}
+                      {s.msgs(sum.messages.length)}
                     </div>
                   </div>
                 </div>
@@ -439,7 +457,7 @@ export function AiScenarioDialog({ open, onOpenChange }: { open: boolean; onOpen
                   {sum.messages.slice(0, 6).map((m, i) => (
                     <li key={m.id} className={cn("truncate", m.sender === "me" ? "text-primary" : "text-foreground")} dir="auto">
                       <span className="text-muted-foreground">{i + 1}. </span>
-                      {m.type === "text" || m.type === "sticker" || (m.type === "image" && m.text) ? m.text : `[${m.type}]`}
+                      {m.type === "text" || m.type === "sticker" || (m.type === "image" && m.text) ? m.text : `[${s.kinds[m.type] ?? m.type}]`}
                     </li>
                   ))}
                   {sum.messages.length > 6 && <li className="text-muted-foreground">…</li>}

@@ -2285,6 +2285,9 @@ export function ExportDialog({
     update({ batchCombos: cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key] });
   };
   const nBatch = prefs.batch ? batchKeys.length : 1;
+  // (computed up front: calling copy helpers inside some JSX props trips the React Compiler's mutation analysis)
+  const batchCountLabel = c.batchCount(batchKeys.length);
+  const startLabel = prefs.batch ? c.startBatch(kind, batchKeys.length) : c.start[kind];
   const pctLabel = (v: number) => (lang === "ar" ? `${v.toLocaleString("ar-EG")}٪` : `${v}%`);
 
   return (
@@ -2677,7 +2680,7 @@ export function ExportDialog({
                     aside={
                       prefs.batch ? (
                         <span className="shrink-0 text-[11px] font-medium text-muted-foreground tabular-nums" data-export-batch-count="">
-                          {c.batchCount(batchKeys.length)}
+                          {batchCountLabel}
                         </span>
                       ) : null
                     }
@@ -3438,7 +3441,7 @@ export function ExportDialog({
                     data-export-start=""
                   >
                     {device ? (prefs.batch ? <Layers className="size-4" /> : <Download className="size-4" />) : <Loader2 className="size-4 animate-spin" />}
-                    {prefs.batch ? c.startBatch(kind, batchKeys.length) : c.start[kind]}
+                    {startLabel}
                   </Button>
                   <p className="text-center text-[11px] text-muted-foreground">{c.privacy}</p>
                 </div>
