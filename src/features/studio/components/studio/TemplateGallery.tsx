@@ -39,7 +39,7 @@ function TemplateCard({
   return (
     <li
       aria-labelledby={titleId}
-      className="group flex flex-col rounded-xl border border-border bg-card p-3 shadow-studio-card transition-[border-color,box-shadow] duration-150 ease-studio hover:border-foreground/20 focus-within:border-primary/45"
+      className="group flex min-w-0 flex-col rounded-xl border border-border bg-card p-3 shadow-studio-card transition-[border-color,box-shadow] duration-150 ease-studio hover:border-foreground/20 focus-within:border-primary/45"
     >
       <div className="flex items-start gap-2.5">
         <PlatformMark platform={tpl.platform} device={device} size={30} />
@@ -48,7 +48,7 @@ function TemplateCard({
             {meta.title}
           </h3>
           <p className="truncate text-[11.5px] text-muted-foreground">
-            {platformName(tpl.platform, device, t)} · {content.me}
+            {platformName(tpl.platform, device, t)} · <bdi>{content.me}</bdi>
           </p>
         </div>
       </div>
@@ -139,7 +139,7 @@ export function TemplateGallery({
           ]}
         />
       </div>
-      <ul className="grid gap-3 pb-1 sm:grid-cols-2 lg:grid-cols-3">
+      <ul className="grid grid-cols-1 gap-3 pb-1 sm:grid-cols-2 lg:grid-cols-3">
         {TEMPLATES.map((tpl) => (
           <TemplateCard
             key={tpl.id}

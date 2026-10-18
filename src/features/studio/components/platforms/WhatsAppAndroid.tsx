@@ -1126,7 +1126,7 @@ function AndroidRow({
       <div
         className="relative"
         dir={textDir}
-        style={{ background: bg, color: p.text, boxShadow: p.shadow, padding: "9px 12px 10px", ...radius }}
+        style={{ background: bg, color: p.text, boxShadow: p.shadow, padding: "9px 12px 10px", minWidth: 0, ...radius }}
       >
         {tail && <Tail side={onRight ? "right" : "left"} color={bg} />}
         {/* quoted reply: 4dp in from the bubble edges, 8dp above the text */}
@@ -1158,7 +1158,13 @@ function AndroidRow({
     >
       <div
         className="relative"
-        style={{ maxWidth: "100%", width: m.type === "voice" ? "100%" : undefined, display: "flex", justifyContent: mine ? "flex-end" : "flex-start" }}
+        style={{
+          maxWidth: "100%",
+          minWidth: 0,
+          width: m.type === "voice" ? "100%" : undefined,
+          display: "flex",
+          justifyContent: mine ? "flex-end" : "flex-start",
+        }}
       >
         {content}
         {reaction && <AndroidReaction emoji={reaction} p={p} onRight={onRight} />}

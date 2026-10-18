@@ -68,9 +68,9 @@
  *  "آخر ظهور كان قريبًا", TypeMessage "الرسالة"); dates use ASCII digits (FastDateFormat).
  */
 
-import { useEffect, useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 
-import type { DeliveryStatus, Message } from "../../types";
+import type { DeliveryStatus, Message, Person } from "../../types";
 import { Avatar, SystemBottomBar, useChatScroll } from "../shared";
 import { SamsungStatusBar } from "../devices/SamsungStatusBar";
 import type { Lang } from "./chrome";
@@ -523,12 +523,107 @@ function Tail({ side, bg, grad }: { side: "left" | "right"; bg: string; grad: bo
 /* Message pieces                                                       */
 /* ------------------------------------------------------------------ */
 
+interface Reaction {
+  emoji: string;
+  by: Person;
+  chosen: boolean;
+}
+
+interface Quote {
+  name: string;
+  nameIdx: number;
+  text: string;
+  media: boolean;
+  thumb: string | null;
+  hasThumb: boolean;
+}
+
 interface RowCtx {
   t: Pal;
   mine: boolean;
   status: DeliveryStatus;
   pinnedTop: boolean;
   pinnedBottom: boolean;
+  react?: Reaction | null;
+  quote?: Quote | null;
+}
+
+/** UserObject.getColorId for a user without a custom colour: id % 7 (the name stands in for the id). */
+function nameColorIndex(name: string): number {
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return h % 7;
+}
+
+function quoteOf(target: Message | undefined, me: Person, them: Person, s: (typeof TGA_STRINGS)[Lang]): Quote | null {
+  if (!target) return null;
+  const author = target.sender === "me" ? me : them;
+  const base = { name: author.name, nameIdx: nameColorIndex(author.name) };
+  if (target.type === "voice") return { ...base, text: s.voice, media: true, thumb: null, hasThumb: false };
+  if (target.type === "image") {
+    const caption = target.text.replace(/\s+/g, " ").trim();
+    return { ...base, text: caption || s.photo, media: !caption, thumb: target.imageSrc ?? null, hasThumb: true };
+  }
+  return { ...base, text: target.text.replace(/\s+/g, " ").trim(), media: false, thumb: null, hasThumb: false };
+}
+
+function withAlpha(hex: string, a: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+}
+
+/**
+ * ReactionsLayoutInBubble.ReactionButton in a private chat: 26dp pill (r 13), 20dp emoji at x 8, then the
+ * reactor's 20dp avatar (AvatarsDrawable) at x 32; width 8 + 20 + 4 + 2 + 20 + 1 = 55dp.
+ */
+function ReactionChip({ r, t, outgoing, bg }: { r: Reaction; t: Pal; outgoing: boolean; bg?: string }) {
+  const fill = bg ?? (outgoing ? (r.chosen ? t.react.outChosen : t.react.outOther) : r.chosen ? t.react.inChosen : t.react.inOther);
+  return (
+    <span className="relative block shrink-0" style={{ width: 55, height: 26, borderRadius: 13, background: fill }}>
+      <span
+        className="absolute flex items-center justify-center"
+        style={{ left: 8, top: 3, width: 20, height: 20, fontSize: 16.5, lineHeight: "20px" }}
+      >
+        {r.emoji}
+      </span>
+      <span className="absolute block" style={{ left: 32, top: 3 }}>
+        <Avatar person={r.by} size={20} />
+      </span>
+    </span>
+  );
+}
+
+/**
+ * ReplyMessageLine + reply name/text layouts (ChatMessageCell): block 12dp inside the body, 3dp bar, fill =
+ * line colour × .10 (.12 outgoing night), radius 5; name 14dp medium at +3dp, text 14dp at +21dp, height
+ * replyHeight + 4 = 41dp; photo thumb = min(41 − 10, 7 + 14 + 14) = 31dp at (8, 5), text shifted by it + 3.
+ */
+function ReplyBlock({ q, t, outgoing, style }: { q: Quote; t: Pal; outgoing: boolean; style?: CSSProperties }) {
+  const line = outgoing ? t.reply.outLine : t.reply.names[q.nameIdx];
+  const name = outgoing ? t.reply.outName : line;
+  const text = q.media ? (outgoing ? t.reply.outMedia : t.reply.inMedia) : outgoing ? t.reply.outText : t.reply.inText;
+  const bg = withAlpha(line, outgoing ? t.reply.outBg : 0.1);
+  const x = q.hasThumb ? 8 + 31 + 3 + 1 : 9;
+  const row: CSSProperties = { fontSize: 14, lineHeight: "16.4px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textAlign: "left" };
+  return (
+    <div className="relative overflow-hidden" style={{ height: 41, borderRadius: 5, background: bg, padding: `3px 8px 0 ${x}px`, ...style }}>
+      <span aria-hidden className="absolute inset-y-0 left-0 block" style={{ width: 3, background: line }} />
+      {q.hasThumb && (
+        <span className="absolute block overflow-hidden" style={{ left: 8, top: 5, width: 31, height: 31, borderRadius: 4, background: t.photoPh }}>
+          {q.thumb && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={q.thumb} alt="" draggable={false} className="block h-full w-full object-cover" />
+          )}
+        </span>
+      )}
+      <div dir="auto" style={{ ...row, fontWeight: 500, color: name }}>
+        {q.name}
+      </div>
+      <div dir="auto" style={{ ...row, marginTop: 1.6, color: text }}>
+        {q.text}
+      </div>
+    </div>
+  );
 }
 
 /** Time + checks inside a text/voice/caption bubble. */
@@ -578,7 +673,8 @@ function TextBlock({ text, ctx, time, extraTop = 0, fit = true }: { text: string
         margin: 0,
         boxSizing: "content-box",
         maxWidth: 280,
-        padding: `${7.05 + pt + extraTop}px 11px ${6.95 - pt}px`,
+        // with reactions the time moves to the reaction row: the text keeps no slot and the row adds 34dp
+        padding: `${7.05 + pt + extraTop}px 11px ${(ctx.react ? 4.95 : 6.95) - pt}px`,
         fontSize: 16,
         lineHeight: "14px",
         overflowWrap: "anywhere",
@@ -587,12 +683,26 @@ function TextBlock({ text, ctx, time, extraTop = 0, fit = true }: { text: string
       }}
     >
       <span style={{ lineHeight: "18.75px" }}>{text}</span>
-      {rtl ? (
+      {ctx.react ? null : rtl ? (
         <span aria-hidden style={{ display: "block", height: 14, width: mine ? tw + 17 : tw }} />
       ) : (
         <span aria-hidden style={{ display: "inline-block", height: 0, width: mine ? tw + 26.5 : tw + 10, verticalAlign: "baseline" }} />
       )}
     </p>
+  );
+}
+
+/**
+ * Reactions in a text/caption bubble (ChatMessageCell: totalHeight += 26 + 8; x = body + 11, y = bottom − 10 − 26).
+ * The time stays at its bottom-right spot, so the row reserves its width after the chips.
+ */
+function ReactionRow({ ctx, time }: { ctx: RowCtx; time: string }) {
+  if (!ctx.react) return null;
+  return (
+    <div className="flex" dir="ltr" style={{ padding: `0 ${ctx.mine ? 27.5 : 11}px 10px 11px` }}>
+      <ReactionChip r={ctx.react} t={ctx.t} outgoing={ctx.mine} />
+      <span aria-hidden className="shrink-0" style={{ width: timeWidth(time) + 8 }} />
+    </div>
   );
 }
 
@@ -626,7 +736,12 @@ function VoiceBody({ m, ctx }: { m: Message; ctx: RowCtx }) {
   const bars = waveform(m.id, Math.max(8, Math.floor(waveW / 3)));
   const unread = !mine || status !== "read";
   return (
-    <div className="relative" style={{ width: bodyW, height: 64 }}>
+    <div className="relative" style={{ width: bodyW, height: 64 + (ctx.react ? 34 : 0) }}>
+      {ctx.react && (
+        <span className="absolute block" style={{ left: 12, bottom: 10 }}>
+          <ReactionChip r={ctx.react} t={t} outgoing={mine} />
+        </span>
+      )}
       <span className="absolute block rounded-full" style={{ left: 12, top: 10, width: 44, height: 44, background: v.loader }}>
         <PlayGlyph color={v.icon} grad={mine && t.outGradient} />
       </span>
@@ -898,12 +1013,179 @@ function fitTextBlocks(sc: HTMLElement) {
 /* Component                                                            */
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ */
+/* Composer (compose typing)                                            */
+/* ------------------------------------------------------------------ */
+
+/*
+ * ChatActivityEnterView with text: the mic (audioVideoSendButton) scales to 0.1 / fades while the SendButton
+ * (new design: 38dp chat_messagePanelSend circle, 3dp margin, send_plane_24 white) scales 0.1→1 and fades in,
+ * 220ms EASE_OUT_QUINT; the plane itself "appears" over 320ms EASE_OUT_QUINT from translate(−24, +24),
+ * scale .35 and a 60° turn. The attach button (side controls) stays unless the caption is near it
+ * (EditTextCaption.isNearRightCaption: a second line, or the line end within 48dp) or the UI is RTL
+ * (LocaleController.isRTL), then alpha 0 / scale .5 in 100ms. EditText: 18dp, max 6 lines, padding 9/10 →
+ * the island grows by one Roboto line (21.09dp) per wrapped line. Cursor: chat_messagePanelCursor, 2dp × 20dp,
+ * blinking 500ms on / 500ms off, solid while typing.
+ */
+const QUINT = cubicBezier(0.23, 1, 0.32, 1);
+const QUINT_CSS = "cubic-bezier(0.23, 1, 0.32, 1)";
+const DRAFT_LINE = 21.09;
+
+/** ms since key last changed on the exporter clock (undefined when not exporting); derived state. */
+function useSwitchClock(key: string, clockMs: number | undefined): { since: number; initial: boolean } | undefined {
+  const [mark, setMark] = useState<{ key: string; at: number | undefined; initial: boolean }>({ key, at: clockMs, initial: true });
+  let cur = mark;
+  if (mark.key !== key) {
+    cur = { key, at: clockMs, initial: false };
+    setMark(cur);
+  }
+  if (clockMs === undefined) return undefined;
+  return { since: Math.max(0, clockMs - (cur.at ?? clockMs)), initial: cur.initial };
+}
+
+const SEND_PLANE_PATH =
+  "M6.232,35.046C22.115,28.147 32.706,23.599 38.006,21.401C53.136,15.126 56.28,14.036 58.329,14C58.78,13.992 59.788,14.104 60.441,14.632C60.992,15.078 61.143,15.68 61.216,16.103C61.289,16.526 61.379,17.489 61.307,18.241C60.487,26.831 56.939,47.675 55.134,57.295C54.371,61.366 52.867,62.731 51.411,62.865C48.247,63.155 45.844,60.78 42.78,58.777C37.985,55.643 35.276,53.692 30.621,50.634C25.242,47.1 28.729,45.157 31.795,41.983C32.597,41.152 46.537,28.51 46.807,27.363C46.841,27.22 46.872,26.685 46.554,26.403C46.235,26.12 45.765,26.217 45.426,26.294C44.945,26.402 37.284,31.451 22.444,41.438C20.27,42.927 18.3,43.652 16.536,43.614C14.591,43.572 10.849,42.518 8.067,41.616C4.655,40.51 2.448,39.938 2.684,38.06C2.807,37.082 3.99,36.077 6.232,35.046Z";
+
+/** The typed text (shared by the input island and the list's bottom spacer so both grow alike). */
+function DraftText({ text, color, caret, innerRef }: { text: string; color: string; caret?: ReactNode; innerRef?: RefObject<HTMLDivElement | null> }) {
+  return (
+    <div
+      ref={innerRef}
+      dir={HAS_RTL.test(text) ? "rtl" : "ltr"}
+      style={{
+        padding: "11.5px 46px 11.45px 52px",
+        fontSize: 18,
+        lineHeight: `${DRAFT_LINE}px`,
+        color,
+        textAlign: "start",
+        whiteSpace: "pre-wrap",
+        overflowWrap: "break-word",
+        wordBreak: "break-word",
+      }}
+    >
+      <span>{text}</span>
+      {caret}
+    </div>
+  );
+}
+
+function Cursor({ color, clock }: { color: string; clock?: { since: number } }) {
+  const visible = !clock || Math.floor(clock.since / 500) % 2 === 0;
+  return (
+    <span
+      aria-hidden
+      className={clock ? undefined : "tga-caret"}
+      style={{ display: "inline-block", width: 2, height: 20, margin: "0 -2px 0 0", verticalAlign: "top", marginTop: 0.5, background: color, opacity: visible ? 1 : 0 }}
+    />
+  );
+}
+
+function Composer({ t, hint, text, clockMs, rtlUi }: { t: Pal; hint: string; text: string | null; clockMs?: number; rtlUi: boolean }) {
+  const on = text !== null;
+  const sw = useSwitchClock(on ? "on" : "off", clockMs);
+  const keyClock = useSwitchClock(text ?? "", clockMs);
+  const exporting = sw !== undefined;
+  const textRef = useRef<HTMLDivElement>(null);
+  const attachRef = useRef<HTMLSpanElement>(null);
+
+  // attach hides when the caption is near it (or always in an RTL UI)
+  useLayoutEffect(() => {
+    const a = attachRef.current;
+    if (!a) return;
+    let hide = on && rtlUi;
+    const el = textRef.current;
+    if (on && !hide && el) {
+      const k = el.getBoundingClientRect().width / (el.offsetWidth || 1) || 1;
+      const lines = Math.round((el.offsetHeight - 22.95) / DRAFT_LINE);
+      if (lines > 1) hide = true;
+      else {
+        const span = el.firstElementChild as HTMLElement | null;
+        const w = span ? span.getBoundingClientRect().width / k : 0;
+        if (w + 48 >= el.offsetWidth - 52 - 46) hide = true;
+      }
+    }
+    a.style.transition = exporting ? "none" : "opacity 100ms linear, transform 100ms linear";
+    a.style.opacity = hide ? "0" : "1";
+    a.style.transform = hide ? "scale(0.5)" : "none";
+  });
+
+  // send / mic swap (export: from the clock; live: keyframes)
+  let micStyle: CSSProperties = {};
+  let sendStyle: CSSProperties | null = null;
+  let iconStyle: CSSProperties = {};
+  if (sw && !sw.initial) {
+    const q = QUINT(Math.min(1, sw.since / 220));
+    const swap = { opacity: q, transform: `scale(${(0.1 + 0.9 * q).toFixed(4)})` };
+    const out = { opacity: 1 - q, transform: `scale(${(1 - 0.9 * q).toFixed(4)})` };
+    if (on) {
+      sendStyle = swap;
+      micStyle = q < 1 ? out : { opacity: 0 };
+      const a = QUINT(Math.min(1, sw.since / 320));
+      iconStyle = {
+        transform: `translate(${(-24 * (1 - a)).toFixed(2)}px, ${(24 * (1 - a)).toFixed(2)}px) scale(${(0.35 + 0.65 * a).toFixed(4)}) rotate(${(60 * (1 - a)).toFixed(2)}deg)`,
+      };
+    } else {
+      micStyle = swap;
+      if (q < 1) sendStyle = out;
+    }
+  } else if (on) {
+    sendStyle = {};
+    micStyle = { opacity: 0 };
+  }
+  const anim = !exporting;
+  return (
+    <div className="absolute" style={{ left: 7, right: 7, bottom: NAV_H + 9, minHeight: 44, ...glassInput(t) }}>
+      {on ? (
+        <DraftText text={text} color={t.inputText} innerRef={textRef} caret={<Cursor key={text.length} color={t.cursor} clock={keyClock} />} />
+      ) : (
+        <div style={{ height: 44 }}>
+          <span
+            className="absolute overflow-hidden whitespace-nowrap"
+            dir="auto"
+            style={{ left: 52, right: 100, top: 11.5, fontSize: 18, lineHeight: "21px", color: t.hint, textAlign: "left" }}
+          >
+            {hint}
+          </span>
+        </div>
+      )}
+      <span className="absolute block" style={{ left: 10, bottom: 8 }}>
+        <SmileIcon color={t.inputIcon} />
+      </span>
+      <span ref={attachRef} className="absolute block" style={{ right: 54, bottom: 10, width: 24, height: 24 }}>
+        <AttachIcon color={t.inputIcon} />
+      </span>
+      <span
+        className={`absolute flex items-center justify-center rounded-full ${anim && on ? "tga-mic-out" : ""}`}
+        style={{ right: 3, bottom: 3, width: 38, height: 38, background: t.send, ...micStyle }}
+      >
+        <MicIcon />
+      </span>
+      {sendStyle && (
+        <span
+          aria-hidden
+          className={`absolute block rounded-full ${anim ? "tga-send-in" : ""}`}
+          style={{ right: 3, bottom: 3, width: 38, height: 38, background: t.send, ...sendStyle }}
+        >
+          <span className={`absolute block ${anim ? "tga-plane-in" : ""}`} style={{ left: 7, top: 7, width: 24, height: 24, ...iconStyle }}>
+            <svg width="24" height="24" viewBox="0 0 72 72" aria-hidden className="block">
+              <path fill="#ffffff" fillRule="evenodd" d={SEND_PLANE_PATH} />
+            </svg>
+          </span>
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function TelegramAndroid({ scenario, playback, lang, rtl }: PlatformProps) {
   const t = scenario.theme === "dark" ? DARK : LIGHT;
   const s = TGA_STRINGS[lang];
   const { messages, typing } = playback;
   const live = playback.isLive;
-  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}`);
+  const draftText = playback.draft ? playback.draft.text : null;
+  // the draft length is in the key so a growing input island keeps the newest message in view
+  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}-${draftText === null ? -1 : draftText.length}`);
+  const byId = new Map(scenario.messages.map((m) => [m.id, m] as const));
   const rootRef = useRef<HTMLDivElement>(null);
 
   const showTyping = typing || scenario.presence === "typing";
@@ -955,7 +1237,7 @@ export function TelegramAndroid({ scenario, playback, lang, rtl }: PlatformProps
       <div
         ref={scrollRef}
         className="rcss-scroll absolute inset-0 overflow-y-auto overflow-x-hidden"
-        style={{ paddingTop: STATUS_H + BAR_H + 4, paddingBottom: NAV_H + 60 }}
+        style={{ paddingTop: STATUS_H + BAR_H + 4, paddingBottom: NAV_H + 16 }}
       >
         <div className="flex flex-col">
           {/* ChatActionCell date: 4dp + 22.4dp chip + ~4dp */}
@@ -981,7 +1263,17 @@ export function TelegramAndroid({ scenario, playback, lang, rtl }: PlatformProps
             const pinnedBottom = !lastOfGroup;
             const prevPinnedTop = i > 0 && !groupInfo(messages, i - 1).firstOfGroup;
             const status = playback.statusOf(m);
-            const ctx: RowCtx = { t, mine, status, pinnedTop, pinnedBottom };
+            const ctx: RowCtx = {
+              t,
+              mine,
+              status,
+              pinnedTop,
+              pinnedBottom,
+              react: m.reaction ? { emoji: m.reaction, by: mine ? scenario.them : scenario.me, chosen: !mine } : null,
+              quote: m.replyToId ? quoteOf(byId.get(m.replyToId), scenario.me, scenario.them, s) : null,
+            };
+            // a reply block sits 9dp under the body top (7 when grouped above); body text then starts 3dp below it
+            const replyTop = pinnedTop ? 7 : 9;
             const gap = i === 0 ? 3 : pinnedTop ? 2 : prevPinnedTop ? 7 : 6;
             const isImage = m.type === "image";
             const isVoice = m.type === "voice";
@@ -1002,6 +1294,11 @@ export function TelegramAndroid({ scenario, playback, lang, rtl }: PlatformProps
                   <span className="absolute" style={{ right: 0, bottom: 6 }}>
                     <ServiceTime m={m} ctx={ctx} round />
                   </span>
+                  {ctx.react && (
+                    <span className="absolute" style={{ [mine ? "right" : "left"]: 0, top: 116 }}>
+                      <ReactionChip r={ctx.react} t={t} outgoing={mine} bg={ctx.react.chosen ? t.inBubble : t.dark ? "rgba(0, 0, 0, 0.32)" : "rgba(0, 0, 0, 0.22)"} />
+                    </span>
+                  )}
                 </div>
               );
             } else if (emojiN > 1) {
@@ -1013,6 +1310,11 @@ export function TelegramAndroid({ scenario, playback, lang, rtl }: PlatformProps
                   <span style={{ marginTop: 2 }}>
                     <ServiceTime m={m} ctx={ctx} round={false} />
                   </span>
+                  {ctx.react && (
+                    <span style={{ marginTop: 4 }}>
+                      <ReactionChip r={ctx.react} t={t} outgoing={mine} bg={ctx.react.chosen ? t.inBubble : t.dark ? "rgba(0, 0, 0, 0.32)" : "rgba(0, 0, 0, 0.22)"} />
+                    </span>
+                  )}
                 </div>
               );
             } else if (isImage && !caption) {
@@ -1032,6 +1334,7 @@ export function TelegramAndroid({ scenario, playback, lang, rtl }: PlatformProps
                     className="relative"
                     style={{ padding: 2, ...bubbleBg(fill, grad), boxShadow: mine ? t.outShadow : t.inShadow, ...r }}
                   >
+                    {ctx.quote && <ReplyBlock q={ctx.quote} t={t} outgoing={mine} style={{ margin: `${replyTop - 2}px 10px 6px`, width: PHOTO_W - 20 }} />}
                     <div className="relative overflow-hidden" style={{ width: PHOTO_W, ...pr }}>
                       {m.imageSrc ? (
                         // eslint-disable-next-line @next/next/no-img-element
@@ -1041,6 +1344,11 @@ export function TelegramAndroid({ scenario, playback, lang, rtl }: PlatformProps
                       )}
                       <MediaTime m={m} ctx={ctx} />
                     </div>
+                    {ctx.react && (
+                      <div style={{ padding: "6px 9px 8px" }}>
+                        <ReactionChip r={ctx.react} t={t} outgoing={mine} />
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -1055,9 +1363,13 @@ export function TelegramAndroid({ scenario, playback, lang, rtl }: PlatformProps
                     style={{ ...bubbleBg(fill, grad), boxShadow: mine ? t.outShadow : t.inShadow, ...bubbleRadii(onRight, pinnedTop, pinnedBottom, tail) }}
                   >
                     {isVoice ? (
-                      <VoiceBody m={m} ctx={ctx} />
+                      <>
+                        {ctx.quote && <ReplyBlock q={ctx.quote} t={t} outgoing={mine} style={{ margin: `${replyTop}px 12px -6px` }} />}
+                        <VoiceBody m={m} ctx={ctx} />
+                      </>
                     ) : isImage ? (
                       <div className="relative">
+                        {ctx.quote && <ReplyBlock q={ctx.quote} t={t} outgoing={mine} style={{ margin: `${replyTop}px 12px 4px`, width: PHOTO_W - 20 }} />}
                         <div style={{ padding: "2px 2px 0" }}>
                           <div
                             className="overflow-hidden"
@@ -1079,12 +1391,17 @@ export function TelegramAndroid({ scenario, playback, lang, rtl }: PlatformProps
                         </div>
                         <div style={{ width: PHOTO_W + 4 }}>
                           <TextBlock text={caption} ctx={{ ...ctx, pinnedTop: false }} time={m.time} extraTop={-0.5} fit={false} />
+                          <ReactionRow ctx={ctx} time={m.time} />
                         </div>
                         <BubbleMeta m={m} ctx={ctx} />
                       </div>
                     ) : (
                       <div className="relative">
-                        <TextBlock text={m.text} ctx={ctx} time={m.time} />
+                        {ctx.quote && (
+                          <ReplyBlock q={ctx.quote} t={t} outgoing={mine} style={{ margin: `${replyTop}px 12px 0`, maxWidth: 278 }} />
+                        )}
+                        <TextBlock text={m.text} ctx={ctx} time={m.time} extraTop={ctx.quote ? 3 - 7.05 - (pinnedTop ? 1 : 0) : 0} />
+                        <ReactionRow ctx={ctx} time={m.time} />
                         <BubbleMeta m={m} ctx={ctx} />
                       </div>
                     )}
@@ -1109,6 +1426,10 @@ export function TelegramAndroid({ scenario, playback, lang, rtl }: PlatformProps
               </div>
             );
           })}
+          {/* bottom inset = input island (grows with a multi-line draft) + 7dp */}
+          <div aria-hidden style={{ visibility: "hidden", width: 346, minHeight: 44, marginTop: 7 }}>
+            {draftText !== null && <DraftText text={draftText} color="transparent" />}
+          </div>
         </div>
       </div>
 
@@ -1204,24 +1525,7 @@ export function TelegramAndroid({ scenario, playback, lang, rtl }: PlatformProps
       </div>
 
       {/* Input island */}
-      <div className="absolute" style={{ left: 7, right: 7, bottom: NAV_H + 9, height: 44, ...glassInput(t) }}>
-        <span className="absolute block" style={{ left: 10, top: 8 }}>
-          <SmileIcon color={t.inputIcon} />
-        </span>
-        <span
-          className="absolute overflow-hidden whitespace-nowrap"
-          dir="auto"
-          style={{ left: 52, right: 100, top: 11.5, fontSize: 18, lineHeight: "21px", color: t.hint, textAlign: "left" }}
-        >
-          {s.message}
-        </span>
-        <span className="absolute block" style={{ right: 54, top: 10 }}>
-          <AttachIcon color={t.inputIcon} />
-        </span>
-        <span className="absolute flex items-center justify-center rounded-full" style={{ right: 3, top: 3, width: 38, height: 38, background: t.send }}>
-          <MicIcon />
-        </span>
-      </div>
+      <Composer t={t} hint={s.message} text={draftText} clockMs={playback.clockMs} rtlUi={rtl} />
 
       {/* Samsung navigation bar (edge-to-edge, drawn over the wallpaper) */}
       <div className="absolute inset-x-0 bottom-0" dir={rtl ? "rtl" : "ltr"}>
@@ -1245,4 +1549,12 @@ const TGA_CSS = `
   100% { transform: scale(0.5708); }
 }
 .tga-dot { animation: tga-dot 800ms linear infinite both; }
+@keyframes tga-caret { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0; } }
+.tga-caret { animation: tga-caret 1000ms steps(1, end) infinite; }
+@keyframes tga-send-in { from { opacity: 0; transform: scale(0.1); } to { opacity: 1; transform: none; } }
+.tga-send-in { animation: tga-send-in 220ms ${QUINT_CSS} both; }
+@keyframes tga-mic-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: scale(0.1); } }
+.tga-mic-out { animation: tga-mic-out 220ms ${QUINT_CSS} both; }
+@keyframes tga-plane-in { from { transform: translate(-24px, 24px) scale(0.35) rotate(60deg); } to { transform: none; } }
+.tga-plane-in { animation: tga-plane-in 320ms ${QUINT_CSS} both; }
 `;

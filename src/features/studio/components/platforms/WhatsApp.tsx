@@ -839,8 +839,8 @@ function ReactionPill({ emoji, p, onRight }: { emoji: string; p: Pal; onRight: b
         border: `1.5px solid ${p.pillRing}`,
         background: p.pill,
         boxShadow: p.pillShadow,
-        fontSize: 13,
-        lineHeight: "16px",
+        fontSize: 15,
+        lineHeight: "17px",
         zIndex: 1,
       }}
     >

@@ -55,12 +55,29 @@
  *       name titleLarge 22/28 with person + chevron glyphs.
  *  [R]  ConversationItemDecorations.kt + conversation_item_header.xml: date header is
  *       plain 14sp OnSurfaceVariant text (no chip without wallpaper), "Today"/"اليوم".
+ *  [RX] reactions/ReactionsConversationView.java, layout/reactions_pill.xml,
+ *       drawable/reaction_pill_background{,_selected}.xml, v2_conversation_item_text_only_*.xml:
+ *       26dp pill, 1dp margins, 7dp padding, 17dp emoji, 1dp colorBackground stroke,
+ *       fill colorSurfaceVariant / colorSurfaceVariant_32_no_alpha (#B8BCC5 / #5D5E62)
+ *       when mine; rail marginTop −4dp, 5dp from the bubble's inner edge.
+ *  [QV] components/QuoteView.java, layout/v2_quote_view.xml, quotes/QuoteViewColorTheme.kt,
+ *       conversation_item_sent_multimedia.xml, ConversationItem.java: quotes use the legacy
+ *       item (isTextOnly() is false); quote 7dp from the top, 6dp from the sides, stretched
+ *       to the bubble; bar 4dp OnCustom; bg Transparent3 (in) / Transparent4 (out, light) /
+ *       transparent_black_40 (out, dark); fg OnSurface / NeutralInverse; author labelMedium
+ *       bold 13sp, body BodyMedium 14sp ×2 lines; thumb 60dp; corners 10/4. Body text 4dp
+ *       below. Strings QuoteView_you / _photo / _audio ("أنت" / "صورة" / "صوت").
+ *  [CI] layout/conversation_input_panel.xml + ConversationFragment.updateToggleButtonState,
+ *       AnimatingToggle (anim/animation_toggle_in: 150ms scale .6→1 + alpha), styles.xml
+ *       ComposeEditText (16sp, +2sp line spacing, maxLines 5, hint OnSurfaceVariant),
+ *       MessageSendType.SignalMessageSendType → ic_send_lock_24; emoji / camera / mic tint
+ *       OnSurfaceVariant, inline "+" OnSurface.
  */
 
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 import type { DeliveryStatus, Message, Person } from "../../types";
-import { SystemBottomBar, useChatScroll } from "../shared";
+import { dirOf, SystemBottomBar, useChatScroll } from "../shared";
 import { SamsungStatusBar } from "../devices/SamsungStatusBar";
 import type { Lang } from "./chrome";
 import type { PlatformMotion, PlatformProps } from "./types";
@@ -525,7 +542,14 @@ export function SignalAndroid({ scenario, playback, lang, rtl }: PlatformProps) 
   const { messages, typing } = playback;
   const live = playback.isLive;
   const clock = playback.clockMs;
-  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}`);
+  // the composer grows with a wrapping draft; keep the newest row pinned above it
+  const composerRef = useRef<HTMLDivElement>(null);
+  const [composerH, setComposerH] = useState(60);
+  useIsoLayoutEffect(() => {
+    const h = composerRef.current ? Math.round(composerRef.current.offsetHeight) : 60;
+    if (h && h !== composerH) setComposerH(h);
+  });
+  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}-${composerH}`);
 
   // Material3OnScrollHelper: toolbar (and status bar behind it) = colorBackground at the
   // top of the list, colorSurface2 once content can scroll under it; 200ms colour fade.
@@ -627,6 +651,10 @@ export function SignalAndroid({ scenario, playback, lang, rtl }: PlatformProps) 
             <SignalRow
               key={m.id}
               m={m}
+              quote={(() => {
+                const t = m.replyToId ? scenario.messages.find((x) => x.id === m.replyToId) : undefined;
+                return t ? quoteOf(t, scenario.them, s) : null;
+              })()}
               shape={shapeOf(messages, i)}
               p={p}
               rtl={rtl}
@@ -670,9 +698,312 @@ export function SignalAndroid({ scenario, playback, lang, rtl }: PlatformProps) 
       </div>
 
       {/* Composer [P] */}
-      <AndroidComposer p={p} rtl={rtl} placeholder={s.placeholder} text={playback.draft?.text ?? ""} clock={clock} />
+      <div ref={composerRef} className="shrink-0">
+        <AndroidComposer p={p} rtl={rtl} placeholder={s.placeholder} text={playback.draft?.text ?? ""} clock={clock} />
+      </div>
 
       <SystemBottomBar device="android" bg={p.bg} fg={p.navFg} />
+    </div>
+  );
+}
+
+/* ======================================================================
+   Composer [P][CI]
+   ====================================================================== */
+
+const COMPOSE_FS = 16;
+/** Signal.Text.Body as a style (not a textAppearance): 16sp Roboto + 2sp lineSpacingExtra. */
+const COMPOSE_LINE = BODY_LH;
+const COMPOSE_EXTRA = 2;
+const COMPOSE_MAX_LINES = 5;
+
+/** EditText cursor: 2dp bar in colorPrimary; Editor.BLINK keeps it solid while edits land. */
+function AndroidCaret({ color, exporting, keystroke }: { color: string; exporting: boolean; keystroke: number }) {
+  return (
+    <span aria-hidden className="relative inline-block" style={{ width: 0, height: COMPOSE_LINE, verticalAlign: "top" }}>
+      <span
+        key={exporting ? undefined : keystroke}
+        className={exporting ? "absolute" : "sig-android-caret absolute"}
+        style={{ insetInlineStart: 0, top: 0, width: 2, height: COMPOSE_LINE + 1, background: color }}
+      />
+    </span>
+  );
+}
+
+/**
+ * conversation_input_panel.xml + ConversationFragment.updateToggleButtonState():
+ * empty → emoji | hint | camera, mic (quick_attachment_toggle) and the "+"
+ * (attach_button) in the 40dp chat-colour circle. With text → the camera and
+ * mic hide, the inline "+" (24dp, OnSurface, 12dp end margin) appears at the
+ * end of the field and the circle shows the send button (ic_send_lock_24,
+ * AnimatingToggle: 150ms scale .6→1 + fade, FastOutSlowIn). ComposeText grows
+ * from 44dp up to 5 lines (paddingVertical 8), then scrolls; the emoji toggle,
+ * the inline "+" and the circle stay at the bottom.
+ * The caret is solid while the draft is typed (Editor.BLINK restarts on each
+ * edit and the compose hold is < 500ms), so export (clock) draws it solid.
+ */
+function AndroidComposer({
+  p,
+  rtl,
+  placeholder,
+  text,
+  clock,
+}: {
+  p: Palette;
+  rtl: boolean;
+  placeholder: string;
+  text: string;
+  clock?: number;
+}) {
+  const exporting = clock !== undefined;
+  const hasText = text.trim().length > 0;
+  const maxTextH = COMPOSE_MAX_LINES * COMPOSE_LINE + (COMPOSE_MAX_LINES - 1) * COMPOSE_EXTRA;
+  const inAnim = exporting ? undefined : "sig-android-toggle-in";
+  return (
+    <div className="flex items-end" style={{ minHeight: 60, background: p.bg, padding: "8px 14px 8px 12px" }}>
+      <div className="flex min-w-0 flex-1 items-end" style={{ minHeight: 44, borderRadius: 20, background: p.compose }}>
+        {/* emoji_toggle: 48 × 44, bottom-aligned, OnSurfaceVariant */}
+        <div className="flex shrink-0 items-center justify-center" style={{ width: 48, height: 44 }}>
+          <Icon>
+            {P.emoji.map((d, i) => (
+              <path key={i} d={d} fill={p.sub} />
+            ))}
+          </Icon>
+        </div>
+        <div className="flex min-w-0 flex-1 items-center self-stretch" style={{ minHeight: 44, padding: "8px 2px" }}>
+          {hasText || text.length > 0 ? (
+            <div
+              className="flex w-full flex-col justify-end overflow-hidden"
+              style={{ maxHeight: maxTextH }}
+            >
+              <div
+                dir={dirOf(text)}
+                style={{
+                  fontSize: COMPOSE_FS,
+                  lineHeight: `${COMPOSE_LINE + COMPOSE_EXTRA}px`,
+                  letterSpacing: "0.01em",
+                  color: p.ink,
+                  whiteSpace: "pre-wrap",
+                  overflowWrap: "anywhere",
+                  textAlign: "start",
+                  // the extra spacing sits between lines, not under the last one
+                  marginBottom: -COMPOSE_EXTRA,
+                }}
+              >
+                {text}
+                <AndroidCaret color={p.caret} exporting={exporting} keystroke={text.length} />
+              </div>
+            </div>
+          ) : (
+            <span
+              className="min-w-0 flex-1 truncate"
+              dir={rtl ? "rtl" : "ltr"}
+              style={{ fontSize: COMPOSE_FS, lineHeight: "20px", letterSpacing: "0.01em", color: p.sub }}
+            >
+              {placeholder}
+            </span>
+          )}
+        </div>
+        {hasText ? (
+          /* inline_attachment_container: "+" 24 × 44 at the bottom, 12dp end margin */
+          <div
+            key="inline"
+            className={`flex shrink-0 items-center justify-center ${exporting ? "" : "sig-android-fade-in"}`}
+            style={{ width: 24, height: 44, marginInlineStart: 4, marginInlineEnd: 12 }}
+          >
+            <Icon>
+              <path d={P.plus} fill={p.ink} />
+            </Icon>
+          </div>
+        ) : (
+          /* quick_attachment_toggle: camera (16dp end) + recorder (2 + 12dp end), centred */
+          <div key="quick" className="flex shrink-0 items-center self-stretch" style={{ marginInlineStart: 4 }}>
+            <Icon style={{ marginInlineEnd: 16 }}>
+              <path d={P.camera1} fill={p.sub} fillRule="evenodd" />
+              <path d={P.camera2} fill={p.sub} fillRule="evenodd" />
+            </Icon>
+            <Icon style={{ marginInlineEnd: 14 }}>
+              <path d={P.mic1} fill={p.sub} />
+              <path d={P.mic2} fill={p.sub} />
+            </Icon>
+          </div>
+        )}
+      </div>
+      {/* button_toggle: 40dp circle_tintable × chat colour, 2dp above the field bottom */}
+      <div
+        className="flex shrink-0 items-center justify-center rounded-full"
+        style={{ width: 40, height: 40, marginInlineStart: 12, marginBottom: 2, background: p.outBubble }}
+      >
+        {hasText ? (
+          <span key="send" className={`flex ${inAnim ?? ""}`}>
+            {/* paper plane + lock: glyph points to the end in both directions (not autoMirrored) */}
+            <Icon size={22}>
+              <path d={P.sendLock} fill={p.plusIcon} />
+            </Icon>
+          </span>
+        ) : (
+          <span key="attach" className={`flex ${inAnim ?? ""}`}>
+            <Icon size={22}>
+              <path d={P.plus} fill={p.plusIcon} />
+            </Icon>
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ======================================================================
+   Reactions [RX] (ReactionsConversationView + reactions_pill.xml)
+   ====================================================================== */
+
+/**
+ * 26dp pill (1dp side margins, 7dp padding, 17dp emoji), 1dp stroke in
+ * colorBackground; surfaceVariant for the other person's reaction,
+ * surfaceVariant_32_no_alpha for mine. The rail hangs 4dp over the bubble's
+ * bottom edge, 5dp (+1) in from the bubble edge that faces the middle of the
+ * screen (outgoing: start, incoming: end).
+ */
+function ReactionPill({ emoji, fromMe, mine, p }: { emoji: string; fromMe: boolean; mine: boolean; p: Palette }) {
+  return (
+    <div
+      className="pointer-events-none absolute flex"
+      style={{
+        top: "calc(100% - 4px)",
+        ...(mine ? { insetInlineStart: 5 } : { insetInlineEnd: 5 }),
+      }}
+    >
+      <div
+        className="flex items-center justify-center"
+        style={{
+          height: 26,
+          margin: "0 1px",
+          padding: "0 6px",
+          borderRadius: 13,
+          border: `1px solid ${p.bg}`,
+          background: fromMe ? p.pillMine : p.pill,
+          boxSizing: "border-box",
+        }}
+      >
+        <span className="flex items-center justify-center" style={{ width: 17, height: 17, fontSize: 14.5, lineHeight: "17px" }}>
+          {emoji}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/* ======================================================================
+   Quoted reply [QV] (QuoteView + v2_quote_view.xml)
+   ====================================================================== */
+
+interface QuoteSpec {
+  author: string;
+  /** quoted body / caption (EmojiTextView, 2 lines) */
+  body: string;
+  /** media_type label ("Photo", "Audio") when there is no body */
+  media: string | null;
+  thumb: { src: string | null } | null;
+}
+
+function quoteOf(target: Message, them: Person, s: (typeof STR)[Lang]): QuoteSpec {
+  const author = target.sender === "me" ? s.you : them.name;
+  if (target.type === "voice") return { author, body: "", media: s.audio, thumb: null };
+  if (target.type === "image") {
+    const caption = target.text.trim();
+    return { author, body: caption, media: caption ? null : s.photo, thumb: { src: target.imageSrc ?? null } };
+  }
+  return { author, body: target.text.trim(), media: null, thumb: null };
+}
+
+/**
+ * QuoteView (QuoteViewColorTheme *_NORMAL): 4dp bar in colorOnCustom, author
+ * (labelMedium 13sp bold) 8dp from the bar / top, then the body (BodyMedium
+ * 14sp, max 2 lines, 8dp bottom) or the media label; 60dp thumbnail at the
+ * end. Corner mask: top corners 10dp (4dp on a collapsed side), bottom 4dp.
+ */
+function AndroidQuote({
+  q,
+  mine,
+  p,
+  topLeftLarge,
+  topRightLarge,
+}: {
+  q: QuoteSpec;
+  mine: boolean;
+  p: Palette;
+  topLeftLarge: boolean;
+  topRightLarge: boolean;
+}) {
+  const fg = mine ? p.quoteOutFg : p.quoteInFg;
+  const text: CSSProperties = { fontSize: 14, lineHeight: "16.4px", letterSpacing: "0.0179em", color: fg };
+  return (
+    <div
+      className="relative flex overflow-hidden"
+      style={{
+        background: mine ? p.quoteOutBg : p.quoteInBg,
+        borderTopLeftRadius: topLeftLarge ? 10 : 4,
+        borderTopRightRadius: topRightLarge ? 10 : 4,
+        borderBottomLeftRadius: 4,
+        borderBottomRightRadius: 4,
+        minHeight: q.thumb ? 60 : undefined,
+      }}
+    >
+      <div className="shrink-0" style={{ width: 4, background: "#ffffff" }} />
+      <div className="min-w-0 flex-1" style={{ padding: "8px 8px 8px" }}>
+        <div
+          className="truncate"
+          style={{ fontSize: 13, lineHeight: "16px", letterSpacing: "0.0192em", fontWeight: 700, color: fg, marginBottom: 1 }}
+        >
+          <bdi>{q.author}</bdi>
+        </div>
+        {q.media ? (
+          <div style={{ ...text, paddingTop: 4 }}>{q.media}</div>
+        ) : (
+          <div
+            dir="auto"
+            style={{
+              ...text,
+              display: "-webkit-box",
+              WebkitBoxOrient: "vertical",
+              WebkitLineClamp: 2,
+              overflow: "hidden",
+              overflowWrap: "anywhere",
+              textAlign: "start",
+            }}
+          >
+            {q.body}
+          </div>
+        )}
+      </div>
+      {q.thumb && (
+        <div className="relative shrink-0 self-stretch" style={{ width: 60, background: p.imgEmpty }}>
+          {q.thumb.src && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={q.thumb.src}
+              alt=""
+              draggable={false}
+              className="absolute inset-0 block h-full w-full"
+              style={{ objectFit: "cover" }}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Legacy ConversationItem quote slot: 7dp from the top, 6dp from the bubble sides. */
+function QuoteSlot({ quote, mine, p, shape }: { quote: QuoteSpec; mine: boolean; p: Palette; shape: Shape }) {
+  // ConversationItem.setQuote → QuoteView.setTopCornerSizes (physical left / right):
+  // start of a cluster → both large; inside a cluster → outgoing (L, s), incoming (s, L)
+  const starting = isStarting(shape);
+  const tl = starting || mine;
+  const tr = starting || !mine;
+  return (
+    <div style={{ padding: "7px 6px 0" }}>
+      <AndroidQuote q={quote} mine={mine} p={p} topLeftLarge={tl} topRightLarge={tr} />
     </div>
   );
 }
@@ -748,6 +1079,7 @@ function ThreadHeader({ person, p, rtl }: { person: Person; p: Palette; rtl: boo
 
 function SignalRow({
   m,
+  quote,
   shape,
   p,
   rtl,
@@ -756,6 +1088,7 @@ function SignalRow({
   live,
 }: {
   m: Message;
+  quote: QuoteSpec | null;
   shape: Shape;
   p: Palette;
   rtl: boolean;
@@ -777,26 +1110,70 @@ function SignalRow({
 
   let content: ReactNode;
   if (voice) {
-    content = <VoiceBubble m={m} p={p} mine={mine} rtl={rtl} lang={lang} status={status} time={time} corners={corners} />;
+    content = (
+      <VoiceBubble
+        m={m}
+        p={p}
+        mine={mine}
+        rtl={rtl}
+        lang={lang}
+        status={status}
+        time={time}
+        corners={corners}
+        quote={quote ? <QuoteSlot quote={quote} mine={mine} p={p} shape={shape} /> : null}
+      />
+    );
   } else if (m.type === "image") {
     content = (
-      <ImageBubble m={m} p={p} mine={mine} rtl={rtl} status={status} time={time} corners={corners} footerVisible={footerVisible} />
+      <ImageBubble
+        m={m}
+        p={p}
+        mine={mine}
+        rtl={rtl}
+        status={status}
+        time={time}
+        corners={corners}
+        footerVisible={footerVisible}
+        quote={quote ? <QuoteSlot quote={quote} mine={mine} p={p} shape={shape} /> : null}
+      />
     );
   } else {
-    const count = emojiOnlyCount(m.text);
+    // a quoted message is a legacy media item: always a bubble, never jumbomoji
+    const count = quote ? 0 : emojiOnlyCount(m.text);
     const textColor = mine ? p.outText : p.ink;
     const footerColor = count ? p.sub : mine ? p.outFooter : p.sub;
     content = (
-      <div style={{ background: count ? "transparent" : mine ? p.outBubble : p.inBubble, maxWidth: "100%", ...corners }}>
+      <div
+        style={{
+          background: count ? "transparent" : mine ? p.outBubble : p.inBubble,
+          maxWidth: quote ? MAX_W : "100%",
+          display: quote ? "flex" : undefined,
+          flexDirection: quote ? "column" : undefined,
+          ...corners,
+        }}
+      >
+        {quote && <QuoteSlot quote={quote} mine={mine} p={p} shape={shape} />}
         <TextBody
           text={m.text}
           color={textColor}
           rtl={rtl}
           maxW={MAX_W}
           jumbo={count ? jumboSize(count) : 0}
+          // message_bubble_top_image_margin (4dp) under content above the body
+          padTop={quote ? 4 : PAD_TOP}
           footer={footerVisible ? <Footer time={time} mine={mine} status={status} color={footerColor} /> : null}
           footerExtra={mine && status === "sent" ? STATUS_RESERVED - 14 : 0}
         />
+      </div>
+    );
+  }
+
+  const reaction = m.reaction?.trim();
+  if (reaction) {
+    content = (
+      <div className="relative" style={{ maxWidth: "100%" }}>
+        {content}
+        <ReactionPill emoji={reaction} fromMe={!mine} mine={mine} p={p} />
       </div>
     );
   }
@@ -812,7 +1189,8 @@ function SignalRow({
         paddingInlineStart: mine ? FAR : GUTTER,
         paddingInlineEnd: mine ? GUTTER : FAR,
         marginTop: top,
-        marginBottom: bottom,
+        // the reactions rail hangs 26 − 4 = 22dp below the bubble
+        marginBottom: bottom + (reaction ? 22 : 0),
       }}
     >
       {content}
@@ -984,6 +1362,7 @@ function ImageBubble({
   time,
   corners,
   footerVisible,
+  quote,
 }: {
   m: Message;
   p: Palette;
@@ -993,6 +1372,7 @@ function ImageBubble({
   time: string;
   corners: CSSProperties;
   footerVisible: boolean;
+  quote: ReactNode;
 }) {
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
   const caption = m.text.trim();
@@ -1011,6 +1391,9 @@ function ImageBubble({
       className="overflow-hidden"
       style={{ width: w, maxWidth: "100%", background: mine ? p.outBubble : p.inBubble, ...corners }}
     >
+      {quote}
+      {/* message_bubble_top_image_margin under a quote */}
+      {quote && <div style={{ height: 4 }} />}
       <div className="relative" style={{ width: "100%", height: h }}>
         {m.imageSrc ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -1089,6 +1472,7 @@ function VoiceBubble({
   status,
   time,
   corners,
+  quote,
 }: {
   m: Message;
   p: Palette;
@@ -1098,6 +1482,7 @@ function VoiceBubble({
   status: DeliveryStatus;
   time: string;
   corners: CSSProperties;
+  quote: ReactNode;
 }) {
   const bars = waveform(m.id, 52);
   const footColor = mine ? p.outVoiceFooter : p.sub;
@@ -1124,6 +1509,7 @@ function VoiceBubble({
   );
   return (
     <div style={{ width: AUDIO_W + 24, maxWidth: "100%", background: mine ? p.outBubble : p.inBubble, ...corners }}>
+      {quote}
       <div className="flex items-center" style={{ padding: "12px 12px 0", height: 60 }}>
         <div className="flex shrink-0 items-center justify-center" style={{ width: 48, height: 48 }}>
           <div

@@ -422,7 +422,16 @@ export function SamsungMessages({ scenario, playback, lang, rtl }: PlatformProps
     return () => ro.disconnect();
   }, [draftText]);
 
-  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${showTyping}-${composerH}`);
+  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${showTyping}`);
+  // keep the thread anchored above the composer while the field grows/shrinks
+  const prevComposerH = useRef(composerH);
+  useLayoutEffect(() => {
+    const sc = scrollRef.current;
+    const d = composerH - prevComposerH.current;
+    const had = prevComposerH.current > 0;
+    prevComposerH.current = composerH;
+    if (sc && d && had) sc.scrollTop += d;
+  }, [composerH, scrollRef]);
   const [today] = useState(() => new Date());
 
   const last = messages[messages.length - 1];

@@ -88,12 +88,20 @@ export function CameraRig({
       return { W, H, phone: { x: 0, y: 0, w: W, h: H } };
     };
 
-    // un-transformed (local) rect of an element inside the rig
+    // un-transformed (local) rect of an element inside the rig. Client rects
+    // are in screen px, which include any ancestor scaling (the studio's
+    // FitDevice shrinks the phone to fit), so convert by that factor first.
     const localRect = (el: Element, s: number, tx: number, ty: number): Rect | null => {
       const r = el instanceof HTMLElement && el.dataset.mid !== undefined ? contentRect(el) : el.getBoundingClientRect();
       if (!r || r.width < 1 || r.height < 1) return null;
       const o = outer.getBoundingClientRect();
-      return { x: (r.left - o.left - tx) / s, y: (r.top - o.top - ty) / s, w: r.width / s, h: r.height / s };
+      const k = outer.offsetWidth > 0 ? o.width / outer.offsetWidth : 1;
+      return {
+        x: ((r.left - o.left) / k - tx) / s,
+        y: ((r.top - o.top) / k - ty) / s,
+        w: r.width / k / s,
+        h: r.height / k / s,
+      };
     };
 
     const mo = new MutationObserver((records) => {

@@ -5,7 +5,6 @@ import { useId } from "react";
 import { deviceFontFamily } from "../../data/fonts";
 import { useStudioStore } from "../../store";
 import { DEFAULT_STATUS_BAR } from "../../types";
-import { vSb } from "./__verify"; // TEMP-VERIFY
 import type { Lang } from "../platforms/chrome";
 
 /*
@@ -205,7 +204,7 @@ export function SamsungStatusBar({
   lang: Lang;
   time?: string;
 }) {
-  const sb = vSb(useStudioStore((s) => s.scenario.statusBar) ?? DEFAULT_STATUS_BAR); // TEMP-VERIFY
+  const sb = useStudioStore((s) => s.scenario.statusBar) ?? DEFAULT_STATUS_BAR;
   const androidFont = useStudioStore((s) => s.scenario.androidFont);
   const color = tint === "light" ? "#ffffff" : "#000000";
   const t = statusTime(time, sb.time, DEFAULT_TIME);

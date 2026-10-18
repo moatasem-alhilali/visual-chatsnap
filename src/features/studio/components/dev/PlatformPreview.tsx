@@ -176,7 +176,7 @@ export function PlatformPreview() {
     const started = Date.now();
     const iv = setInterval(() => {
       pin();
-      if (Date.now() - started > 2500) {
+      if (Date.now() - started > 6000) {
         clearInterval(iv);
         document.body.dataset.ready = "1";
       }

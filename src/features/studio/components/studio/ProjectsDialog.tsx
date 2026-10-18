@@ -28,6 +28,7 @@ import {
 import { useProjects } from "../../hooks/useProjects";
 import type { StudioLabels } from "../labels";
 import { PlatformMark } from "./BrandMarks";
+import { platformName } from "./Pickers";
 import { fmt } from "./timing";
 
 const NAME_MAX = 60;
@@ -46,8 +47,7 @@ function relativeTime(ts: number, locale: string): string {
 /** Suggested name for a new project: "<contact> · <platform>". */
 export function suggestProjectName(scenario: Scenario, t: StudioLabels): string {
   const who = scenario.them.name.trim() || t.untitled;
-  const platform = scenario.platform === "x" ? "X" : scenario.platform.charAt(0).toUpperCase() + scenario.platform.slice(1);
-  return `${who} · ${platform}`.slice(0, NAME_MAX);
+  return `${who} · ${platformName(scenario.platform, scenario.device, t)}`.slice(0, NAME_MAX);
 }
 
 function ProjectRow({
@@ -118,7 +118,7 @@ function ProjectRow({
                 className="h-7 text-[13px]"
               />
               <Button type="submit" size="xs" disabled={!name.trim()}>
-                {t.save}
+                {t.projectSave}
               </Button>
             </form>
           ) : (
@@ -291,7 +291,7 @@ export function ProjectsDialog({
           />
           <Button type="submit" disabled={!name.trim()} className="gap-1.5">
             <Save className="size-4" />
-            {t.save}
+            {t.projectSave}
           </Button>
         </div>
       </form>

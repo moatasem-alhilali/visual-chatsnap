@@ -175,6 +175,7 @@ const QUOTE_LINE = 18; // 16px
 const QUOTE_PAD_Y = 7; // py-1.5
 const QUOTE_PAD_X = 14; // px-3
 const QUOTE_GAP = 4.5; // gap-1
+const REPLY_TOP = 6.5; // mt-0.5 + the row's burst padding (4px)
 const THUMB_SCALE = 0.25; // reply thumbnails are 25% of the media size
 const THUMB_RADIUS = 9; // rounded-sm 8px
 const CHIP_H = 23; // h-5 row
@@ -576,7 +577,7 @@ function ReplyPreview({ target, name, mine, p, l }: { target: Message; name: str
     : { background: p.inBubble, color: p.secondary, padding: `${QUOTE_PAD_Y}px ${QUOTE_PAD_X}px` };
   const text = target.text.trim();
   return (
-    <div className="flex flex-col" style={{ alignItems: mine ? "flex-end" : "flex-start", gap: QUOTE_GAP, marginTop: 2, marginBottom: QUOTE_GAP, maxWidth: MAX_W }}>
+    <div className="flex flex-col" style={{ alignItems: mine ? "flex-end" : "flex-start", gap: QUOTE_GAP, marginTop: REPLY_TOP, marginBottom: QUOTE_GAP, maxWidth: MAX_W }}>
       <div className="flex min-w-0 items-center" style={{ gap: QUOTE_GAP, paddingInline: 9, color: p.secondary, maxWidth: "100%" }}>
         <ReplyAltGlyph color={p.secondary} size={QUOTE_TEXT} />
         <span dir={dirOf(name)} className="truncate" style={{ fontSize: QUOTE_TEXT, lineHeight: `${QUOTE_LINE}px` }}>

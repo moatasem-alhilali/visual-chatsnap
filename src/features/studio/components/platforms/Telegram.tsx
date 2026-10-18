@@ -1394,8 +1394,11 @@ const SPRING = bezier(0.22, 1, 0.36, 1);
 /** Field geometry (ChatTextInputPanelNode): text insets 5+4.5 top, 4+5.5 bottom; one SF 17 line = 20.29pt. */
 const FIELD_LINE = 20.29;
 const FIELD_PAD_V = 9.5;
-/** right text inset with text: accessory (4 + 32 − 2 − 14) + send (40 − 10) + internal 11 */
-const FIELD_TEXT_RIGHT = 61;
+/**
+ * Right text inset with text: accessory (4 + 32 − 2 − 14) + send (40 − 10) + internal 11 = 61, plus the
+ * UITextView line-fragment padding, so wrapped lines clear the sticker icon (its left edge is 72pt in) by 4pt.
+ */
+const FIELD_TEXT_RIGHT = 76;
 
 /**
  * Exporter clock bookkeeping: ms since `key` last changed (undefined when not exporting) and whether that

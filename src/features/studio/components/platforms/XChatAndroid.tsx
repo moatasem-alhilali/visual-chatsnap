@@ -156,6 +156,7 @@ const QUOTE_LINE = 17; // 16px
 const QUOTE_PAD_Y = 6.5; // py-1.5
 const QUOTE_PAD_X = 13; // px-3
 const QUOTE_GAP = 4; // gap-1
+const REPLY_TOP = 6; // mt-0.5 + the row's burst padding (4px)
 const THUMB_SCALE = 0.25; // reply thumbnails are 25% of the media size
 const THUMB_RADIUS = 8.5; // rounded-sm 8px
 const CHIP_H = 21; // h-5 row
@@ -472,7 +473,7 @@ function ReplyPreview({ target, name, mine, p, l }: { target: Message; name: str
     : { background: p.inBubble, color: p.secondary, padding: `${QUOTE_PAD_Y}px ${QUOTE_PAD_X}px` };
   const text = target.text.trim();
   return (
-    <div className="flex flex-col" style={{ alignItems: mine ? "flex-end" : "flex-start", gap: QUOTE_GAP, marginTop: 2, marginBottom: QUOTE_GAP, maxWidth: MAX_W }}>
+    <div className="flex flex-col" style={{ alignItems: mine ? "flex-end" : "flex-start", gap: QUOTE_GAP, marginTop: REPLY_TOP, marginBottom: QUOTE_GAP, maxWidth: MAX_W }}>
       <div className="flex min-w-0 items-center" style={{ gap: QUOTE_GAP, paddingInline: 8.5, color: p.secondary, maxWidth: "100%" }}>
         <svg width={QUOTE_TEXT} height={QUOTE_TEXT} viewBox="0 0 12 12" fill={p.secondary} style={{ display: "block", flexShrink: 0 }}>
           <path d="M3.393 5.565L4.826 7L3.942 7.88L1 4.94L3.942 2L4.826 2.88L3.393 4.315H6.634C8.498 4.315 10.009 5.825 10.009 7.69V9.44H8.759V7.69C8.759 6.515 7.8075 5.565 6.634 5.565H3.393Z" />

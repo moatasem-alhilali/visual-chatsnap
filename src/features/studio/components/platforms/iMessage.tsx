@@ -1088,7 +1088,15 @@ export function IMessage({ scenario, playback, lang, rtl }: PlatformProps) {
   }, [draftText]);
   const grow = Math.max(0, composerH - COMPOSER_H);
 
-  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}-${grow}`);
+  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}`);
+  // keep the transcript anchored to the composer while the field grows/shrinks
+  const prevGrow = useRef(grow);
+  useLayoutEffect(() => {
+    const sc = scrollRef.current;
+    const d = grow - prevGrow.current;
+    prevGrow.current = grow;
+    if (sc && d) sc.scrollTop += d;
+  }, [grow, scrollRef]);
   const rootRef = useRef<HTMLDivElement>(null);
   const typingRef = useRef<HTMLDivElement>(null);
   const typingSince = useRef<number | undefined>(undefined);

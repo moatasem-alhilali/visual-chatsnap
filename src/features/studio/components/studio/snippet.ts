@@ -5,7 +5,9 @@ import type { StudioLabels } from "../labels";
 export function messageSnippet(m: Message, t: StudioLabels, max = 48): string {
   if (m.type === "voice") return `🎤 ${t.voiceMessage}${m.voiceDuration ? ` (${m.voiceDuration})` : ""}`;
   const text = m.text.replace(/\s+/g, " ").trim();
-  const short = text.length > max ? `${text.slice(0, max).trimEnd()}…` : text;
+  // slice by code points so an emoji is never cut in half
+  const chars = Array.from(text);
+  const short = chars.length > max ? `${chars.slice(0, max).join("").trimEnd()}…` : text;
   if (m.type === "image") return short ? `📷 ${short}` : `📷 ${t.photo}`;
   return short || "…";
 }

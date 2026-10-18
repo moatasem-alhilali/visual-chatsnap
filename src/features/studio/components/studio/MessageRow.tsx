@@ -200,7 +200,7 @@ function ReplyField({
           {earlier.map((x, i) => (
             <SelectItem key={x.id} value={x.id} className="text-xs">
               <span className="truncate">
-                #{i + 1} · {x.sender === "me" ? me.name || t.meShort : them.name || t.themShort}: {messageSnippet(x, t, 40)}
+                #{i + 1} · <bdi>{x.sender === "me" ? me.name || t.meShort : them.name || t.themShort}</bdi>: <bdi>{messageSnippet(x, t, 40)}</bdi>
               </span>
             </SelectItem>
           ))}
@@ -498,7 +498,7 @@ function MessageRowImpl({
                 <>
                   <span className="sr-only">{t.replyingTo}: </span>
                   <span className="block truncate font-semibold text-foreground">
-                    {quoted.sender === "me" ? me.name || t.meShort : them.name || t.themShort}
+                    <bdi>{quoted.sender === "me" ? me.name || t.meShort : them.name || t.themShort}</bdi>
                     <span className="ms-1 font-normal text-muted-foreground">#{quotedIndex + 1}</span>
                   </span>
                   <span className="block truncate text-muted-foreground" dir="auto">

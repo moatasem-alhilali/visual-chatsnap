@@ -63,6 +63,11 @@ function findBody(root: HTMLElement): HTMLElement {
   return best;
 }
 
+/** Screen px per CSS px of `el` (≠ 1 when an ancestor is scaled). */
+function ancestorScale(el: HTMLElement, rect: DOMRect = el.getBoundingClientRect()): number {
+  return el.offsetWidth > 0 && rect.width > 0 ? rect.width / el.offsetWidth : 1;
+}
+
 /** Physical phone footprint and its rounded body (CSS px), measured from the stage. */
 export function measureDevice(stage: StageController): DeviceGeometry {
   const root = stage.node.firstElementChild as HTMLElement | null;
@@ -70,14 +75,16 @@ export function measureDevice(stage: StageController): DeviceGeometry {
   const body = findBody(root);
   const rr = root.getBoundingClientRect();
   const br = body.getBoundingClientRect();
+  // client rects include any ancestor transform: divide it out (CSS px)
+  const k = ancestorScale(root, rr);
   return {
-    w: rr.width,
-    h: rr.height,
+    w: rr.width / k,
+    h: rr.height / k,
     body: {
-      x: br.left - rr.left,
-      y: br.top - rr.top,
-      w: br.width,
-      h: br.height,
+      x: (br.left - rr.left) / k,
+      y: (br.top - rr.top) / k,
+      w: br.width / k,
+      h: br.height / k,
       r: parseFloat(getComputedStyle(body).borderTopLeftRadius) || 0,
     },
   };
@@ -327,7 +334,9 @@ export class FrameRenderer {
 
   /** CSS rect inside the stage → scene px. */
   private toScene(r: DOMRect, nodeRect: DOMRect): Rect {
-    const { x, y, scale } = this.o.layout;
+    const { x, y } = this.o.layout;
+    // client rects are in screen px: divide out any ancestor transform first
+    const scale = this.o.layout.scale / ancestorScale(this.o.stage.node, nodeRect);
     return {
       x: x + (r.left - nodeRect.left) * scale,
       y: y + (r.top - nodeRect.top) * scale,

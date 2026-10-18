@@ -66,6 +66,26 @@
  *        INPUT_TOOLBAR_MESSAGE_PLACEHOLDER "Message" / "رسالة",
  *        THREAD_DETAILS_ZERO_MUTUAL_GROUPS "No groups in common" /
  *        "لا توجد مجموعات مُشتركة".
+ *  [RC]  CellViews/CVReactionCountsView.swift + CVComponentMessage reactions
+ *        layout block — 24pt pill, cornerRadius 12, 1pt border =
+ *        Theme.backgroundColor, margins 3/7, emoji boldSystemFont 14; fill
+ *        ows_gray05 #E9E9E9 / ows_gray90 #1B1B1B, or ows_gray25 #B9B9B9 /
+ *        ows_gray60 #5E5E5E when the local user reacted (UIColor+OWS.swift);
+ *        y = bubble.maxY − 7, x = 6pt in from the side facing the screen
+ *        centre; the cell gains a 17pt bottom inset.
+ *  [QR]  CellViews/CVQuotedMessageView.swift + CVComponentMessage spacing —
+ *        quote 7pt below the bubble top, 8pt from its sides, 7pt above the
+ *        body; corners 10 (4 where the bubble corner is sharp) / bottom 4;
+ *        stripe 4pt, hStack spacing 8, inner vMargin 6, author footnote
+ *        semibold, snippet subheadline (2 lines, 1 beside a 64/72pt
+ *        thumbnail). Colours from UIColor+Signal.swift LightBase / ColorBase.
+ *        Strings: YOU "You"/"أنت", QUOTED_REPLY_TYPE_PHOTO "Photo"/"صورة
+ *        شخصية", QUOTED_REPLY_TYPE_VOICE_MESSAGE "Voice Message"/"رسالة صوتية".
+ *  [IT+] ConversationInputToolbar.ensureButtonVisibility — iOS 26 with text:
+ *        sticker/camera/mic hide (alpha + scale 0.1, 0.25s spring), the send
+ *        button (UIButton .prominentGlass, arrow-up, tint
+ *        asChatUIElementTintColor) appears 16pt from the edge and the field
+ *        ends 12pt before it; text view 35…98pt (textContainerInset 6.67/12).
  *  iOS 26 nav bar: 44pt bar under the 59pt safe area, 44pt glass items, 16pt
  *  side margins (thoughtbot.com/blog/migrating-to-native-stack-navigation-with-a-surprise-from-ios-26).
  *
@@ -1223,7 +1243,7 @@ function IosCaret({ color, exporting, keystroke }: { color: string; exporting: b
       <span
         key={exporting ? undefined : keystroke}
         className={exporting ? "absolute" : "sig-ios-caret absolute"}
-        style={{ left: 0, top: -0.5, width: 2, height: 21.5, borderRadius: 1, background: color }}
+        style={{ insetInlineStart: 0, top: -0.5, width: 2, height: 21.5, borderRadius: 1, background: color }}
       />
     </span>
   );
@@ -1393,7 +1413,7 @@ export function Signal({ scenario, playback, lang, rtl }: PlatformProps) {
   useLayoutEffect(() => {
     const h = fieldRef.current ? Math.round(fieldRef.current.offsetHeight) : FIELD_H;
     if (h && h !== fieldH) setFieldH(h);
-  });
+  }, [draftText, fieldH]);
   const bodyBottom = BODY_BOTTOM + (fieldH - FIELD_H);
   const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}-${fieldH}`);
   const rootRef = useRef<HTMLDivElement>(null);
