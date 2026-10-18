@@ -4,20 +4,30 @@ import { memo, useId, useRef } from "react";
 import {
   ArrowDown,
   ArrowUp,
+  Ban,
   Check,
   CheckCheck,
+  ChevronDown,
   Clock,
   Copy,
   Ellipsis,
+  FileText,
   GripVertical,
   Hourglass,
   ImagePlus,
   Image as ImageIcon,
+  Lock,
+  LockOpen,
+  MapPin,
   Mic,
   PenLine,
+  Phone,
+  PhoneMissed,
   Reply,
+  Sticker,
   Trash2,
   Type,
+  Video,
   Wand2,
   X,
 } from "lucide-react";
@@ -27,6 +37,9 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/shared/components/ui/dropdown-menu";
@@ -34,18 +47,67 @@ import { Input } from "@/shared/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
 import { SegmentedControl } from "@/shared/components/ui/segmented";
 import { Slider } from "@/shared/components/ui/slider";
+import { Switch } from "@/shared/components/ui/switch";
 import { Tooltip } from "@/shared/components/ui/tooltip";
 import { cn } from "@/shared/lib/utils";
 import { useShallow } from "zustand/react/shallow";
 
-import { useStudioStore } from "../../store";
+import { useStudioStore, type MessagePatch } from "../../store";
 import type { DeliveryStatus, Message, MessageType, Person } from "../../types";
+import { firstUrl, syncLinkPreview } from "../../services/link-preview";
+import { isTimeLocked } from "../../services/auto-times";
 import { Avatar } from "../shared";
 import type { StudioLabels } from "../labels";
 import { fmt, formatSeconds } from "./timing";
-import { readImageFile } from "./image-utils";
 import { ReactionPicker } from "./ReactionPicker";
 import { messageSnippet } from "./snippet";
+import { MediaPicker } from "./MediaPicker";
+import {
+  CallFields,
+  DeletedPreview,
+  FileFields,
+  LinkPreviewChip,
+  LinkPreviewFields,
+  LocationFields,
+  PersonChips,
+  StickerFields,
+  kindDefaults,
+} from "./KindFields";
+
+/** Small glyph for the message kind in the row header. */
+function KindIcon({ m }: { m: Message }) {
+  switch (m.type) {
+    case "voice":
+      return <Mic className="size-3" />;
+    case "image":
+      return <ImageIcon className="size-3" />;
+    case "sticker":
+      return <Sticker className="size-3" />;
+    case "location":
+      return <MapPin className="size-3" />;
+    case "file":
+      return <FileText className="size-3" />;
+    case "call":
+      return m.call?.missed ? (
+        <PhoneMissed className="size-3 text-destructive" />
+      ) : m.call?.video ? (
+        <Video className="size-3" />
+      ) : (
+        <Phone className="size-3" />
+      );
+    case "deleted":
+      return <Ban className="size-3" />;
+    default:
+      return null;
+  }
+}
+
+/** Display person for a message: me, the 1:1 contact, or the group member who wrote it. */
+export function authorOf(m: Message, me: Person, them: Person, members: Person[] | null): Person {
+  if (m.sender === "me") return me;
+  if (!members || members.length === 0) return them;
+  return members[m.authorIndex ?? 0] ?? members[0];
+}
 
 export type DragState = { dragId: string | null; overIndex: number | null };
 
@@ -55,6 +117,8 @@ type RowProps = {
   total: number;
   me: Person;
   them: Person;
+  /** group chat members (null for a 1:1 chat) */
+  members: Person[] | null;
   t: StudioLabels;
   dir: "rtl" | "ltr";
   /** compose typing is on (my text messages are typed into the composer) */
@@ -171,6 +235,7 @@ function ReplyField({
   dir,
   me,
   them,
+  members,
   onChange,
 }: {
   m: Message;
@@ -179,6 +244,7 @@ function ReplyField({
   dir: "rtl" | "ltr";
   me: Person;
   them: Person;
+  members: Person[] | null;
   onChange: (id: string | null) => void;
 }) {
   const id = useId();
@@ -200,7 +266,7 @@ function ReplyField({
           {earlier.map((x, i) => (
             <SelectItem key={x.id} value={x.id} className="text-xs">
               <span className="truncate">
-                #{i + 1} · <bdi>{x.sender === "me" ? me.name || t.meShort : them.name || t.themShort}</bdi>: <bdi>{messageSnippet(x, t, 40)}</bdi>
+                #{i + 1} · <bdi>{authorOf(x, me, them, members).name || (x.sender === "me" ? t.meShort : t.themShort)}</bdi>: <bdi>{messageSnippet(x, t, 40)}</bdi>
               </span>
             </SelectItem>
           ))}
@@ -217,6 +283,7 @@ function MessageRowImpl({
   total,
   me,
   them,
+  members,
   t,
   dir,
   composeTyping,
@@ -237,18 +304,30 @@ function MessageRowImpl({
   onDragEnd,
   onAutoTiming,
 }: RowProps) {
-  const update = useStudioStore((s) => s.updateMessage);
+  const updateMessage = useStudioStore((s) => s.updateMessage);
+  const update = (id: string, patch: MessagePatch) => updateMessage(id, patch);
+  const patchThis = (patch: MessagePatch) => updateMessage(m.id, patch);
   const quoted = useStudioStore((s) => (m.replyToId ? (s.scenario.messages.find((x) => x.id === m.replyToId) ?? null) : null));
   const quotedIndex = useStudioStore((s) => (m.replyToId ? s.scenario.messages.findIndex((x) => x.id === m.replyToId) : -1));
   const rowRef = useRef<HTMLLIElement>(null);
   const armed = useRef(false);
-  const imageRef = useRef<HTMLInputElement>(null);
   const detailsId = useId();
   const timeId = useId();
+  const editedId = useId();
 
   const mine = m.sender === "me";
-  const person = mine ? me : them;
+  const group = !!members && members.length > 0;
+  const person = authorOf(m, me, them, members);
   const who = person.name || (mine ? t.meShort : t.themShort);
+  const locked = isTimeLocked(m);
+  const authorKey = mine ? "me" : `m${Math.min(m.authorIndex ?? 0, (members?.length ?? 1) - 1)}`;
+  const setAuthor = (key: string) => {
+    if (key === "me") updateMessage(m.id, { sender: "me", authorIndex: undefined });
+    else updateMessage(m.id, { sender: "them", authorIndex: Number(key.slice(1)) });
+  };
+  const authorChips = group
+    ? (members ?? []).map((p, i) => ({ key: `m${i}`, person: p, label: p.name || fmt(t.memberName, { n: i + 1 }), tone: "them" as const }))
+    : [];
   const n = index + 1;
   const messageLabel = fmt(t.jumpTo, { n });
   const replyState: "none" | "ok" | "missing" | "later" = !m.replyToId
@@ -265,16 +344,24 @@ function MessageRowImpl({
     window.setTimeout(() => rowRef.current?.querySelector<HTMLElement>("[data-reply-trigger]")?.focus(), 60);
   };
 
-  const onImage = async (file: File | undefined) => {
-    if (!file) return;
-    update(m.id, { type: "image", imageSrc: await readImageFile(file) });
+  const onText = (text: string) => {
+    // keep a link preview pointing at the (edited) first URL of the text
+    const url = m.link ? firstUrl(text) : null;
+    const link = m.link && url ? syncLinkPreview(m.link, url) : m.link;
+    update(m.id, link !== m.link ? { text, link } : { text });
   };
 
   const typeOptions: { value: MessageType; label: string; icon: React.ReactNode }[] = [
     { value: "text", label: t.typeText, icon: <Type /> },
     { value: "voice", label: t.typeVoice, icon: <Mic /> },
     { value: "image", label: t.typeImage, icon: <ImageIcon /> },
+    { value: "sticker", label: t.typeSticker, icon: <Sticker /> },
+    { value: "location", label: t.typeLocation, icon: <MapPin /> },
+    { value: "file", label: t.typeFile, icon: <FileText /> },
+    { value: "call", label: t.typeCall, icon: <Phone /> },
+    { value: "deleted", label: t.typeDeleted, icon: <Ban /> },
   ];
+  const hasText = m.type === "text" || m.type === "image";
 
   return (
     <li
@@ -353,22 +440,60 @@ function MessageRowImpl({
           </button>
         </Tooltip>
 
-        <Tooltip content={t.switchSender}>
-          <button
-            type="button"
-            onClick={() => update(m.id, { sender: mine ? "them" : "me" })}
-            aria-label={`${t.sender}: ${who}. ${t.switchSender}`}
-            className={cn(
-              "flex h-7 min-w-0 cursor-pointer items-center gap-1.5 rounded-full py-0.5 ps-0.5 pe-2.5 text-xs font-semibold transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
-              mine
-                ? "bg-studio-me/10 text-foreground hover:bg-studio-me/15"
-                : "bg-muted text-foreground hover:bg-accent",
-            )}
-          >
-            <Avatar person={person} size={20} />
-            <span className="max-w-28 truncate">{who}</span>
-          </button>
-        </Tooltip>
+        {group ? (
+          <DropdownMenu dir={dir} modal={false}>
+            <Tooltip content={t.sentBy}>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={`${t.sentBy}: ${who}`}
+                  className={cn(
+                    "flex h-7 min-w-0 cursor-pointer items-center gap-1.5 rounded-full py-0.5 ps-0.5 pe-1.5 text-xs font-semibold transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+                    mine ? "bg-studio-me/10 text-foreground hover:bg-studio-me/15" : "bg-muted text-foreground hover:bg-accent",
+                  )}
+                >
+                  <Avatar person={person} size={20} />
+                  <span className="max-w-24 truncate">{who}</span>
+                  <ChevronDown className="size-3 opacity-60" />
+                </button>
+              </DropdownMenuTrigger>
+            </Tooltip>
+            <DropdownMenuContent align="start" className="w-52">
+              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">{t.sentBy}</DropdownMenuLabel>
+              <DropdownMenuRadioGroup value={authorKey} onValueChange={setAuthor}>
+                {authorChips.map((o) => (
+                  <DropdownMenuRadioItem key={o.key} value={o.key}>
+                    <Avatar person={o.person} size={20} />
+                    <span className="truncate">{o.label}</span>
+                  </DropdownMenuRadioItem>
+                ))}
+                <DropdownMenuSeparator />
+                <DropdownMenuRadioItem value="me">
+                  <Avatar person={me} size={20} />
+                  <span className="truncate">{me.name || t.meShort}</span>
+                  <span className="ms-auto text-[11px] text-muted-foreground">{t.meShort}</span>
+                </DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <Tooltip content={t.switchSender}>
+            <button
+              type="button"
+              onClick={() => update(m.id, { sender: mine ? "them" : "me" })}
+              aria-label={`${t.sender}: ${who}. ${t.switchSender}`}
+              className={cn(
+                "flex h-7 min-w-0 cursor-pointer items-center gap-1.5 rounded-full py-0.5 ps-0.5 pe-2.5 text-xs font-semibold transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+                mine
+                  ? "bg-studio-me/10 text-foreground hover:bg-studio-me/15"
+                  : "bg-muted text-foreground hover:bg-accent",
+              )}
+            >
+              <Avatar person={person} size={20} />
+              <span className="max-w-28 truncate">{who}</span>
+            </button>
+          </Tooltip>
+        )}
 
         <button
           type="button"
@@ -386,8 +511,8 @@ function MessageRowImpl({
           ) : (
             <span className="font-mono tabular-nums opacity-70">#{n}</span>
           )}
-          {m.type === "voice" && <Mic className="size-3" />}
-          {m.type === "image" && <ImageIcon className="size-3" />}
+          <KindIcon m={m} />
+          {m.edited && <PenLine aria-label={t.edited} className="size-3 opacity-70" />}
         </button>
 
         {/* Meta chips (hidden behind the action bar while hovering on desktop) */}
@@ -409,7 +534,8 @@ function MessageRowImpl({
               {""}
             </MetaChip>
           )}
-          <span className="w-9 text-end text-[11px] tabular-nums text-muted-foreground" dir="ltr">
+          <span className="flex min-w-9 items-center justify-end gap-0.5 text-[11px] tabular-nums text-muted-foreground" dir="ltr">
+            {locked && <Lock aria-label={t.timeLockedHint} className="size-2.5 opacity-70" />}
             {m.time}
           </span>
         </div>
@@ -498,7 +624,7 @@ function MessageRowImpl({
                 <>
                   <span className="sr-only">{t.replyingTo}: </span>
                   <span className="block truncate font-semibold text-foreground">
-                    <bdi>{quoted.sender === "me" ? me.name || t.meShort : them.name || t.themShort}</bdi>
+                    <bdi>{authorOf(quoted, me, them, members).name || (quoted.sender === "me" ? t.meShort : t.themShort)}</bdi>
                     <span className="ms-1 font-normal text-muted-foreground">#{quotedIndex + 1}</span>
                   </span>
                   <span className="block truncate text-muted-foreground" dir="auto">
@@ -546,55 +672,61 @@ function MessageRowImpl({
               className="h-7 w-16 text-center text-xs tabular-nums"
             />
           </div>
+        ) : m.type === "sticker" ? (
+          <StickerFields m={m} t={t} update={patchThis} label={messageLabel} />
+        ) : m.type === "location" ? (
+          <LocationFields m={m} t={t} update={patchThis} />
+        ) : m.type === "file" ? (
+          <FileFields m={m} t={t} update={patchThis} />
+        ) : m.type === "call" ? (
+          <CallFields m={m} t={t} update={patchThis} />
+        ) : m.type === "deleted" ? (
+          <DeletedPreview t={t} />
         ) : (
           <>
             {m.type === "image" && (
               <div className="mb-1.5">
-                <button
-                  type="button"
-                  onClick={() => imageRef.current?.click()}
-                  aria-label={m.imageSrc ? t.replaceImage : t.uploadImage}
-                  className={cn(
-                    "group/img relative flex w-full cursor-pointer items-center justify-center overflow-hidden rounded-lg outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
-                    m.imageSrc ? "max-h-40 bg-muted" : "h-20 border border-dashed border-input bg-muted/40 text-muted-foreground hover:border-foreground/30 hover:text-foreground",
+                <MediaPicker value={m.imageSrc} onChange={(imageSrc) => update(m.id, { imageSrc })} t={t} label={m.imageSrc ? t.replaceImage : t.uploadImage}>
+                  {(toggle, open) => (
+                    <button
+                      type="button"
+                      onClick={toggle}
+                      aria-haspopup="dialog"
+                      aria-expanded={open}
+                      aria-label={`${m.imageSrc ? t.replaceImage : t.uploadImage} — ${messageLabel}`}
+                      className={cn(
+                        "group/img relative flex w-full cursor-pointer items-center justify-center overflow-hidden rounded-lg outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+                        m.imageSrc ? "max-h-40 bg-muted" : "h-20 border border-dashed border-input bg-muted/40 text-muted-foreground hover:border-foreground/30 hover:text-foreground",
+                      )}
+                    >
+                      {m.imageSrc ? (
+                        <>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={m.imageSrc} alt="" className="max-h-40 w-full object-cover" />
+                          <span className="absolute inset-0 flex items-center justify-center gap-1.5 bg-black/45 text-xs font-medium text-white opacity-0 transition-opacity group-hover/img:opacity-100 group-focus-visible/img:opacity-100">
+                            <ImagePlus className="size-4" /> {t.replaceImage}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="flex items-center gap-1.5 text-xs font-medium">
+                          <ImagePlus className="size-4" /> {t.imageDrop}
+                        </span>
+                      )}
+                    </button>
                   )}
-                >
-                  {m.imageSrc ? (
-                    <>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={m.imageSrc} alt="" className="max-h-40 w-full object-cover" />
-                      <span className="absolute inset-0 flex items-center justify-center gap-1.5 bg-black/45 text-xs font-medium text-white opacity-0 transition-opacity group-hover/img:opacity-100 group-focus-visible/img:opacity-100">
-                        <ImagePlus className="size-4" /> {t.replaceImage}
-                      </span>
-                    </>
-                  ) : (
-                    <span className="flex items-center gap-1.5 text-xs font-medium">
-                      <ImagePlus className="size-4" /> {t.imageDrop}
-                    </span>
-                  )}
-                </button>
-                <input
-                  ref={imageRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  tabIndex={-1}
-                  onChange={(e) => {
-                    void onImage(e.target.files?.[0]);
-                    e.target.value = "";
-                  }}
-                />
+                </MediaPicker>
               </div>
             )}
             <textarea
               value={m.text}
-              onChange={(e) => update(m.id, { text: e.target.value })}
+              onChange={(e) => onText(e.target.value)}
               placeholder={m.type === "image" ? t.imageCaption : t.messagePlaceholder}
               aria-label={`${m.type === "image" ? t.imageCaption : t.text} — ${fmt(t.jumpTo, { n })}`}
               rows={1}
               dir="auto"
               className="studio-field-auto block max-h-44 min-h-7 w-full resize-none rounded-md bg-transparent px-1 py-1 text-[13.5px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/70 hover:bg-muted/50 focus-visible:bg-muted/50"
             />
+            {m.type === "text" && m.link && <LinkPreviewChip link={m.link} />}
           </>
         )}
         {m.reaction && (
@@ -622,32 +754,76 @@ function MessageRowImpl({
       >
         <div className="min-h-0 overflow-hidden">
           <div className="space-y-3.5 border-t border-border/70 px-3 pt-3 pb-3.5">
-            <div className="grid grid-cols-[1fr_auto] items-end gap-2">
-              <div>
-                <p className="mb-1.5 text-xs font-medium text-foreground" id={`${detailsId}-type`}>
-                  {t.type}
-                </p>
-                <SegmentedControl<MessageType>
-                  aria-labelledby={`${detailsId}-type`}
-                  size="sm"
-                  value={m.type}
-                  onChange={(type) => update(m.id, { type, ...(type === "voice" && !m.voiceDuration ? { voiceDuration: "0:08" } : {}) })}
-                  options={typeOptions}
-                />
-              </div>
+            <div>
+              <p className="mb-1.5 text-xs font-medium text-foreground" id={`${detailsId}-type`}>
+                {t.type}
+              </p>
+              <SegmentedControl<MessageType>
+                aria-labelledby={`${detailsId}-type`}
+                size="sm"
+                value={m.type}
+                onChange={(type) => update(m.id, kindDefaults(m, type, t))}
+                options={typeOptions}
+                className="grid grid-cols-4 [&>button]:px-1"
+              />
+            </div>
+
+            <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
               <div>
                 <label htmlFor={timeId} className="mb-1.5 flex items-center gap-1 text-xs font-medium text-foreground">
                   <Clock className="size-3" /> {t.time}
                 </label>
-                <Input
-                  id={timeId}
-                  value={m.time}
-                  dir="ltr"
-                  onChange={(e) => update(m.id, { time: e.target.value })}
-                  className="h-7 w-[4.75rem] text-center text-xs tabular-nums"
-                />
+                <div className="flex items-center gap-1">
+                  <Input
+                    id={timeId}
+                    value={m.time}
+                    dir="ltr"
+                    onChange={(e) => update(m.id, { time: e.target.value, timeLocked: true })}
+                    aria-describedby={locked ? `${timeId}-lock` : undefined}
+                    className="h-7 w-[5.25rem] text-center text-xs tabular-nums"
+                  />
+                  <Tooltip content={locked ? t.timeUnlock : t.timeLock}>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-pressed={locked}
+                      aria-label={t.timeLock}
+                      onClick={() => update(m.id, { timeLocked: !locked })}
+                      className={cn(locked && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary")}
+                    >
+                      {locked ? <Lock className="size-3.5" /> : <LockOpen className="size-3.5" />}
+                    </Button>
+                  </Tooltip>
+                </div>
+                {locked && (
+                  <p id={`${timeId}-lock`} className="mt-1 text-[11px] text-muted-foreground">
+                    {t.timeLockedHint}
+                  </p>
+                )}
               </div>
+              {hasText && (
+                <div className="flex min-h-7 items-center gap-2 pb-px">
+                  <Switch id={editedId} checked={!!m.edited} onCheckedChange={(edited) => update(m.id, { edited: edited || undefined })} aria-describedby={`${editedId}-hint`} />
+                  <label htmlFor={editedId} className="cursor-pointer text-xs font-medium">
+                    {t.edited}
+                    <span id={`${editedId}-hint`} className="block text-[11px] font-normal text-muted-foreground">
+                      {t.editedHint}
+                    </span>
+                  </label>
+                </div>
+              )}
             </div>
+
+            {group && !mine && (
+              <div>
+                <p className="mb-1.5 text-xs font-medium text-foreground" id={`${detailsId}-author`}>
+                  {t.sentBy}
+                </p>
+                <PersonChips aria-labelledby={`${detailsId}-author`} options={authorChips} value={authorKey} onChange={setAuthor} />
+              </div>
+            )}
+
+            {m.type === "text" && <LinkPreviewFields m={m} t={t} update={patchThis} />}
 
             <ReplyField
               m={m}
@@ -656,6 +832,7 @@ function MessageRowImpl({
               dir={dir}
               me={me}
               them={them}
+              members={members}
               onChange={(replyToId) => update(m.id, { replyToId })}
             />
 

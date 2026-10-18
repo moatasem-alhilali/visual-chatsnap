@@ -46,13 +46,14 @@
  *     "typing" state is only the dots bubble inside the thread.
  */
 
-import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useLayoutEffect, useState, type CSSProperties, type ReactNode } from "react";
 
 import type { DeliveryStatus, Message, Person } from "../../types";
 import { dirOf, SystemBottomBar, useChatScroll } from "../shared";
 import { SamsungStatusBar } from "../devices/SamsungStatusBar";
+import { useKeyboardInset } from "../devices/keyboard-context";
 import { CHROME, type Lang } from "./chrome";
-import { groupInfo, type PlatformMotion, type PlatformProps } from "./types";
+import type { PlatformMotion, PlatformProps } from "./types";
 
 /* ------------------------------- tokens ------------------------------- */
 
@@ -731,11 +732,22 @@ function ReactionChip({ emoji, p, side }: { emoji: string; p: Palette; side: "le
 const REACT_HANG = 15;
 
 /** Quoted message block at the top of a reply bubble. */
-function ReplyQuote({ parent, mine, p, lang, them }: { parent: Message; mine: boolean; p: Palette; lang: Lang; them: Person }) {
+function ReplyQuote({ parent, mine, p, lang, name }: { parent: Message; mine: boolean; p: Palette; lang: Lang; name: string }) {
   const s = SM[lang];
-  const name = parent.sender === "me" ? s.you : them.name;
   const snippet =
-    parent.type === "voice" ? s.voice : parent.type === "image" ? parent.text.trim() || s.photo : parent.text.trim();
+    parent.type === "voice"
+      ? s.voice
+      : parent.type === "image"
+        ? parent.text.trim() || s.photo
+        : parent.type === "sticker"
+          ? parent.text.trim() || s.sticker
+          : parent.type === "location"
+            ? parent.location?.title || s.location
+            : parent.type === "file"
+              ? parent.file?.name || s.file
+              : parent.type === "deleted"
+                ? s.deleted
+                : parent.text.trim();
   const thumb = parent.type === "image" && parent.imageSrc ? parent.imageSrc : null;
   return (
     <div
@@ -787,7 +799,7 @@ function Meta({
   status: DeliveryStatus;
 }) {
   const s = SM[lang];
-  const label = mine ? (status === "read" ? s.read : status === "delivered" ? s.delivered : "") : "";
+  const label = mine && m.type !== "deleted" ? (status === "read" ? s.read : status === "delivered" ? s.delivered : "") : "";
   return (
     <div
       className="flex shrink-0 flex-col whitespace-nowrap"
@@ -802,7 +814,249 @@ function Meta({
       }}
     >
       {label && <span>{label}</span>}
+      {m.edited && m.type !== "deleted" && <span>{s.edited}</span>}
       <span>{localDigits(m.time, lang)}</span>
+    </div>
+  );
+}
+
+/* --------------------------- attachments --------------------------- */
+
+const CARD_W = 228;
+const MAP_H = 132;
+const LINK_IMG_H = 120;
+
+/** Google Maps style tile (Samsung Messages renders shared places with Google Maps). */
+function MapArt({ p, w, h }: { p: Palette; w: number; h: number }) {
+  const c = p.map;
+  const hs = [0.22, 0.5, 0.8].map((k) => Math.round(h * k));
+  const vs = [0.15, 0.42, 0.7, 0.93].map((k) => Math.round(w * k));
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ display: "block" }}>
+      <rect width={w} height={h} fill={c.land} />
+      {[0, ...hs].map((y, i) =>
+        [0, ...vs].map((x, j) => (
+          <rect
+            key={`${i}-${j}`}
+            x={x + 5}
+            y={y + 5}
+            width={Math.max(0, (vs[j] ?? w + 5) - x - 10)}
+            height={Math.max(0, (hs[i] ?? h + 5) - y - 10)}
+            rx={1.5}
+            fill={c.block}
+          />
+        )),
+      )}
+      <rect x={vs[1] + 5} y={hs[1] + 5} width={vs[2] - vs[1] - 10} height={hs[2] - hs[1] - 10} rx={2} fill={c.park} />
+      <path d={`M${w} ${h * 0.12} C${w * 0.86} ${h * 0.2} ${w * 0.84} ${h * 0.02} ${w * 0.76} 0L${w} 0Z`} fill={c.water} />
+      <g stroke={c.casing} strokeWidth={6}>
+        {hs.map((y) => <line key={`hc${y}`} x1={0} x2={w} y1={y} y2={y} />)}
+        {vs.map((x) => <line key={`vc${x}`} x1={x} x2={x} y1={0} y2={h} />)}
+      </g>
+      <g stroke={c.road} strokeWidth={4.5}>
+        {hs.map((y) => <line key={`h${y}`} x1={0} x2={w} y1={y} y2={y} />)}
+        {vs.map((x) => <line key={`v${x}`} x1={x} x2={x} y1={0} y2={h} />)}
+      </g>
+      <path d={`M${-10} ${h * 0.3} L${w + 10} ${h * 0.92}`} stroke={c.casing} strokeWidth={10} />
+      <path d={`M${-10} ${h * 0.3} L${w + 10} ${h * 0.92}`} stroke={c.major} strokeWidth={7} />
+    </svg>
+  );
+}
+
+function LocationCard({ loc, p, mine, lang, author }: { loc: NonNullable<Message["location"]>; p: Palette; mine: boolean; lang: Lang; author: Person }) {
+  const s = SM[lang];
+  return (
+    <div className="overflow-hidden" style={{ width: CARD_W, borderRadius: RADIUS, background: mine ? p.outBubble : p.inBubble, color: mine ? p.outText : p.inText }}>
+      <div className="relative" style={{ height: MAP_H }}>
+        <MapArt p={p} w={CARD_W} h={MAP_H} />
+        {loc.live ? (
+          <div className="absolute" style={{ left: CARD_W / 2 - 26, top: MAP_H / 2 - 26, width: 52, height: 52 }}>
+            <span className="absolute inset-0 rounded-full" style={{ background: "rgba(26,115,232,0.18)" }} />
+            <span className="absolute rounded-full" style={{ left: 9, top: 9, padding: 2.5, background: "#ffffff", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }}>
+              <SamsungAvatar person={author} size={29} />
+            </span>
+          </div>
+        ) : (
+          // Google Maps red pin
+          <svg className="absolute" style={{ left: CARD_W / 2 - 13, top: MAP_H / 2 - 36 }} width="26" height="38" viewBox="0 0 26 38">
+            <path d="M13 1C6.4 1 1 6.3 1 12.9 1 21.6 13 37 13 37s12-15.4 12-24.1C25 6.3 19.6 1 13 1z" fill="#ea4335" stroke="#b31412" strokeWidth="1" />
+            <circle cx="13" cy="13" r="4.6" fill="#b31412" />
+          </svg>
+        )}
+      </div>
+      <div style={{ padding: "8px 13px 9px" }}>
+        <div className="truncate" dir={dirOf(loc.title)} style={{ fontSize: FONT, lineHeight: `${LINE}px`, fontWeight: 600 }}>
+          {loc.title}
+        </div>
+        {(loc.live || loc.subtitle) && (
+          <div className="truncate" style={{ fontSize: 13, lineHeight: "17px", opacity: 0.75 }}>
+            {loc.live ? s.liveLocation : loc.subtitle}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** My Files style type tile: rounded square, white type label (PDF red, Word blue, Excel green). */
+function FileTile({ ext }: { ext: string }) {
+  const bg = ext === "pdf" ? "#e94335" : ext === "doc" || ext === "docx" ? "#3b73e0" : ext === "xls" || ext === "xlsx" ? "#21a366" : "#8a8f98";
+  return (
+    <span
+      className="flex shrink-0 items-center justify-center"
+      style={{ width: 40, height: 40, borderRadius: 12, background: bg, color: "#ffffff", fontSize: 11, fontWeight: 700, letterSpacing: 0.2 }}
+    >
+      {(ext || "FILE").toUpperCase().slice(0, 4)}
+    </span>
+  );
+}
+
+function FileCard({ file, p, mine }: { file: NonNullable<Message["file"]>; p: Palette; mine: boolean }) {
+  const ext = (/\.([a-z0-9]{1,5})$/i.exec(file.name)?.[1] ?? "").toLowerCase();
+  const parts = [file.size, file.pages].filter((x): x is string => !!x);
+  const meta = parts.length
+    ? parts.map((x, i) => (
+        <span key={i}>
+          {i > 0 && " · "}
+          <bdi>{x}</bdi>
+        </span>
+      ))
+    : null;
+  return (
+    <div
+      className="flex items-center"
+      style={{
+        background: mine ? p.outBubble : p.inBubble,
+        color: mine ? p.outText : p.inText,
+        borderRadius: RADIUS,
+        padding: "10px 14px 10px 10px",
+        gap: 10,
+        maxWidth: 252,
+      }}
+    >
+      <FileTile ext={ext} />
+      <div className="min-w-0">
+        <div dir="ltr" className="break-all" style={{ fontSize: 14, lineHeight: "18px", fontWeight: 600, textAlign: "start" }}>
+          {file.name}
+        </div>
+        {meta && <div style={{ fontSize: 12, lineHeight: "16px", opacity: 0.75, marginTop: 1 }}>{meta}</div>}
+      </div>
+    </div>
+  );
+}
+
+function siteOf(link: { url: string; siteName?: string }): string {
+  if (link.siteName) return link.siteName;
+  try {
+    return new URL(link.url).hostname.replace(/^www\./, "");
+  } catch {
+    return link.url;
+  }
+}
+
+/** Link preview: a card under the text bubble (image, bold title, description, site). */
+function LinkCard({ link, p }: { link: NonNullable<Message["link"]>; p: Palette }) {
+  return (
+    <div className="overflow-hidden" style={{ width: CARD_W, borderRadius: RADIUS, background: p.inBubble, color: p.inText }}>
+      {link.image ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={link.image} alt="" draggable={false} style={{ display: "block", width: CARD_W, height: LINK_IMG_H, objectFit: "cover" }} />
+      ) : null}
+      <div style={{ padding: "8px 13px 10px" }}>
+        <div
+          dir={dirOf(link.title)}
+          className="overflow-hidden"
+          style={{ fontSize: 14, lineHeight: "19px", fontWeight: 600, display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2 }}
+        >
+          {link.title}
+        </div>
+        {link.description && (
+          <div dir={dirOf(link.description)} className="truncate" style={{ fontSize: 13, lineHeight: "17px", color: p.sub, marginTop: 1 }}>
+            {link.description}
+          </div>
+        )}
+        <div dir="ltr" className="truncate" style={{ fontSize: 12, lineHeight: "16px", color: p.sub, marginTop: 2, textAlign: "start" }}>
+          {siteOf(link)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const URL_RE = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
+
+/** Linkified text: URLs underlined in the bubble's text colour. */
+function linkify(text: string): ReactNode {
+  const parts = text.split(URL_RE);
+  if (parts.length === 1) return text;
+  return parts.map((part, i) =>
+    i % 2 === 1 ? (
+      <span key={i} dir="ltr" style={{ textDecoration: "underline", textUnderlineOffset: 2 }}>
+        {part}
+      </span>
+    ) : (
+      part
+    ),
+  );
+}
+
+/** Two-person glyph used by One UI for a group conversation without a picture. */
+function GroupAvatar({ name, size }: { name: string; size: number }) {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + h * 31;
+  const bg = TILE_COLORS[Math.abs(h) % TILE_COLORS.length];
+  return (
+    <div className="flex shrink-0 items-center justify-center rounded-full" style={{ width: size, height: size, background: bg }}>
+      <svg width={size * 0.62} height={size * 0.62} viewBox="0 0 24 24" fill="#ffffff">
+        <circle cx="9" cy="8.2" r="3.6" />
+        <path d="M2.2 19.5c.5-3.7 3.3-6 6.8-6s6.3 2.3 6.8 6z" />
+        <circle cx="16.4" cy="8.8" r="2.9" opacity="0.85" />
+        <path d="M16.9 13.6c2.7.2 4.6 2.2 5 5.4h-4.6c-.2-2-1-3.8-2.4-5.1.6-.2 1.3-.3 2-.3z" opacity="0.85" />
+      </svg>
+    </div>
+  );
+}
+
+/** Phone glyph (call log); video camera for video calls. */
+function CallGlyph({ video, color }: { video: boolean; color: string }) {
+  return video ? (
+    <svg width="16" height="16" viewBox="0 0 24 24" style={{ display: "block" }}>
+      <rect x="2.5" y="6" width="13" height="12" rx="3" fill={color} />
+      <path d="m16.5 10.4 4-2.6c.6-.4 1.4 0 1.4.8v6.8c0 .8-.8 1.2-1.4.8l-4-2.6z" fill={color} />
+    </svg>
+  ) : (
+    <svg width="15" height="15" viewBox="0 0 24 24" style={{ display: "block" }}>
+      <path
+        d="M6.6 2.3c.6-.2 1.3 0 1.6.6l2 3.6c.3.6.2 1.3-.3 1.7L8.3 9.6c1.2 2.5 3.6 4.9 6.1 6.1l1.4-1.6c.4-.5 1.1-.6 1.7-.3l3.6 2c.6.3.8 1 .6 1.6l-.9 2.4c-.4 1-1.4 1.6-2.4 1.5C10.1 20.6 3.4 13.9 2.7 5.6c-.1-1 .5-2 1.5-2.4z"
+        fill={color}
+      />
+    </svg>
+  );
+}
+
+/**
+ * Samsung Messages has no call bubbles; calls with the contact appear the way
+ * the thread shows other system events: a centred grey line like the date
+ * divider, with the Samsung Phone call-log wording ("Missed call", "Outgoing
+ * video call · 4:12").
+ */
+function CallRow({ m, p, lang, live, isFirst }: { m: Message; p: Palette; lang: Lang; live: boolean; isFirst: boolean }) {
+  const s = SM[lang];
+  const c = m.call ?? { video: false, missed: false };
+  const mine = m.sender === "me";
+  const label = s.call(c, mine);
+  const tail = !c.missed && c.duration ? c.duration : m.time;
+  return (
+    <div
+      data-mid={m.id}
+      data-sender={m.sender}
+      className={`flex items-center justify-center ${live ? "sm-anim-in" : ""}`}
+      style={{ marginTop: isFirst ? 0 : 16, marginBottom: 2, gap: 6, fontSize: 13, lineHeight: "18px", color: p.date }}
+    >
+      <CallGlyph video={c.video} color={c.missed ? p.red : p.date} />
+      <span style={{ color: c.missed ? p.red : p.date }}>{label}</span>
+      <span>·</span>
+      <bdi dir="ltr">{localDigits(tail, lang)}</bdi>
     </div>
   );
 }
@@ -815,10 +1069,12 @@ function Row({
   firstOfGroup,
   showMeta,
   status,
-  them,
+  author,
+  showName,
   live,
   isFirst,
   parent,
+  nameOf,
 }: {
   m: Message;
   p: Palette;
@@ -827,21 +1083,26 @@ function Row({
   firstOfGroup: boolean;
   showMeta: boolean;
   status: DeliveryStatus;
-  them: Person;
+  /** who wrote it (the group member for "them" in groups) */
+  author: Person;
+  /** group chats: sender name above the first bubble of a member's run */
+  showName: boolean;
   live: boolean;
   isFirst: boolean;
   parent?: Message;
+  nameOf: (m: Message) => string;
 }) {
+  const s = SM[lang];
   const mine = m.sender === "me";
   const onRight = mine ? !rtl : rtl;
   const bg = mine ? p.outBubble : p.inBubble;
   const fg = mine ? p.outText : p.inText;
   const caption = m.type === "image" ? m.text.trim() : "";
-  const emoji = m.type === "text" ? emojiCount(m.text) : 0;
+  const emoji = m.type === "text" && !m.link ? emojiCount(m.text) : 0;
   const maxW = mine ? 252 : 228;
   // the reaction hangs off the bottom corner that faces the screen centre
   const chip = m.reaction ? <ReactionChip emoji={m.reaction} p={p} side={onRight ? "left" : "right"} /> : null;
-  const quote = parent ? <ReplyQuote parent={parent} mine={mine} p={p} lang={lang} them={them} /> : null;
+  const quote = parent ? <ReplyQuote parent={parent} mine={mine} p={p} lang={lang} name={nameOf(parent)} /> : null;
 
   const bubble: CSSProperties = {
     background: bg,
@@ -901,6 +1162,48 @@ function Row({
         )}
       </div>
     );
+  } else if (m.type === "sticker") {
+    // stickers sit on the thread without a bubble
+    body = (
+      <div className="relative" dir="ltr">
+        {m.imageSrc ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={m.imageSrc} alt="" draggable={false} style={{ display: "block", width: 120, height: 120, objectFit: "contain" }} />
+        ) : (
+          <div style={{ fontSize: 88, lineHeight: "104px" }}>{m.text.trim() || "🙂"}</div>
+        )}
+        {chip}
+      </div>
+    );
+  } else if (m.type === "location" && m.location) {
+    body = (
+      <div className="relative">
+        <LocationCard loc={m.location} p={p} mine={mine} lang={lang} author={author} />
+        {chip}
+      </div>
+    );
+  } else if (m.type === "file" && m.file) {
+    body = (
+      <div className="relative">
+        <FileCard file={m.file} p={p} mine={mine} />
+        {chip}
+      </div>
+    );
+  } else if (m.type === "deleted") {
+    // outlined, empty-looking bubble with the grey notice
+    body = (
+      <div
+        className="flex items-center"
+        dir={rtl ? "rtl" : "ltr"}
+        style={{ ...bubble, background: "transparent", color: p.sub, boxShadow: `inset 0 0 0 1px ${p.deletedStroke}`, gap: 6 }}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+          <circle cx="12" cy="12" r="8.5" stroke={p.sub} strokeWidth="1.6" />
+          <path d="M6 18 18 6" stroke={p.sub} strokeWidth="1.6" />
+        </svg>
+        <span>{s.deleted}</span>
+      </div>
+    );
   } else if (emoji) {
     const size = emoji === 1 ? 46 : emoji === 2 ? 40 : 36;
     body = (
@@ -914,11 +1217,19 @@ function Row({
       <div className="relative" style={bubble}>
         {quote}
         <div className="whitespace-pre-wrap break-words" dir={dirOf(m.text)}>
-          {m.text}
+          {linkify(m.text)}
         </div>
         {chip}
       </div>
     );
+    if (m.link) {
+      body = (
+        <div className="flex flex-col" style={{ alignItems: onRight ? "flex-end" : "flex-start", gap: 4 }}>
+          {body}
+          <LinkCard link={m.link} p={p} />
+        </div>
+      );
+    }
   }
 
   const meta = showMeta ? <Meta m={m} p={p} lang={lang} mine={mine} status={status} /> : null;
@@ -943,11 +1254,22 @@ function Row({
       ) : (
         <>
           <div className="shrink-0" style={{ width: AVATAR, marginInlineEnd: AVATAR_GAP }}>
-            {firstOfGroup && <SamsungAvatar person={them} size={AVATAR} />}
+            {firstOfGroup && <SamsungAvatar person={author} size={AVATAR} />}
           </div>
-          <div className="flex min-w-0 items-start">
-            {body}
-            {meta}
+          <div className="flex min-w-0 flex-col items-start">
+            {showName && (
+              <div
+                className="truncate"
+                dir={dirOf(author.name)}
+                style={{ fontSize: 13, lineHeight: "17px", color: p.sub, marginBottom: 4, paddingInlineStart: 4, maxWidth: maxW }}
+              >
+                {author.name}
+              </div>
+            )}
+            <div className="flex min-w-0 items-start">
+              {body}
+              {meta}
+            </div>
           </div>
         </>
       )}

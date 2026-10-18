@@ -1343,7 +1343,7 @@ function CallBubble({
   const tone = red ? p.likeRed : p.purple;
   const sub = m.call?.duration ? m.call.duration : missed && m.sender === "me" ? s.noAnswer : "";
   return (
-    <div className="flex min-w-0 items-center" dir={uiDir} style={{ background: bg, padding: "9px 9px 9px 10px", width: 244, gap: 10, ...radius }}>
+    <div className="flex min-w-0 items-center" dir={uiDir} style={{ background: bg, padding: "9px 9px 9px 10px", minWidth: 220, maxWidth: "100%", gap: 10, ...radius }}>
       <span
         className="flex shrink-0 items-center justify-center"
         style={{ width: 36, height: 36, borderRadius: 18, background: red ? "rgba(242,66,90,0.14)" : dark(p) ? "rgba(139,124,246,0.2)" : "rgba(115,96,242,0.12)" }}

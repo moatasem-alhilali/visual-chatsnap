@@ -12,6 +12,7 @@ import { useStudioUi } from "../hooks/useStudioUi";
 import { useMessageActions } from "../hooks/useMessageActions";
 import type { StudioLabels } from "./labels";
 import { Composer } from "./studio/Composer";
+import { TimesPopover } from "./studio/TimesPopover";
 import { MessageRow } from "./studio/MessageRow";
 import { fmt, formatSeconds, stepBounds } from "./studio/timing";
 
@@ -26,6 +27,7 @@ export function MessageTools({ t, disabled = false }: { t: StudioLabels; disable
           <Wand2 className="size-3.5" />
         </Button>
       </Tooltip>
+      <TimesPopover t={t} disabled={disabled} />
       <Tooltip content={t.pasteTranscript}>
         <Button variant="ghost" size="icon-xs" aria-label={t.pasteTranscript} onClick={() => openDialog("transcript")}>
           <ClipboardPaste className="size-3.5" />
@@ -205,6 +207,7 @@ export function MessageEditor({
                 total={messages.length}
                 me={scenario.me}
                 them={scenario.them}
+                members={scenario.group?.members ?? null}
                 t={t}
                 dir={dir}
                 composeTyping={composeTyping}

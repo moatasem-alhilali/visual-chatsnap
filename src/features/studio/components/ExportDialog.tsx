@@ -908,7 +908,7 @@ function Segmented<T extends string | number>({
   label,
 }: {
   value: T;
-  options: { value: T; label: string; disabled?: boolean }[];
+  options: { value: T; label: string; disabled?: boolean; title?: string }[];
   onChange: (v: T) => void;
   attr: string;
   disabled?: boolean;
@@ -924,6 +924,8 @@ function Segmented<T extends string | number>({
             type="button"
             role="radio"
             aria-checked={active}
+            aria-label={o.title}
+            title={o.title}
             disabled={disabled || o.disabled}
             {...{ [`data-export-${attr}`]: String(o.value) }}
             onClick={() => onChange(o.value)}
@@ -1433,9 +1435,7 @@ export function ExportDialog({
   const zone = preset.id === "story" && prefs.safeZone !== "off" ? SAFE_ZONES[prefs.safeZone] : null;
   const fitZone = zone && prefs.safeFit ? zone : null;
   const currentKey = comboKey(scenario.platform, scenario.device);
-  const batchKeys = prefs.batch
-    ? ALL_COMBOS.filter((k) => (prefs.batchCombos.length ? prefs.batchCombos : [currentKey]).includes(k))
-    : [];
+  const batchKeys = prefs.batch ? ALL_COMBOS.filter((k) => prefs.batchCombos.includes(k)) : [];
   const batchOn = prefs.batch && batchKeys.length > 0;
   const bgDef = BACKGROUNDS.find((b) => b.id === prefs.bg) ?? BACKGROUNDS[0];
   const accent = PLATFORM_MAP[scenario.platform]?.accent ?? "#25d366";
@@ -2265,6 +2265,28 @@ export function ExportDialog({
 
   const musicDur = music?.buffer.duration ?? 0;
 
+  // batch
+  const batchFiles = (batch ?? []).flatMap((it) => (it.result ? [it.result.file] : []));
+  const batchPct = batch?.length
+    ? Math.round(batch.reduce((s, it) => s + (it.status === "done" ? 100 : it.status === "rendering" ? it.pct : 0), 0) / batch.length)
+    : 0;
+  const batchIndex = batch ? batch.findIndex((it) => it.status === "rendering") : -1;
+  const canShareAll = batchFiles.length > 0 && isTouchDevice() && canShareFiles(batchFiles);
+  const shareAll = async () => {
+    setSaving(true);
+    try {
+      await shareFiles(batchFiles);
+    } finally {
+      setSaving(false);
+    }
+  };
+  const toggleCombo = (key: string) => {
+    const cur = prefs.batchCombos;
+    update({ batchCombos: cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key] });
+  };
+  const nBatch = prefs.batch ? batchKeys.length : 1;
+  const pctLabel = (v: number) => (lang === "ar" ? `${v.toLocaleString("ar-EG")}٪` : `${v}%`);
+
   return (
     <div
       className="fixed inset-0 z-[140] flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center sm:p-4"
@@ -2343,6 +2365,22 @@ export function ExportDialog({
                   />
                 )}
               </div>
+              {zone && phase !== "done" && phase !== "rendering" && (
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <SafeZoneOverlay
+                    zone={zone}
+                    W={layout.W}
+                    H={layout.H}
+                    width={previewW}
+                    height={previewH}
+                    labels={{
+                      top: c.zoneTop,
+                      bottom: zone.id === "stories" ? c.zoneBottomStories : c.zoneBottom,
+                      rail: c.zoneRail,
+                    }}
+                  />
+                </div>
+              )}
               {peek && momentMs !== null && kind !== "image" && phase !== "done" && phase !== "rendering" && (
                 <button
                   type="button"
@@ -2367,7 +2405,46 @@ export function ExportDialog({
 
           {/* side panel */}
           <div className="flex flex-col border-t border-border md:min-h-0 md:border-s md:border-t-0">
-            {phase === "rendering" ? (
+            {phase === "rendering" && batch ? (
+              <div className="flex min-h-0 flex-1 flex-col gap-4 p-6" data-export-batch-progress="">
+                <div className="space-y-1">
+                  <p className="flex items-center gap-2 text-sm font-semibold">
+                    <Loader2 className="size-4 animate-spin text-primary" />
+                    {c.rendering[kind]}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {batchIndex >= 0 ? c.batchOf(batchIndex + 1, batch.length) : c.privacy}
+                    {progress.note ? ` · ${progress.note}` : ""}
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-end justify-between">
+                    <span className="text-3xl font-semibold tabular-nums">{pctLabel(batchPct)}</span>
+                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Clock className="size-3.5" />
+                      {progress.etaMs === null ? c.estimating : c.eta(fmtClock(progress.etaMs + 999, lang))}
+                    </span>
+                  </div>
+                  <div
+                    className="h-2 w-full overflow-hidden rounded-full bg-muted"
+                    role="progressbar"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={batchPct}
+                  >
+                    <div
+                      className="h-full rounded-full bg-primary transition-[width] duration-150 ease-out"
+                      // progress width is data-driven
+                      style={{ width: `${batchPct}%` }}
+                    />
+                  </div>
+                </div>
+                <BatchList items={batch} c={c} pctLabel={pctLabel} />
+                <Button variant="outline" className="w-full shrink-0" onClick={cancel} data-export-cancel="">
+                  {c.cancel}
+                </Button>
+              </div>
+            ) : phase === "rendering" ? (
               <div className="flex flex-1 flex-col justify-center gap-5 p-6">
                 <div className="space-y-1">
                   <p className="flex items-center gap-2 text-sm font-semibold">
@@ -2406,6 +2483,53 @@ export function ExportDialog({
                 <Button variant="outline" className="w-full" onClick={cancel} data-export-cancel="">
                   {c.cancel}
                 </Button>
+              </div>
+            ) : phase === "done" && batch ? (
+              <div className="flex min-h-0 flex-1 flex-col gap-4 p-6" data-export-done="batch">
+                <div className="flex items-center gap-3">
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600">
+                    <Check className="size-5" strokeWidth={2.5} />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold">{c.batchDone(batchFiles.length, batch.length)}</p>
+                    <p className="text-xs text-muted-foreground">{isTouchDevice() ? t.exportSaveHint : c.batchSaved}</p>
+                  </div>
+                </div>
+                <BatchList
+                  items={batch}
+                  c={c}
+                  pctLabel={pctLabel}
+                  shown={result?.url ?? null}
+                  onShow={(it) => it.result && setResult(it.result)}
+                  onDownload={(it) => it.result && downloadVideoFile(it.result.file)}
+                />
+                <div className="mt-auto space-y-2">
+                  {canShareAll && (
+                    <Button className="h-11 w-full gap-2" onClick={() => void shareAll()} disabled={saving} data-export-share-all="">
+                      {saving ? <Loader2 className="size-4 animate-spin" /> : <Share2 className="size-4" />}
+                      {c.shareAll}
+                    </Button>
+                  )}
+                  <Button
+                    variant={canShareAll ? "outline" : "default"}
+                    className="h-11 w-full gap-2"
+                    onClick={() => void downloadFiles(batchFiles)}
+                    disabled={!batchFiles.length}
+                    data-export-download-all=""
+                  >
+                    <Download className="size-4" />
+                    {c.downloadAll}
+                  </Button>
+                  <div className="flex gap-2">
+                    <Button variant="outline" className="flex-1 gap-1.5" onClick={() => setPhase("idle")}>
+                      <RotateCcw className="size-4" />
+                      {c.again}
+                    </Button>
+                    <Button variant="outline" className="flex-1" onClick={close}>
+                      {c.close}
+                    </Button>
+                  </div>
+                </div>
               </div>
             ) : phase === "done" && result ? (
               <div className="flex flex-1 flex-col gap-4 p-6" data-export-done={result.kind}>
@@ -2538,6 +2662,45 @@ export function ExportDialog({
                     {!supported && <p className="text-[11px] text-muted-foreground">{c.videoOff}</p>}
                   </Section>
 
+                  <ToggleCard
+                    icon={<Layers className="size-4" />}
+                    title={c.batch}
+                    hint={c.batchHint}
+                    on={prefs.batch}
+                    attr="batch"
+                    onToggle={() =>
+                      update({
+                        batch: !prefs.batch,
+                        ...(!prefs.batch && !prefs.batchCombos.length ? { batchCombos: [currentKey] } : {}),
+                      })
+                    }
+                    aside={
+                      prefs.batch ? (
+                        <span className="shrink-0 text-[11px] font-medium text-muted-foreground tabular-nums" data-export-batch-count="">
+                          {c.batchCount(batchKeys.length)}
+                        </span>
+                      ) : null
+                    }
+                  >
+                    <ComboGrid selected={prefs.batchCombos} current={currentKey} c={c} onToggle={toggleCombo} />
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => update({ batchCombos: [...ALL_COMBOS] })}
+                        className="rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground ring-1 ring-border hover:text-foreground"
+                      >
+                        {c.batchAll}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => update({ batchCombos: [currentKey] })}
+                        className="rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground ring-1 ring-border hover:text-foreground"
+                      >
+                        {c.batchCurrent}
+                      </button>
+                    </div>
+                  </ToggleCard>
+
                   <Section title={c.format}>
                     <div className="grid grid-cols-2 gap-1.5">
                       {PRESETS.map((p) => {
@@ -2590,6 +2753,49 @@ export function ExportDialog({
                   )}
 
                   <section className="space-y-2.5 rounded-xl border border-border p-3">
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={cn(
+                          "flex size-8 shrink-0 items-center justify-center rounded-lg",
+                          zone ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
+                        )}
+                      >
+                        <Scan className="size-4" aria-hidden />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-xs font-semibold">{c.safe}</span>
+                        <span className="block text-[11px] leading-snug text-muted-foreground">
+                          {preset.id === "story" ? c.safeHint : c.safeOnlyStory}
+                        </span>
+                      </span>
+                    </div>
+                    <Segmented
+                      attr="safe"
+                      label={c.safe}
+                      value={prefs.safeZone}
+                      disabled={preset.id !== "story"}
+                      onChange={(v) => update({ safeZone: v })}
+                      options={(["off", ...SAFE_ZONE_IDS] as SafeChoice[]).map((v) => ({ value: v, label: c.safeZones[v] }))}
+                    />
+                    <label
+                      className={cn(
+                        "flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground",
+                        !zone && "cursor-not-allowed opacity-50",
+                      )}
+                    >
+                      <input
+                        type="checkbox"
+                        className="size-3.5 accent-[var(--primary)]"
+                        checked={prefs.safeFit && !!zone}
+                        disabled={!zone}
+                        data-export-opt="safeFit"
+                        onChange={(e) => update({ safeFit: e.target.checked })}
+                      />
+                      {c.safeFit}
+                    </label>
+                  </section>
+
+                  <section className="space-y-2.5 rounded-xl border border-border p-3">
                     <button
                       type="button"
                       role="switch"
@@ -2636,6 +2842,26 @@ export function ExportDialog({
                       </div>
                     )}
                   </section>
+
+                  {kind !== "image" && (
+                    <Section
+                      title={c.speed}
+                      aside={
+                        <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                          <Gauge className="size-3.5" aria-hidden />
+                          {c.speedHint}
+                        </span>
+                      }
+                    >
+                      <Segmented
+                        attr="speed"
+                        label={c.speed}
+                        value={prefs.speed}
+                        onChange={(v) => update({ speed: v })}
+                        options={SPEEDS.map((v) => ({ value: v, label: c.speedValue(v) }))}
+                      />
+                    </Section>
+                  )}
 
                   <Section title={c.background} aside={<span className="text-[11px] text-muted-foreground">{c.bgs[prefs.bg]}</span>}>
                     <div className="grid grid-cols-5 gap-2">
@@ -2810,6 +3036,91 @@ export function ExportDialog({
                             />
                           </Row>
                         )}
+                      </ToggleCard>
+
+                      <ToggleCard
+                        icon={<Stamp className="size-4" />}
+                        title={c.wm}
+                        hint={c.wmHint}
+                        on={prefs.wm}
+                        attr="wm"
+                        onToggle={() =>
+                          update({
+                            wm: !prefs.wm,
+                            ...(!prefs.wm && !prefs.wmText.trim() && !wmLogo ? { wmText: c.wmTextDefault } : {}),
+                          })
+                        }
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="w-[88px] shrink-0 text-xs text-muted-foreground">{c.logo}</span>
+                          {wmLogo && (
+                            // eslint-disable-next-line @next/next/no-img-element -- local data URL of the uploaded logo
+                            <img src={wmLogo.src} alt="" className="size-8 rounded-md bg-muted object-contain ring-1 ring-border" />
+                          )}
+                          <FileButton
+                            label={wmLogo ? c.replaceLogo : c.uploadLogo}
+                            accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif"
+                            onFile={(f) => void onWmLogo(f)}
+                            attr="wm-logo-file"
+                            icon={<Upload className="size-3.5" aria-hidden />}
+                          />
+                          {wmLogo && (
+                            <button type="button" onClick={() => setWmLogo(null)} className="text-[11px] text-muted-foreground underline-offset-2 hover:underline">
+                              {c.removeLogo}
+                            </button>
+                          )}
+                        </div>
+                        {wmLogoErr && <p className="text-[11px] text-destructive">{c.logoError}</p>}
+                        <TextField
+                          label={c.wmText}
+                          value={prefs.wmText}
+                          placeholder={c.wmTextDefault}
+                          onChange={(v) => update({ wmText: v.slice(0, 60) })}
+                          attr="wm-text"
+                          dir={rtl ? "rtl" : "ltr"}
+                        />
+                        <Row label={c.wmCorner}>
+                          <Segmented
+                            attr="wm-corner"
+                            label={c.wmCorner}
+                            value={prefs.wmCorner}
+                            onChange={(v) => update({ wmCorner: v })}
+                            options={(["tl", "tr", "bl", "br"] as const).map((v) => ({
+                              value: v,
+                              label: { tl: "↖", tr: "↗", bl: "↙", br: "↘" }[v],
+                              title: c.corners[v],
+                            }))}
+                          />
+                        </Row>
+                        <Row label={c.wmSize}>
+                          <Segmented
+                            attr="wm-size"
+                            label={c.wmSize}
+                            value={prefs.wmSize}
+                            onChange={(v) => update({ wmSize: v })}
+                            options={(["s", "m", "l"] as const).map((v) => ({ value: v, label: c.sizes[v] }))}
+                          />
+                        </Row>
+                        <label className="block space-y-1">
+                          <span className="flex justify-between text-[11px] text-muted-foreground">
+                            {c.wmOpacity}
+                            <span className="tabular-nums">{pctLabel(Math.round(prefs.wmOpacity * 100))}</span>
+                          </span>
+                          <input
+                            type="range"
+                            min={0.2}
+                            max={1}
+                            step={0.05}
+                            value={prefs.wmOpacity}
+                            data-export-wm-opacity=""
+                            onChange={(e) => update({ wmOpacity: Number(e.target.value) })}
+                            className="w-full accent-[var(--primary)]"
+                            dir="ltr"
+                          />
+                        </label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <ColorField label={c.wmColor} value={prefs.wmColor} onChange={(v) => update({ wmColor: v })} attr="wm-color" />
+                        </div>
                       </ToggleCard>
                     </div>
                   </Section>
@@ -3115,11 +3426,19 @@ export function ExportDialog({
                 <div className="sticky bottom-0 space-y-2 border-t border-border bg-background p-4 md:static">
                   <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground tabular-nums">
                     <span dir="ltr">{summary}</span>
-                    <span data-export-estimate="">{estimate}</span>
+                    <span data-export-estimate="">
+                      {estimate}
+                      {prefs.batch && nBatch > 1 ? ` × ${lang === "ar" ? nBatch.toLocaleString("ar-EG") : nBatch}` : ""}
+                    </span>
                   </div>
-                  <Button className="h-11 w-full gap-2 text-sm" onClick={runExport} disabled={!device} data-export-start="">
-                    {device ? <Download className="size-4" /> : <Loader2 className="size-4 animate-spin" />}
-                    {c.start[kind]}
+                  <Button
+                    className="h-11 w-full gap-2 text-sm"
+                    onClick={runExport}
+                    disabled={!device || (prefs.batch && !batchKeys.length)}
+                    data-export-start=""
+                  >
+                    {device ? (prefs.batch ? <Layers className="size-4" /> : <Download className="size-4" />) : <Loader2 className="size-4 animate-spin" />}
+                    {prefs.batch ? c.startBatch(kind, batchKeys.length) : c.start[kind]}
                   </Button>
                   <p className="text-center text-[11px] text-muted-foreground">{c.privacy}</p>
                 </div>
@@ -3129,7 +3448,145 @@ export function ExportDialog({
         </div>
       </div>
 
-      <ExportStage scenario={scenario} lang={lang} rtl={rtl} notice={notice} controllerRef={stageRef} />
+      <ExportStage scenario={stageScenario} lang={lang} rtl={rtl} notice={stageNotice} controllerRef={stageRef} />
+    </div>
+  );
+}
+
+/** Per-item status of a batch export (progress while rendering, actions when done). */
+function BatchList({
+  items,
+  c,
+  pctLabel,
+  shown,
+  onShow,
+  onDownload,
+}: {
+  items: BatchItem[];
+  c: Copy;
+  pctLabel: (v: number) => string;
+  /** url of the result currently in the preview */
+  shown?: string | null;
+  onShow?: (it: BatchItem) => void;
+  onDownload?: (it: BatchItem) => void;
+}) {
+  return (
+    <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto" data-export-batch-list="">
+      {items.map((it) => {
+        const active = !!it.result && it.result.url === shown;
+        return (
+          <li
+            key={it.key}
+            data-export-item={it.key}
+            data-status={it.status}
+            className={cn(
+              "flex items-center gap-2.5 rounded-lg border px-2.5 py-1.5",
+              active ? "border-primary bg-primary/[0.06]" : "border-border",
+            )}
+          >
+            <PlatformMark platform={it.platform} device={it.device} size={22} />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-xs font-semibold">
+                {PLATFORM_MAP[it.platform]?.label ?? it.platform} · {c.devices[it.device]}
+              </span>
+              <span
+                className={cn(
+                  "block truncate text-[11px]",
+                  it.status === "error" ? "text-destructive" : "text-muted-foreground",
+                )}
+              >
+                {it.status === "rendering" ? `${c.itemStatus.rendering} · ${pctLabel(it.pct)}` : it.status === "error" && it.error ? it.error : c.itemStatus[it.status]}
+              </span>
+            </span>
+            {it.status === "done" ? (
+              <CircleCheck className="size-4 shrink-0 text-emerald-600" aria-hidden />
+            ) : it.status === "rendering" ? (
+              <Loader2 className="size-4 shrink-0 animate-spin text-primary" aria-hidden />
+            ) : it.status === "error" ? (
+              <CircleX className="size-4 shrink-0 text-destructive" aria-hidden />
+            ) : (
+              <CircleDashed className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            )}
+            {it.result && onShow && (
+              <button
+                type="button"
+                onClick={() => onShow(it)}
+                aria-pressed={active}
+                aria-label={`${c.showItem}: ${PLATFORM_MAP[it.platform]?.label ?? it.platform} ${c.devices[it.device]}`}
+                className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <Play className="size-3.5" aria-hidden />
+              </button>
+            )}
+            {it.result && onDownload && (
+              <button
+                type="button"
+                onClick={() => onDownload(it)}
+                data-export-item-download={it.key}
+                aria-label={`${c.downloadOne}: ${it.result.file.name}`}
+                className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <Download className="size-3.5" aria-hidden />
+              </button>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** Platform × device checkbox grid for batch export. */
+function ComboGrid({
+  selected,
+  current,
+  c,
+  onToggle,
+  disabled,
+}: {
+  selected: string[];
+  current: string;
+  c: Copy;
+  onToggle: (key: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="overflow-hidden rounded-lg border border-border" role="group" aria-label={c.batch}>
+      <div className="grid grid-cols-[minmax(0,1fr)_64px_64px] items-center bg-muted/60 px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground">
+        <span>{c.app}</span>
+        {DEVICES.map((d) => (
+          <span key={d} className="text-center">
+            {c.devices[d]}
+          </span>
+        ))}
+      </div>
+      <ul className="max-h-[220px] divide-y divide-border overflow-y-auto">
+        {PLATFORMS.map((p) => (
+          <li key={p.id} className="grid grid-cols-[minmax(0,1fr)_64px_64px] items-center px-2.5 py-1">
+            <span className="flex min-w-0 items-center gap-2">
+              <PlatformMark platform={p.id} device="iphone" size={20} />
+              <span className="truncate text-xs font-medium">{p.label}</span>
+            </span>
+            {DEVICES.map((d) => {
+              const key = comboKey(p.id, d);
+              const on = selected.includes(key);
+              return (
+                <label key={d} className="flex h-7 cursor-pointer items-center justify-center" title={`${p.label} · ${c.devices[d]}`}>
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    disabled={disabled}
+                    data-export-combo={key}
+                    aria-label={`${p.label} · ${c.devices[d]}`}
+                    onChange={() => onToggle(key)}
+                    className={cn("size-4 accent-[var(--primary)]", key === current && "ring-2 ring-primary/40 ring-offset-1 ring-offset-background")}
+                  />
+                </label>
+              );
+            })}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

@@ -111,6 +111,7 @@ interface ViberPalette {
   navFg: string;
   quoteText: string;
   likeRed: string;
+  link: string;
 }
 
 const LIGHT: ViberPalette = {
@@ -145,6 +146,7 @@ const LIGHT: ViberPalette = {
   navFg: "#3c3c3c",
   quoteText: "rgba(0,0,0,0.55)",
   likeRed: "#f2425a",
+  link: "#3f73e8",
 };
 
 const DARK: ViberPalette = {
@@ -179,6 +181,7 @@ const DARK: ViberPalette = {
   navFg: "#e6e9ee",
   quoteText: "rgba(255,255,255,0.6)",
   likeRed: "#f2425a",
+  link: "#7ba7ff",
 };
 
 /* ======================================================================
@@ -198,6 +201,9 @@ const META_FS = 12;
 const ACTION = 26; // quick-action circle
 const ACTION_GAP = 11; // bubble edge -> circle
 const ACTION_PAIR_GAP = 6; // forward <-> heart
+const NAME_H = 19; // group sender name line (16) + gap to the bubble (3)
+const STICKER = 150; // Viber sticker box
+const STICKER_EMOJI = [0, 112, 76, 56]; // emoji drawn as a sticker, by count
 
 /* ======================================================================
    Localised strings (Viber's own wording)
@@ -931,19 +937,25 @@ export function ViberAndroid({ scenario, playback, lang, rtl }: PlatformProps) {
 function ViberRow({
   m,
   p,
+  s,
   rtl,
   firstOfGroup,
   status,
-  them,
+  author,
+  authorColor,
+  group,
   live,
   quote,
 }: {
   m: Message;
   p: ViberPalette;
+  s: VbStrings;
   rtl: boolean;
   firstOfGroup: boolean;
   status: DeliveryStatus;
-  them: Person;
+  author: Person;
+  authorColor: string;
+  group: boolean;
   live: boolean;
   quote: QuoteInfo | null;
 }) {
@@ -953,11 +965,16 @@ function ViberRow({
   const metaColor = mine ? p.metaOut : p.meta;
   const caption = m.type === "image" ? m.text.trim() : "";
   const textDir = dirOf(m.text);
+  const link = m.type === "text" ? (m.link ?? null) : null;
+  const sticker = m.type === "sticker";
   // a reply always lives in a bubble, so a replying emoji-only message is not jumbo
-  const emojiCount = m.type === "text" && !quote ? bigEmojiCount(m.text) : 0;
+  const emojiCount = m.type === "text" && !quote && !link ? bigEmojiCount(m.text) : 0;
   const quoteEl = quote ? <Quote q={quote} p={p} uiDir={uiDir} /> : null;
   const reaction = m.reaction?.trim() || null;
-  const media = m.type === "image" || emojiCount > 0;
+  const media = m.type === "image" || emojiCount > 0 || sticker || m.type === "location" || m.type === "file";
+  // call-log entries and deleted placeholders carry no quick actions
+  const actions = m.type !== "call" && m.type !== "deleted";
+  const showName = group && !mine && firstOfGroup;
 
   // Square top-start corner only on the first incoming bubble of a group (beside the avatar).
   const radius: CSSProperties = { borderRadius: RADIUS };
@@ -966,24 +983,36 @@ function ViberRow({
     else radius.borderTopLeftRadius = 0;
   }
 
-  const meta = (color: string, seen: string, extra?: CSSProperties) => (
+  const meta = (color: string, seen: string, extra?: CSSProperties, ticks = true) => (
     <span
       className="inline-flex shrink-0 items-center whitespace-nowrap"
       dir={uiDir}
       style={{ fontSize: META_FS, lineHeight: "16px", gap: 3, color, ...extra }}
     >
+      {/* "Edited" sits in front of the time */}
+      {m.edited && <span style={{ marginInlineEnd: 1 }}>{s.edited}</span>}
       <span dir="ltr">{m.time}</span>
-      {mine && <Ticks status={status} color={color} seen={seen} />}
+      {mine && ticks && <Ticks status={status} color={color} seen={seen} />}
     </span>
   );
 
   let content: ReactNode;
 
-  if (emojiCount > 0) {
-    const size = emojiCount === 1 ? 52 : emojiCount === 2 ? 44 : 38;
+  if (emojiCount > 0 || sticker) {
+    const n = sticker ? bigEmojiCount(m.text) || 1 : emojiCount;
+    const size = sticker ? STICKER_EMOJI[n] : emojiCount === 1 ? 52 : emojiCount === 2 ? 44 : 38;
     content = (
       <div className="flex flex-col" style={{ alignItems: "flex-end" }} dir={uiDir}>
-        <span style={{ fontSize: size, lineHeight: 1.15, whiteSpace: "nowrap" }}>{m.text.trim()}</span>
+        {sticker && m.imageSrc ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={m.imageSrc} alt="" draggable={false} style={{ display: "block", width: STICKER, height: STICKER, objectFit: "contain" }} />
+        ) : sticker ? (
+          <span className="flex items-center justify-center" style={{ width: STICKER, height: STICKER, fontSize: size, lineHeight: 1, whiteSpace: "nowrap" }}>
+            {m.text.trim() || "🙂"}
+          </span>
+        ) : (
+          <span style={{ fontSize: size, lineHeight: 1.15, whiteSpace: "nowrap" }}>{m.text.trim()}</span>
+        )}
         {meta(p.dark ? p.meta : "#afafaf", p.accent, { marginTop: 2 })}
       </div>
     );
@@ -1030,6 +1059,73 @@ function ViberRow({
         )}
       </div>
     );
+  } else if (m.type === "location") {
+    const loc = m.location;
+    content = (
+      <div className="relative overflow-hidden" dir={uiDir} style={{ width: 236, maxWidth: "100%", background: bg, color: p.text, ...radius }}>
+        {quoteEl && <div style={{ padding: "9px 13px 3px" }}>{quoteEl}</div>}
+        <div className="overflow-hidden" style={quote ? { marginInline: 4, borderRadius: 8 } : undefined}>
+          <MapArt dark={p.dark} h={136} />
+        </div>
+        <div style={{ padding: "7px 13px 8px" }}>
+          {loc?.title && (
+            <div className="truncate" dir={dirOf(loc.title)} style={{ fontSize: 16, lineHeight: "21px", fontWeight: 500, textAlign: "start" }}>
+              {loc.title}
+            </div>
+          )}
+          {loc?.subtitle && (
+            <div className="truncate" dir={dirOf(loc.subtitle)} style={{ fontSize: 14, lineHeight: "19px", color: p.quoteText, textAlign: "start" }}>
+              {loc.subtitle}
+            </div>
+          )}
+          <div className="flex justify-end" style={{ marginTop: 2 }}>
+            {meta(metaColor, p.accent)}
+          </div>
+        </div>
+      </div>
+    );
+  } else if (m.type === "file") {
+    content = (
+      <div dir={uiDir} style={{ width: 252, maxWidth: "100%", background: bg, color: p.text, padding: "10px 13px 8px 10px", ...radius }}>
+        {quoteEl}
+        <FileRow file={m.file ?? { name: "file" }} p={p} />
+        <div className="flex justify-end" style={{ marginTop: 2 }}>
+          {meta(metaColor, p.accent)}
+        </div>
+      </div>
+    );
+  } else if (m.type === "call") {
+    content = <CallBubble m={m} p={p} s={s} bg={bg} radius={radius} uiDir={uiDir} meta={meta(metaColor, p.accent)} />;
+  } else if (m.type === "deleted") {
+    content = (
+      <div
+        className="flex min-w-0 flex-wrap items-baseline justify-end"
+        dir={uiDir}
+        style={{ background: bg, padding: "9px 13px", columnGap: 8, ...radius }}
+      >
+        <span
+          className="inline-flex items-center"
+          style={{ fontSize: 16, lineHeight: `${BODY_LH}px`, fontStyle: "italic", color: p.quoteText, gap: 5, flex: "1 1 auto" }}
+        >
+          <BanGlyph color={p.quoteText} />
+          {s.deleted}
+        </span>
+        {meta(metaColor, p.accent, { marginInlineStart: "auto" }, false)}
+      </div>
+    );
+  } else if (link) {
+    content = (
+      <div className="min-w-0" style={{ width: 262, maxWidth: "100%", background: bg, color: p.text, padding: "9px 13px 8px", ...radius }}>
+        {quoteEl}
+        <div dir={textDir} className="whitespace-pre-wrap break-words" style={{ fontSize: BODY_FS, lineHeight: `${BODY_LH}px`, textAlign: "start" }}>
+          <Linkified text={m.text} color={p.link} />
+        </div>
+        <LinkCard link={link} p={p} uiDir={uiDir} />
+        <div className="flex justify-end" dir={uiDir} style={{ marginTop: 4 }}>
+          {meta(metaColor, p.accent)}
+        </div>
+      </div>
+    );
   } else {
     // Time sits inline after a short single line; otherwise it wraps to its own line at the end.
     const textRow = (
@@ -1039,7 +1135,7 @@ function ViberRow({
         style={quote ? { columnGap: 8 } : { background: bg, color: p.text, padding: "9px 13px 9px", columnGap: 8, ...radius }}
       >
         <span className="min-w-0 whitespace-pre-wrap break-words" style={{ fontSize: BODY_FS, lineHeight: `${BODY_LH}px`, flex: "0 1 auto", marginInlineEnd: "auto" }}>
-          {m.text}
+          <Linkified text={m.text} color={p.link} />
         </span>
         {meta(metaColor, p.accent, { marginInlineStart: "auto" })}
       </div>
@@ -1074,10 +1170,12 @@ function ViberRow({
         className={`flex items-center justify-end ${live ? "viber-android-enter" : ""}`}
         style={{ paddingInlineStart: 16, paddingInlineEnd: OUT_END, marginTop: firstOfGroup ? GAP_BETWEEN : GAP_IN_GROUP }}
       >
-        <div className="flex shrink-0 items-center" style={{ gap: ACTION_PAIR_GAP, marginInlineEnd: ACTION_GAP }}>
-          {forward}
-          {heart}
-        </div>
+        {actions && (
+          <div className="flex shrink-0 items-center" style={{ gap: ACTION_PAIR_GAP, marginInlineEnd: ACTION_GAP }}>
+            {forward}
+            {heart}
+          </div>
+        )}
         <div className="flex min-w-0" style={{ flex: m.type === "voice" ? "1 1 auto" : "0 1 auto", justifyContent: "flex-end" }}>
           {content}
         </div>
@@ -1092,17 +1190,218 @@ function ViberRow({
       className={`flex items-start ${live ? "viber-android-enter" : ""}`}
       style={{ paddingInlineStart: AVATAR_START, paddingInlineEnd: 16, marginTop: firstOfGroup ? GAP_BETWEEN : GAP_IN_GROUP }}
     >
-      <div style={{ width: AVATAR, flexShrink: 0 }}>{firstOfGroup && <Avatar person={them} size={AVATAR} />}</div>
-      <div className="flex min-w-0 items-center" style={{ marginInlineStart: IN_START - AVATAR_START - AVATAR, flex: m.type === "voice" ? "1 1 auto" : "0 1 auto" }}>
-        <div className="flex min-w-0" style={{ flex: m.type === "voice" ? "1 1 auto" : "0 1 auto" }}>
-          {content}
-        </div>
-        <div className="flex shrink-0 items-center" style={{ gap: ACTION_PAIR_GAP, marginInlineStart: ACTION_GAP }}>
-          {heart}
-          {media && forward}
+      <div style={{ width: AVATAR, flexShrink: 0, paddingTop: showName ? NAME_H : 0 }}>
+        {firstOfGroup && <Avatar person={author} size={AVATAR} />}
+      </div>
+      <div
+        className="flex min-w-0 flex-col"
+        style={{ marginInlineStart: IN_START - AVATAR_START - AVATAR, flex: m.type === "voice" ? "1 1 auto" : "0 1 auto", alignItems: "flex-start" }}
+      >
+        {/* groups: the member's name in their colour above the first bubble of a run */}
+        {showName && (
+          <div
+            className="max-w-full truncate"
+            dir={dirOf(author.name)}
+            style={{ fontSize: 13, lineHeight: "16px", height: 16, marginBottom: NAME_H - 16, fontWeight: 500, color: authorColor, paddingInlineStart: 2 }}
+          >
+            {author.name}
+          </div>
+        )}
+        <div className="flex min-w-0 max-w-full items-center" style={{ width: m.type === "voice" ? "100%" : undefined }}>
+          <div className="flex min-w-0" style={{ flex: m.type === "voice" ? "1 1 auto" : "0 1 auto" }}>
+            {content}
+          </div>
+          {actions && (
+            <div className="flex shrink-0 items-center" style={{ gap: ACTION_PAIR_GAP, marginInlineStart: ACTION_GAP }}>
+              {heart}
+              {media && forward}
+            </div>
+          )}
         </div>
       </div>
     </div>
+  );
+}
+
+/** Viber's call-log bubble: round call glyph | "Missed call" + duration / time | purple call-back button. */
+function CallBubble({
+  m,
+  p,
+  s,
+  bg,
+  radius,
+  meta,
+  uiDir,
+}: {
+  m: Message;
+  p: ViberPalette;
+  s: VbStrings;
+  bg: string;
+  radius: CSSProperties;
+  meta: ReactNode;
+  uiDir: "rtl" | "ltr";
+}) {
+  const video = !!m.call?.video;
+  const missed = !!m.call?.missed;
+  const red = missed && m.sender === "them";
+  const tone = red ? p.likeRed : p.accent;
+  const sub = m.call?.duration ? m.call.duration : missed && m.sender === "me" ? s.noAnswer : "";
+  return (
+    <div className="flex min-w-0 items-center" dir={uiDir} style={{ background: bg, color: p.text, padding: "10px 10px 10px 11px", minWidth: 224, maxWidth: "100%", gap: 11, ...radius }}>
+      <span
+        className="flex shrink-0 items-center justify-center rounded-full"
+        style={{ width: 38, height: 38, background: red ? "rgba(242,66,90,0.14)" : p.dark ? "rgba(143,127,247,0.2)" : "rgba(115,96,242,0.12)" }}
+      >
+        <CallGlyph video={video} color={tone} size={19} arrow={red || m.sender !== "me" ? "in" : "out"} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="truncate" style={{ fontSize: 16, lineHeight: "21px", fontWeight: 500, color: red ? p.likeRed : p.text, textAlign: "start" }}>
+          {callTitle(m, s)}
+        </div>
+        <div className="flex items-center" style={{ gap: 6, marginTop: 1 }}>
+          {sub && <span style={{ fontSize: 13, lineHeight: "16px", color: p.quoteText }}>{sub}</span>}
+          {meta}
+        </div>
+      </div>
+      {/* call back */}
+      <span
+        className="flex shrink-0 items-center justify-center rounded-full"
+        style={{ width: 36, height: 36, background: "linear-gradient(45deg, #7360f2 0%, #9161f2 100%)" }}
+      >
+        <CallGlyph video={video} color="#ffffff" size={18} />
+      </span>
+    </div>
+  );
+}
+
+/** Handset or camcorder; `arrow` adds the call-log direction arrow. Never mirrored. */
+function CallGlyph({ video, color, size, arrow }: { video: boolean; color: string; size: number; arrow?: "in" | "out" }) {
+  if (video) {
+    return (
+      <svg width={size + 3} height={size} viewBox="0 0 28 20" style={{ display: "block" }}>
+        <rect x="0.5" y="2" width="19" height="16" rx="4.5" fill={color} />
+        <path d="M21.4 8 26 4.9c.6-.4 1.5 0 1.5.8v8.6c0 .8-.9 1.2-1.5.8l-4.6-3.1z" fill={color} />
+      </svg>
+    );
+  }
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" style={{ display: "block" }}>
+      <path
+        d="M6.9 3.4c.5-.3 1.2-.2 1.6.3l2.1 2.9c.4.5.3 1.2-.1 1.6l-1.3 1.2c-.3.3-.4.7-.2 1.1.9 1.7 2.2 3 3.9 3.9.4.2.8.1 1.1-.2l1.2-1.3c.4-.4 1.1-.5 1.6-.1l2.9 2.1c.5.4.6 1.1.3 1.6l-.9 1.5c-.6 1-1.8 1.5-2.9 1.2C10.9 18 6 13.1 4.7 7.8c-.3-1.1.2-2.3 1.2-2.9z"
+        fill={color}
+      />
+      {arrow === "in" && <path d="M21.5 2.5 15.6 8.4M15.4 4.4v4.2h4.2" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" />}
+      {arrow === "out" && <path d="M15.6 8.4l5.9-5.9M17.3 2.4h4.3v4.3" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" />}
+    </svg>
+  );
+}
+
+function BanGlyph({ color }: { color: string }) {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" style={{ display: "block", flexShrink: 0 }}>
+      <circle cx="12" cy="12" r="9" stroke={color} strokeWidth="1.8" />
+      <path d="M5.8 18.2 18.2 5.8" stroke={color} strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+/** Document row: coloured file-type page | name (2 lines) | size · type. */
+function FileRow({ file, p }: { file: FileShare; p: ViberPalette }) {
+  const ext = extOf(file.name);
+  const color = fileColor(ext);
+  const metaLine = [file.size, ext ? ext.toUpperCase() : ""].filter(Boolean).join(" · ");
+  return (
+    <div className="flex items-center" style={{ gap: 10 }}>
+      <svg width="38" height="46" viewBox="0 0 38 46" style={{ display: "block", flexShrink: 0 }}>
+        <path d="M5 0h20l13 13v28a5 5 0 0 1-5 5H5a5 5 0 0 1-5-5V5a5 5 0 0 1 5-5z" fill={color} />
+        <path d="M25 0v8a5 5 0 0 0 5 5h8z" fill="#ffffff" fillOpacity="0.4" />
+        <text x="19" y="36" textAnchor="middle" fontSize="10" fontWeight="700" fill="#ffffff" fontFamily="Roboto, system-ui, sans-serif">
+          {(ext || "file").slice(0, 4).toUpperCase()}
+        </text>
+      </svg>
+      <div className="min-w-0 flex-1">
+        <div dir="ltr" className="line-clamp-2 break-all" style={{ fontSize: 16, lineHeight: "20px", fontWeight: 500, color: p.text, textAlign: "start" }}>
+          {file.name}
+        </div>
+        {metaLine && (
+          <div dir="ltr" style={{ fontSize: 13, lineHeight: "17px", color: p.quoteText, marginTop: 1, textAlign: "start" }}>
+            {metaLine}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** URL preview under the text, inside the bubble: picture, bold title, description, site. */
+function LinkCard({ link, p, uiDir }: { link: LinkPreview; p: ViberPalette; uiDir: "rtl" | "ltr" }) {
+  const site = link.siteName?.trim() || hostOf(link.url);
+  return (
+    <div style={{ marginTop: 8 }}>
+      {link.image && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={link.image} alt="" draggable={false} style={{ display: "block", width: "100%", height: 132, objectFit: "cover", borderRadius: 8 }} />
+      )}
+      <div style={{ marginTop: link.image ? 7 : 0 }}>
+        <div dir={dirOf(link.title)} className="line-clamp-2" style={{ fontSize: 15, lineHeight: "20px", fontWeight: 500, color: p.text, textAlign: "start" }}>
+          {link.title}
+        </div>
+        {link.description && (
+          <div
+            dir={dirOf(link.description)}
+            className="line-clamp-2"
+            style={{ fontSize: 14, lineHeight: "18px", color: p.quoteText, marginTop: 1, textAlign: "start" }}
+          >
+            {link.description}
+          </div>
+        )}
+        <div dir={uiDir} className="truncate" style={{ fontSize: 13, lineHeight: "17px", color: p.sub, marginTop: 2, textAlign: "start" }}>
+          <span dir="ltr">{site}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Static map snapshot (the location message's thumbnail): city blocks, a park,
+ * white streets, a main road and the red drop pin in the middle. Geography
+ * never mirrors.
+ */
+function MapArt({ dark, h }: { dark: boolean; h: number }) {
+  const c = dark
+    ? { base: "#212b37", block: "#29343f", park: "#22423a", water: "#1b3550", road: "#3a4757", main: "#6a5a32", edge: "#18202a" }
+    : { base: "#f0ede6", block: "#e5e1d8", park: "#cfe7c3", water: "#b7d9f2", road: "#ffffff", main: "#fbd98c", edge: "#d9d4ca" };
+  return (
+    <svg width="100%" height={h} viewBox="0 0 240 140" preserveAspectRatio="xMidYMid slice" style={{ display: "block" }}>
+      <rect width="240" height="140" fill={c.base} />
+      <path d="M0 108c30-6 52 2 76 16 14 8 18 16 18 16H0z" fill={c.water} />
+      <rect x="150" y="12" width="62" height="38" rx="4" fill={c.park} />
+      {[
+        [8, 8, 54, 30],
+        [72, 8, 62, 30],
+        [8, 50, 54, 34],
+        [72, 50, 62, 34],
+        [150, 62, 34, 26],
+        [196, 62, 40, 26],
+        [112, 98, 56, 36],
+        [180, 98, 56, 36],
+      ].map(([x, y, w, hh], i) => (
+        <rect key={i} x={x} y={y} width={w} height={hh} rx="2.5" fill={c.block} />
+      ))}
+      <g stroke={c.edge} strokeWidth="7.5" fill="none">
+        <path d="M0 44h240M0 92h240M66 0v140M142 0v140M188 56v84" />
+      </g>
+      <g stroke={c.road} strokeWidth="5.5" fill="none">
+        <path d="M0 44h240M0 92h240M66 0v140M142 0v140M188 56v84" />
+      </g>
+      <path d="M-4 128 248 18" stroke={c.edge} strokeWidth="11" />
+      <path d="M-4 128 248 18" stroke={c.main} strokeWidth="8.5" />
+      {/* pin */}
+      <ellipse cx="120" cy="73" rx="6" ry="2.2" fill="rgba(0,0,0,0.22)" />
+      <path d="M120 73c-1.2-5.2-11-12.4-11-21.4a11 11 0 0 1 22 0c0 9-9.8 16.2-11 21.4z" fill="#ea4335" stroke="#b3261e" strokeWidth="0.8" />
+      <circle cx="120" cy="51.6" r="4" fill="#ffffff" />
+    </svg>
   );
 }
 

@@ -1158,3 +1158,552 @@ function Caret({ pal, clockMs }: { pal: Pal; clockMs?: number }) {
 }
 
 /* --------------------------------- screen --------------------------------- */
+
+interface Author {
+  person: Person;
+  /** default-avatar colour for group members (by member index) */
+  tint?: string;
+  /** grouping key: "me", "them" or "m<index>" */
+  key: string;
+}
+
+export function Discord({ scenario, playback, lang }: PlatformProps) {
+  const dark = scenario.theme === "dark";
+  const pal = palette(dark);
+  const s = STR[lang];
+  const { messages, typing, clockMs } = playback;
+  const exporting = clockMs !== undefined;
+  const live = playback.isLive && !exporting;
+  const kb = useKeyboardInset();
+  const kbUp = kb.inset > 0;
+  // The composer grows while a draft wraps (and rises with the keyboard): keep the list pinned to its newest row.
+  const draftKey = playback.draft ? `${Math.floor(playback.draft.text.length / 24)}` : "-";
+  const scrollRef = useChatScroll<HTMLDivElement>(
+    `${messages.length}-${typing}-${draftKey}-${Math.round(kb.inset / 24)}`,
+  );
+
+  const group = scenario.group && scenario.group.members.length > 0 ? scenario.group : null;
+  const showTyping = typing || (!playback.isLive && scenario.presence === "typing");
+  const online = scenario.presence !== "lastseen" || showTyping;
+  const them = scenario.them;
+  const themName = them.name.trim() || "Discord";
+  const title = group ? group.name.trim() || "Group" : themName;
+  const handle = usernameOf(them.name);
+  const today = longDate(new Date());
+
+  const authorOf = (m: Pick<Message, "sender" | "authorIndex">): Author => {
+    if (m.sender === "me") return { person: scenario.me, key: "me" };
+    if (group) {
+      const idx = Math.min(Math.max(0, m.authorIndex ?? 0), group.members.length - 1);
+      return { person: group.members[idx], tint: memberTint(idx), key: `m${idx}` };
+    }
+    return { person: them, key: "them" };
+  };
+  const nameOf = (a: Author) => a.person.name.trim() || (a.key === "me" ? "You" : a.key === "them" ? themName : "Member");
+
+  // Who is typing: the author of the next "them" message still to come (group), else the other person.
+  const shown = new Set(messages.map((m) => m.id));
+  const nextThem = scenario.messages.find((m) => m.sender === "them" && !shown.has(m.id));
+  const typer = authorOf(nextThem ?? { sender: "them", authorIndex: 0 });
+
+  const draft = playback.draft;
+  const draftText = draft?.text ?? "";
+  const hasDraft = draftText.length > 0;
+  const draftMsg = draft ? scenario.messages.find((x) => x.id === draft.messageId) : undefined;
+  const draftReplyTo = draftMsg?.replyToId ? scenario.messages.find((x) => x.id === draftMsg.replyToId) : undefined;
+  const draftReplyName = draftReplyTo ? nameOf(authorOf(draftReplyTo)) : "";
+
+  // Message groups: same author, no system message in between; deleted messages are gone entirely.
+  const rowKey = (m: Message) => (m.type === "call" ? `call:${m.id}` : authorOf(m).key);
+  const firstFlags: boolean[] = [];
+  let prevShown: Message | undefined;
+  for (const m of messages) {
+    if (m.type === "deleted") {
+      firstFlags.push(false);
+      continue;
+    }
+    firstFlags.push(!prevShown || rowKey(prevShown) !== rowKey(m));
+    prevShown = m;
+  }
+  const firstShownId = messages.find((m) => m.type !== "deleted")?.id;
+
+  // Chat bar: 23 pt + home band normally; 8 pt above the keyboard while it is up (continuous at the hand-over).
+  const barBottom = kbUp ? Math.max(BAR_BOTTOM + HOME_BAND, kb.inset + KB_GAP) : BAR_BOTTOM;
+  const kbTransition = kb.transition === "none" ? undefined : `padding-bottom ${kb.transition}`;
+
+  const textStyle: CSSProperties = {
+    color: pal.text,
+    fontSize: TEXT_SIZE,
+    lineHeight: `${TEXT_LINE}px`,
+    fontWeight: 400,
+    whiteSpace: "pre-wrap",
+    overflowWrap: "anywhere",
+    textAlign: "start",
+  };
+  const edited = (
+    <span
+      style={{
+        color: pal.muted,
+        fontSize: 10,
+        lineHeight: 1,
+        fontWeight: 400,
+        marginLeft: 4,
+        marginRight: 4,
+        whiteSpace: "nowrap",
+        display: "inline-block",
+      }}
+    >
+      {s.edited}
+    </span>
+  );
+
+  const renderBody = (m: Message): ReactNode => {
+    if (m.type === "voice") {
+      return (
+        <div style={{ paddingTop: 4, paddingBottom: 2 }}>
+          <VoiceMessage id={m.id} pal={pal} duration={m.voiceDuration} />
+        </div>
+      );
+    }
+    if (m.type === "image") {
+      const caption = m.text.trim();
+      return (
+        <div className="flex flex-col items-start" style={{ gap: 4 }}>
+          {caption && (
+            <div dir={dirOf(caption)} className="w-full" style={textStyle}>
+              <Linkified text={caption} color={pal.link} />
+              {m.edited && edited}
+            </div>
+          )}
+          <div style={{ paddingTop: caption ? 0 : 4, paddingBottom: 2 }}>
+            <Attachment src={m.imageSrc} pal={pal} />
+          </div>
+        </div>
+      );
+    }
+    if (m.type === "sticker") return <Sticker src={m.imageSrc} text={m.text} />;
+    if (m.type === "file") {
+      return (
+        <div style={{ paddingTop: 4, paddingBottom: 2 }}>
+          <FileCard name={m.file?.name ?? m.text.trim()} size={m.file?.size} pal={pal} />
+        </div>
+      );
+    }
+    if (m.type === "location") {
+      // Discord has no location sharing: the shared Google Maps link and its unfurl.
+      const loc = m.location ?? { title: m.text.trim() || "Dropped pin" };
+      const url = `https://maps.app.goo.gl/${shortId(m.id, 17)}`;
+      return (
+        <>
+          <div dir="ltr" style={textStyle}>
+            <Linkified text={url} color={pal.link} />
+          </div>
+          <Embed
+            pal={pal}
+            stripe={pal.embedStripe}
+            title={loc.subtitle ? `${loc.title} · ${loc.subtitle}` : loc.title}
+            description={s.mapsDescription}
+            thumb={<MapThumb size={EMBED_THUMB} />}
+          />
+        </>
+      );
+    }
+    if (m.type === "text" && isEmojiOnly(m.text)) {
+      return (
+        <div style={{ fontSize: 48, lineHeight: "56px", textAlign: "left" }}>
+          {m.text.trim()}
+          {m.edited && edited}
+        </div>
+      );
+    }
+    const link = m.link;
+    const site = link ? link.siteName?.trim() || siteOf(link.url) : "";
+    return (
+      <>
+        <div dir={dirOf(m.text)} style={textStyle}>
+          <Linkified text={m.text} color={pal.link} />
+          {m.edited && edited}
+        </div>
+        {link && (
+          <Embed
+            pal={pal}
+            stripe={embedColor(site)}
+            provider={site}
+            title={link.title}
+            description={link.description}
+            image={link.image}
+          />
+        )}
+      </>
+    );
+  };
+
+  return (
+    <div className="flex h-full w-full flex-col" style={{ background: pal.bg, fontFamily: DISCORD_IOS_FONT }}>
+      <style>{DISCORD_IOS_CSS}</style>
+      <StatusBar device={scenario.device} tint={dark ? "light" : "dark"} background={pal.bg} />
+
+      {/* Discord has no RTL layout, so the app area is pinned LTR in every locale. */}
+      <div dir="ltr" className="flex min-h-0 flex-1 flex-col">
+        {/* Header: ← · avatar+status (group: facepile) · name › (group: + member count) · call · video */}
+        <div
+          className="flex shrink-0 items-center"
+          style={{ height: 52, paddingLeft: 16, paddingRight: 8, borderBottom: `1px solid ${pal.border}` }}
+        >
+          <BackArrow color={pal.icon} />
+          <span style={{ marginLeft: group ? 12 : 14 }}>
+            {group ? (
+              <GroupFace group={group} size={28} ringColor={pal.bg} />
+            ) : (
+              <PresenceAvatar person={them} size={24} online={online} pal={pal} />
+            )}
+          </span>
+          <div className="flex min-w-0 flex-1 flex-col justify-center" style={{ marginLeft: 10 }}>
+            <div className="flex min-w-0 items-center" style={{ gap: 2 }}>
+              <span
+                dir="auto"
+                className="truncate"
+                style={{ color: pal.strong, fontSize: 20, lineHeight: "24px", fontWeight: 600 }}
+              >
+                {title}
+              </span>
+              <ChevronSmallRight color={pal.icon} />
+            </div>
+            {group && (
+              <span style={{ color: pal.muted, fontSize: 12, lineHeight: "14px", fontWeight: 500 }}>
+                {s.members(group.members.length + 1)}
+              </span>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center" style={{ gap: 4 }}>
+            {[PhoneCallGlyph, VideoGlyph].map((G, i) => (
+              <span key={i} className="flex items-center justify-center" style={{ width: 40, height: 40 }}>
+                <G color={pal.icon} />
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Chat body */}
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <div
+            ref={scrollRef}
+            className="rcss-scroll min-h-0 flex-1 overflow-y-auto"
+            style={{ background: pal.bg, paddingBottom: showTyping ? 34 : 22 }}
+          >
+            {/* Intro (top of the history) */}
+            <div style={{ padding: `20px ${EDGE}px 0` }}>
+              {group ? <GroupFace group={group} size={80} ringColor={pal.bg} /> : <DiscordAvatar person={them} size={80} />}
+              <div
+                dir="auto"
+                className="break-words"
+                style={{ color: pal.strong, fontSize: 24, lineHeight: "30px", fontWeight: 700, marginTop: 12, textAlign: "left" }}
+              >
+                {title}
+              </div>
+              {!group && handle && (
+                <div style={{ color: pal.text, fontSize: 16, lineHeight: "20px", fontWeight: 500, marginTop: 2 }}>{handle}</div>
+              )}
+              <div style={{ color: pal.muted, fontSize: 14, lineHeight: "18px", fontWeight: 400, marginTop: 10 }}>
+                {group ? s.groupWelcome[0] : s.beginning}
+                <span dir="auto" style={{ color: pal.text, fontWeight: 600 }}>
+                  {title}
+                </span>
+                {group ? s.groupWelcome[1] : "."}
+              </div>
+            </div>
+
+            {/* Day divider */}
+            <div className="flex items-center" style={{ margin: `20px ${EDGE}px 0`, gap: 8 }}>
+              <span className="flex-1" style={{ height: 1, background: pal.border }} />
+              <span style={{ color: pal.muted, fontSize: 12, lineHeight: "16px", fontWeight: 600 }}>{today}</span>
+              <span className="flex-1" style={{ height: 1, background: pal.border }} />
+            </div>
+
+            {messages.map((m: Message, i) => {
+              // Deleted: Discord removes the message for everyone — nothing is left in the list.
+              if (m.type === "deleted") {
+                return <div key={m.id} data-mid={m.id} data-sender={m.sender} aria-hidden style={{ height: 0, overflow: "hidden" }} />;
+              }
+              const mine = m.sender === "me";
+              const author = authorOf(m);
+              const name = nameOf(author);
+              const time = clock12(m.time);
+              const topPad = m.id === firstShownId ? 12 : GROUP_GAP;
+              const enterClass = live ? "dcios-enter" : undefined;
+
+              // Call: system message with the phone glyph in the avatar column.
+              if (m.type === "call") {
+                const c = m.call ?? { video: false, missed: false };
+                const missedForMe = c.missed && !mine;
+                const dur = c.duration?.trim() ? humanizeCall(c.duration) : c.missed ? humanizeCall("") : "";
+                const strongName = (
+                  <span dir="auto" style={{ color: pal.strong, fontWeight: 500 }}>
+                    {name}
+                  </span>
+                );
+                return (
+                  <div
+                    key={m.id}
+                    data-mid={m.id}
+                    data-sender={m.sender}
+                    className={enterClass}
+                    style={{ paddingTop: topPad, paddingLeft: EDGE, paddingRight: EDGE }}
+                  >
+                    <div className="flex items-start">
+                      <span className="flex shrink-0 justify-center" style={{ width: AVATAR, paddingTop: 0 }}>
+                        <PhoneCallGlyph size={18} color={c.missed ? pal.danger : pal.positive} />
+                      </span>
+                      <div
+                        className="min-w-0 flex-1"
+                        style={{ marginLeft: GUTTER, color: pal.muted, fontSize: 14, lineHeight: "18px", fontWeight: 400 }}
+                      >
+                        {missedForMe ? (
+                          <>
+                            {s.callMissed[0]}
+                            {strongName}
+                            {s.callMissed[1]}
+                            {dur}.
+                          </>
+                        ) : (
+                          <>
+                            {strongName}
+                            {s.callStarted(dur)}
+                          </>
+                        )}
+                        {time && (
+                          <span style={{ fontSize: 12, fontWeight: 500, marginLeft: 6, whiteSpace: "nowrap" }}>
+                            {s.todayAt(time)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              const replyTarget = m.replyToId ? scenario.messages.find((x) => x.id === m.replyToId) : undefined;
+              const replyAuthor = replyTarget ? authorOf(replyTarget) : undefined;
+              // A reply always opens a new group: avatar + name come back.
+              const firstOfGroup = firstFlags[i] || !!replyTarget;
+              const reaction = m.reaction?.trim() || "";
+              // "Sending": only while playback has not yet reached the final state.
+              const pending = mine && playback.isLive && playback.statusOf(m) === "sent" && m.status !== "sent";
+              const body = renderBody(m);
+
+              return (
+                <div
+                  key={m.id}
+                  data-mid={m.id}
+                  data-sender={m.sender}
+                  className={enterClass}
+                  style={{
+                    paddingTop: firstOfGroup ? topPad : IN_GROUP_GAP,
+                    paddingRight: EDGE,
+                    paddingLeft: firstOfGroup ? EDGE : CONTENT_X,
+                  }}
+                >
+                  <div className="dcios-pending" style={{ opacity: pending ? 0.5 : 1 }}>
+                    {replyTarget && replyAuthor && (
+                      <ReplyBar
+                        target={replyTarget}
+                        person={replyAuthor.person}
+                        tint={replyAuthor.tint}
+                        fallbackName={nameOf(replyAuthor)}
+                        pal={pal}
+                        s={s}
+                      />
+                    )}
+                    {firstOfGroup ? (
+                      <div className="flex items-start">
+                        <DiscordAvatar person={author.person} size={AVATAR} tint={author.tint} />
+                        <div className="min-w-0 flex-1" style={{ marginLeft: GUTTER }}>
+                          <div className="flex min-w-0 items-baseline" style={{ height: NAME_LINE }}>
+                            <span
+                              dir="auto"
+                              className="truncate"
+                              style={{ color: pal.strong, fontSize: 16, lineHeight: `${NAME_LINE}px`, fontWeight: 500 }}
+                            >
+                              {name}
+                            </span>
+                            {time && (
+                              <span
+                                className="shrink-0 whitespace-nowrap"
+                                style={{
+                                  color: pal.muted,
+                                  fontSize: 12,
+                                  lineHeight: `${NAME_LINE}px`,
+                                  fontWeight: 500,
+                                  marginLeft: 5,
+                                }}
+                              >
+                                {s.todayAt(time)}
+                              </span>
+                            )}
+                          </div>
+                          {body}
+                          {reaction && <ReactionPill emoji={reaction} me={!mine} pal={pal} />}
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        {body}
+                        {reaction && <ReactionPill emoji={reaction} me={!mine} pal={pal} />}
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Scrim: the list fades out under the floating chat bar. */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 bottom-0"
+            style={{ height: 20, background: `linear-gradient(to bottom, transparent, ${pal.bg})` }}
+          />
+
+          {/* "<Name> is typing..." just above the chat bar */}
+          {showTyping && (
+            <div
+              className={`absolute inset-x-0 bottom-0 flex items-center ${live ? "dcios-fade" : ""}`}
+              style={{ height: 22, paddingLeft: EDGE + 2, paddingRight: EDGE, gap: 6, background: pal.bg }}
+            >
+              <span className="flex items-center" style={{ gap: 3 }}>
+                {[0, 1, 2].map((d) => {
+                  const st = exporting ? dotAt(clockMs, d) : null;
+                  return (
+                    <span
+                      key={d}
+                      className={exporting ? "block rounded-full" : "dcios-dot block rounded-full"}
+                      style={{
+                        width: 5,
+                        height: 5,
+                        background: pal.text,
+                        ...(st
+                          ? { opacity: st.opacity, transform: `scale(${st.scale})` }
+                          : { animationDelay: `${d * DOT_STAGGER - DOT_CYCLE}ms` }),
+                      }}
+                    />
+                  );
+                })}
+              </span>
+              <span className="min-w-0 truncate" style={{ color: pal.text, fontSize: 12, lineHeight: "16px", fontWeight: 500 }}>
+                <span dir="auto" style={{ fontWeight: 700 }}>
+                  {nameOf(typer)}
+                </span>
+                {s.isTyping}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Chat bar: + · "Message @name" · Gift · Emoji · Mic (typing: + · text · Emoji · Send) */}
+        <div
+          className="shrink-0"
+          style={{ background: pal.bg, padding: `0 ${EDGE}px ${barBottom}px`, transition: kbTransition }}
+        >
+          {draftReplyTo && (
+            <div
+              className="flex items-center"
+              style={{
+                marginBottom: 8,
+                borderRadius: 16,
+                background: pal.bar,
+                border: `1px solid ${pal.border}`,
+                boxSizing: "border-box",
+                padding: "8px 12px",
+                gap: 8,
+              }}
+            >
+              <span className="min-w-0 flex-1 truncate" style={{ color: pal.muted, fontSize: 14, lineHeight: "18px", fontWeight: 500 }}>
+                {s.replyingTo}
+                <span dir="auto" style={{ color: pal.strong, fontWeight: 600 }}>
+                  {draftReplyName}
+                </span>
+              </span>
+              <span className="shrink-0" style={{ color: pal.brand, fontSize: 14, lineHeight: "18px", fontWeight: 700 }}>
+                @ {s.mentionOn}
+              </span>
+              <CircleXGlyph color={pal.icon} cut={pal.bar} />
+            </div>
+          )}
+          <div
+            className="flex items-end"
+            style={{
+              minHeight: BAR_H,
+              borderRadius: 16,
+              background: pal.bar,
+              border: `1px solid ${pal.border}`,
+              boxSizing: "border-box",
+              padding: "9px 11px",
+            }}
+          >
+            <span className="flex shrink-0 items-center justify-center" style={{ width: 32, height: 36 }}>
+              <PlusGlyph color={pal.icon} />
+            </span>
+            <div className="min-w-0 flex-1" style={{ padding: "8px 0", marginLeft: 9, marginRight: 8 }}>
+              {hasDraft ? (
+                <div
+                  className="flex flex-col justify-end overflow-hidden"
+                  style={{ maxHeight: DRAFT_MAX_LINES * 20 }}
+                >
+                  <div
+                    dir={dirOf(draftText)}
+                    style={{
+                      color: pal.text,
+                      fontSize: 16,
+                      lineHeight: "20px",
+                      fontWeight: 400,
+                      whiteSpace: "pre-wrap",
+                      overflowWrap: "anywhere",
+                      textAlign: "start",
+                    }}
+                  >
+                    {draftText}
+                    <Caret pal={pal} clockMs={clockMs} />
+                  </div>
+                </div>
+              ) : (
+                <div className="flex min-w-0 items-center" style={{ height: 20 }}>
+                  {draft && <Caret pal={pal} clockMs={clockMs} />}
+                  <span
+                    dir="auto"
+                    className="min-w-0 truncate"
+                    style={{ color: pal.muted, fontSize: 16, lineHeight: "20px", fontWeight: 400 }}
+                  >
+                    {group ? s.messageGroup(title) : s.messageAt(themName)}
+                  </span>
+                </div>
+              )}
+            </div>
+            <span className="flex shrink-0 items-center" style={{ gap: 8, height: 36 }}>
+              {!hasDraft && (
+                <span className="flex items-center justify-center" style={{ width: 32, height: 32 }}>
+                  <GiftGlyph color={pal.icon} />
+                </span>
+              )}
+              <span className="flex items-center justify-center" style={{ width: 32, height: 32 }}>
+                <EmojiGlyph color={pal.icon} />
+              </span>
+              {hasDraft ? (
+                <span
+                  className="flex items-center justify-center rounded-full"
+                  style={{ width: 36, height: 36, marginRight: -2, background: pal.brand }}
+                >
+                  <SendGlyph />
+                </span>
+              ) : (
+                <span className="flex items-center justify-center" style={{ width: 32, height: 32 }}>
+                  <MicGlyph color={pal.icon} />
+                </span>
+              )}
+            </span>
+          </div>
+        </div>
+      </div>
+      <SystemBottomBar device={scenario.device} bg={pal.bg} fg={pal.homeIndicator} />
+    </div>
+  );
+}

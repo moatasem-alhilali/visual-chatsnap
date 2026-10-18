@@ -72,13 +72,14 @@
  * the 👍 becomes the filled paper-plane send glyph (mirrored in Arabic).
  */
 
-import type { CSSProperties, ReactNode } from "react";
+import { Fragment, useEffect, type CSSProperties, type ReactNode, type RefObject } from "react";
 
-import type { Message, Person } from "../../types";
+import type { CallEntry, FileShare, GroupChat, LinkPreview, LocationShare, Message, Person } from "../../types";
 import { Avatar, dirOf, SystemBottomBar, useChatScroll } from "../shared";
+import { useKeyboardInset } from "../devices/keyboard-context";
 import { SamsungStatusBar } from "../devices/SamsungStatusBar";
 import type { Lang } from "./chrome";
-import { groupInfo, type PlatformMotion, type PlatformProps } from "./types";
+import type { PlatformMotion, PlatformProps } from "./types";
 
 /* ------------------------------ tokens ------------------------------ */
 
@@ -101,6 +102,11 @@ interface Pal {
   reactShadow: string;
   quoteBg: string;
   quoteFg: string;
+  /** call card: glyph chip + "Call back" button fills */
+  callChip: string;
+  callButton: string;
+  /** outline of the "You unsent a message" bubble */
+  unsentBorder: string;
 }
 
 function palette(dark: boolean): Pal {
@@ -121,6 +127,9 @@ function palette(dark: boolean): Pal {
         reactShadow: "0 1px 3px rgba(0,0,0,0.5)",
         quoteBg: "#1c1c1c",
         quoteFg: "#9a9ca0",
+        callChip: "#4a4a4a",
+        callButton: "#424242",
+        unsentBorder: "#3e4042",
       }
     : {
         bg: "#ffffff",
@@ -138,26 +147,46 @@ function palette(dark: boolean): Pal {
         reactShadow: "0 0 0 0.5px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.16)",
         quoteBg: "#f6f6f6",
         quoteFg: "#7d7f83",
+        callChip: "#dcdee3",
+        callButton: "#e2e4e8",
+        unsentBorder: "#ced0d4",
       };
 }
 
+interface Strings {
+  activeNow: string;
+  message: string;
+  friends: string;
+  viewProfile: string;
+  e2ee: string;
+  learnMore: string;
+  youRepliedTo: (name: string) => string;
+  repliedToYou: (name: string) => string;
+  youRepliedToYourself: string;
+  repliedToThemselves: (name: string) => string;
+  /** group: "Khalid replied to Sara" */
+  replied: (a: string, b: string) => string;
+  voiceMessage: string;
+  edited: string;
+  youUnsent: string;
+  unsent: (name: string) => string;
+  missedAudio: string;
+  missedVideo: string;
+  audioCall: string;
+  videoChat: string;
+  noAnswer: string;
+  callBack: string;
+  callAgain: string;
+  liveLocation: string;
+  location: string;
+  attachment: string;
+  sticker: string;
+  /** group intro line under the name */
+  memberList: (names: string[]) => string;
+}
+
 /** Messenger's own wording (en / ar builds of the app). */
-const STR: Record<
-  Lang,
-  {
-    activeNow: string;
-    message: string;
-    friends: string;
-    viewProfile: string;
-    e2ee: string;
-    learnMore: string;
-    youRepliedTo: (name: string) => string;
-    repliedToYou: (name: string) => string;
-    youRepliedToYourself: string;
-    repliedToThemselves: (name: string) => string;
-    voiceMessage: string;
-  }
-> = {
+const STR: Record<Lang, Strings> = {
   en: {
     activeNow: "Active now",
     message: "Message",
@@ -169,7 +198,23 @@ const STR: Record<
     repliedToYou: (n) => `${n} replied to you`,
     youRepliedToYourself: "You replied to yourself",
     repliedToThemselves: (n) => `${n} replied to themselves`,
+    replied: (a, b) => `${a} replied to ${b}`,
     voiceMessage: "Voice message",
+    edited: "Edited",
+    youUnsent: "You unsent a message",
+    unsent: (n) => `${n} unsent a message`,
+    missedAudio: "Missed audio call",
+    missedVideo: "Missed video chat",
+    audioCall: "Audio call",
+    videoChat: "Video chat",
+    noAnswer: "No answer",
+    callBack: "Call back",
+    callAgain: "Call again",
+    liveLocation: "Live location",
+    location: "Location",
+    attachment: "Attachment",
+    sticker: "Sticker",
+    memberList: (names) => `${names.join(", ")} and you`,
   },
   ar: {
     activeNow: "نشط الآن",
@@ -182,7 +227,23 @@ const STR: Record<
     repliedToYou: (n) => `قام ${n} بالرد عليك`,
     youRepliedToYourself: "قمت بالرد على نفسك",
     repliedToThemselves: (n) => `قام ${n} بالرد على نفسه`,
+    replied: (a, b) => `قام ${a} بالرد على ${b}`,
     voiceMessage: "رسالة صوتية",
+    edited: "تم التعديل",
+    youUnsent: "قمت بإلغاء إرسال رسالة",
+    unsent: (n) => `ألغى ${n} إرسال رسالة`,
+    missedAudio: "مكالمة صوتية فائتة",
+    missedVideo: "دردشة فيديو فائتة",
+    audioCall: "مكالمة صوتية",
+    videoChat: "دردشة فيديو",
+    noAnswer: "لم يتم الرد",
+    callBack: "معاودة الاتصال",
+    callAgain: "الاتصال مرة أخرى",
+    liveLocation: "الموقع المباشر",
+    location: "الموقع",
+    attachment: "مرفق",
+    sticker: "ملصق",
+    memberList: (names) => `${names.join("، ")} وأنت`,
   },
 };
 
@@ -493,10 +554,10 @@ function needsSeparator(messages: Message[], i: number): boolean {
 
 const PICTO = /\p{Extended_Pictographic}|\p{Regional_Indicator}|⃣/u;
 
-/** 1–3 emoji and nothing else → rendered large without a bubble. */
-function bigEmoji(text: string): boolean {
+/** Number of emoji when the text is 1–3 emoji and nothing else, else 0. */
+function emojiCount(text: string): number {
   const t = text.trim();
-  if (!t) return false;
+  if (!t) return 0;
   let graphemes: string[];
   if (typeof Intl !== "undefined" && "Segmenter" in Intl) {
     const seg = new Intl.Segmenter(undefined, { granularity: "grapheme" });
@@ -504,16 +565,45 @@ function bigEmoji(text: string): boolean {
   } else {
     graphemes = Array.from(t).filter((g) => g.trim() !== "");
   }
-  return graphemes.length > 0 && graphemes.length <= 3 && graphemes.every((g) => PICTO.test(g));
+  return graphemes.length > 0 && graphemes.length <= 3 && graphemes.every((g) => PICTO.test(g)) ? graphemes.length : 0;
 }
 
-type Kind = "text" | "voice" | "image" | "emoji";
+/** 1–3 emoji and nothing else → rendered large without a bubble. */
+function bigEmoji(text: string): boolean {
+  return emojiCount(text) > 0;
+}
+
+type Kind = "text" | "voice" | "image" | "emoji" | "sticker" | "location" | "file" | "call" | "deleted";
 
 function kindOf(m: Message): Kind {
-  if (m.type === "voice") return "voice";
-  if (m.type === "image") return "image";
-  return bigEmoji(m.text) ? "emoji" : "text";
+  switch (m.type) {
+    case "voice":
+    case "image":
+    case "sticker":
+    case "location":
+    case "file":
+    case "call":
+    case "deleted":
+      return m.type;
+    default:
+      return bigEmoji(m.text) ? "emoji" : "text";
+  }
 }
+
+/** Kinds whose corners merge with neighbours of the same run (emoji, stickers and call cards stand alone). */
+const JOINABLE: Record<Kind, boolean> = {
+  text: true,
+  voice: true,
+  image: true,
+  file: true,
+  deleted: true,
+  location: true,
+  emoji: false,
+  sticker: false,
+  call: false,
+};
+
+const joins = (a: Kind | undefined, b: Kind | undefined) => !!a && !!b && JOINABLE[a] && JOINABLE[b];
 
 type Corners = Pick<CSSProperties, "borderTopLeftRadius" | "borderTopRightRadius" | "borderBottomLeftRadius" | "borderBottomRightRadius">;
 
@@ -585,8 +675,23 @@ function ReactionBadge({ emoji, pal, onRight }: { emoji: string; pal: Pal; onRig
 const QUOTE_TUCK = 14;
 
 /** "You replied to Khalid" + the washed quoted bubble tucked behind the reply. */
-function QuoteBlock({ target, mine, label, pal, voiceLabel }: { target: Message; mine: boolean; label: string; pal: Pal; voiceLabel: string }) {
-  const text = target.text.trim();
+function QuoteBlock({
+  target,
+  mine,
+  label,
+  pal,
+  voiceLabel,
+  summary,
+}: {
+  target: Message;
+  mine: boolean;
+  label: string;
+  pal: Pal;
+  voiceLabel: string;
+  /** stand-in text for kinds without a body (location, file, call, …) */
+  summary?: string | null;
+}) {
+  const text = summary ?? target.text.trim();
   const isVoice = target.type === "voice";
   return (
     <div className={`flex flex-col ${mine ? "items-end" : "items-start"}`} style={{ maxWidth: M.maxW }}>
@@ -683,49 +788,430 @@ function TypingRow({ person, pal, animate, clockMs }: { person: Person; pal: Pal
   );
 }
 
+/* ------------------------- round-5 sub-views ------------------------ */
+
+/** Messenger's default group picture: two member heads stacked diagonally. */
+function GroupAvatar({ group, size, ring }: { group: GroupChat; size: number; ring: string }) {
+  if (group.avatar || group.members.length === 0) {
+    return <Avatar person={{ name: group.name, avatar: group.avatar }} size={size} />;
+  }
+  const front = group.members[0];
+  const back = group.members[1] ?? group.members[0];
+  const inner = Math.round(size * 0.68);
+  const ringW = Math.max(1.5, Math.round(size * 0.05 * 2) / 2);
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <div className="absolute" style={{ top: 0, insetInlineEnd: 0 }}>
+        <Avatar person={back} size={inner} />
+      </div>
+      <div className="absolute rounded-full" style={{ bottom: -ringW, insetInlineStart: -ringW, padding: ringW, background: ring }}>
+        <Avatar person={front} size={inner} />
+      </div>
+    </div>
+  );
+}
+
+/** Underlines URLs inside a bubble's text the way Messenger does. */
+function Linkified({ text }: { text: string }) {
+  const parts = text.split(/(https?:\/\/[^\s]+)/g);
+  return (
+    <>
+      {parts.map((p, i) =>
+        i % 2 ? (
+          <span key={i} style={{ textDecoration: "underline", textUnderlineOffset: 2 }}>
+            {p}
+          </span>
+        ) : (
+          p
+        ),
+      )}
+    </>
+  );
+}
+
+function siteOf(link: LinkPreview): string {
+  if (link.siteName?.trim()) return link.siteName.trim();
+  try {
+    return new URL(link.url).hostname.replace(/^www\./, "");
+  } catch {
+    return link.url;
+  }
+}
+
+/** Link preview (Messenger "XMA" card): grey wash on both sides, image + title + domain. */
+function LinkCard({ link, pal, corners }: { link: LinkPreview; pal: Pal; corners: Corners }) {
+  return (
+    <div className="overflow-hidden" style={{ ...corners, width: M.maxW, background: pal.inBubble }}>
+      <div className="flex items-center justify-center" style={{ height: 132, background: pal.imgPlaceholder }}>
+        {link.image ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={link.image} alt="" draggable={false} className="block h-full w-full object-cover" />
+        ) : (
+          <ImageGlyph color={pal.sub} />
+        )}
+      </div>
+      <div style={{ padding: "8px 12px 10px" }}>
+        <div dir={dirOf(link.title)} className="line-clamp-2 break-words" style={{ fontSize: 15, lineHeight: "20px", fontWeight: 700, color: pal.bubbleFg, textAlign: "start" }}>
+          {link.title}
+        </div>
+        <div dir="ltr" className="truncate" style={{ marginTop: 1, fontSize: 13, lineHeight: "17px", color: pal.sub, textAlign: "start" }}>
+          {siteOf(link)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Plausible street-map tile (Meta maps palette) drawn as inline SVG. */
+function MapArt({ dark, height }: { dark: boolean; height: number }) {
+  const c = dark
+    ? { land: "#1f2124", block: "#26282c", park: "#1c3324", water: "#14263b", road: "#3a3d42", edge: "#2c2e32", major: "#5b5241" }
+    : { land: "#f3f1ec", block: "#e9e6df", park: "#cfe7c3", water: "#aad3f2", road: "#ffffff", edge: "#dcd8cf", major: "#fbe3a1" };
+  return (
+    <svg width="100%" height={height} viewBox="0 0 240 136" preserveAspectRatio="xMidYMid slice" aria-hidden className="block">
+      <rect width="240" height="136" fill={c.land} />
+      <path d="M0 112c34-9 66 8 108 2s82-18 132-8v30H0Z" fill={c.water} />
+      <rect x="156" y="10" width="62" height="40" rx="6" fill={c.park} />
+      <rect x="14" y="10" width="36" height="22" rx="3" fill={c.block} />
+      <rect x="72" y="10" width="54" height="22" rx="3" fill={c.block} />
+      <rect x="14" y="52" width="36" height="34" rx="3" fill={c.block} />
+      <rect x="72" y="52" width="54" height="16" rx="3" fill={c.block} />
+      <rect x="160" y="70" width="58" height="24" rx="3" fill={c.block} />
+      <g fill="none" strokeLinecap="round">
+        <path d="M-4 42h248M61-4v124M139-4v124M200 54v52" stroke={c.edge} strokeWidth="8" />
+        <path d="M-4 42h248M61-4v124M139-4v124M200 54v52" stroke={c.road} strokeWidth="6" />
+        <path d="M-6 96 246 58" stroke={c.edge} strokeWidth="12" />
+        <path d="M-6 96 246 58" stroke={c.major} strokeWidth="9" />
+      </g>
+    </svg>
+  );
+}
+
+/** Red map pin (static share). */
+function MapPin() {
+  return (
+    <svg width="28" height="36" viewBox="0 0 30 38" aria-hidden className="block">
+      <path d="M15 1C7.3 1 1 7.1 1 14.7 1 25 15 37 15 37s14-12 14-22.3C29 7.1 22.7 1 15 1Z" fill="#f02849" stroke="#ffffff" strokeWidth="1.6" />
+      <circle cx="15" cy="14.5" r="5" fill="#ffffff" />
+    </svg>
+  );
+}
+
+function LocationCard({
+  loc,
+  person,
+  pal,
+  dark,
+  corners,
+  liveLabel,
+}: {
+  loc: LocationShare;
+  person: Person;
+  pal: Pal;
+  dark: boolean;
+  corners: Corners;
+  liveLabel: string;
+}) {
+  const title = loc.live ? liveLabel : loc.title;
+  const subtitle = loc.live ? loc.title : loc.subtitle;
+  return (
+    <div className="overflow-hidden" style={{ ...corners, width: 236, background: pal.inBubble }}>
+      <div className="relative">
+        <MapArt dark={dark} height={132} />
+        <div className="absolute inset-0 flex items-center justify-center">
+          {loc.live ? (
+            <span className="flex items-center justify-center rounded-full" style={{ width: 54, height: 54, background: "rgba(10,124,255,0.18)" }}>
+              <span className="rounded-full" style={{ padding: 3, background: THEME }}>
+                <span className="block rounded-full" style={{ padding: 2, background: "#ffffff" }}>
+                  <Avatar person={person} size={26} />
+                </span>
+              </span>
+            </span>
+          ) : (
+            <span style={{ marginTop: -28 }}>
+              <MapPin />
+            </span>
+          )}
+        </div>
+      </div>
+      <div style={{ padding: "8px 12px 10px" }}>
+        <div dir={dirOf(title)} className="truncate" style={{ fontSize: 15, lineHeight: "20px", fontWeight: 700, color: pal.bubbleFg, textAlign: "start" }}>
+          {title}
+        </div>
+        {subtitle && (
+          <div dir={dirOf(subtitle)} className="truncate" style={{ marginTop: 1, fontSize: 13, lineHeight: "17px", color: pal.sub, textAlign: "start" }}>
+            {subtitle}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const FILE_TINT: Record<string, string> = {
+  pdf: "#e5252a",
+  doc: "#2b579a",
+  docx: "#2b579a",
+  xls: "#217346",
+  xlsx: "#217346",
+  csv: "#217346",
+  ppt: "#d24726",
+  pptx: "#d24726",
+  zip: "#8a6d3b",
+};
+
+function extOf(name: string): string {
+  const mt = /\.([a-z0-9]{1,5})$/i.exec(name.trim());
+  return mt ? mt[1].toLowerCase() : "";
+}
+
+/** Document glyph: white page, folded corner, coloured file-type band. */
+function DocGlyph({ ext }: { ext: string }) {
+  const tint = FILE_TINT[ext] ?? "#65676b";
+  const label = (ext || "file").slice(0, 4).toUpperCase();
+  return (
+    <svg width="22" height="28" viewBox="0 0 22 28" aria-hidden className="block">
+      <path d="M3 0h11l8 8v17a3 3 0 0 1-3 3H3a3 3 0 0 1-3-3V3a3 3 0 0 1 3-3Z" fill="#ffffff" />
+      <path d="M14 0v5a3 3 0 0 0 3 3h5Z" fill="#d7d9dd" />
+      <rect x="0" y="14" width="18" height="9" rx="1.5" fill={tint} />
+      <text x="9" y="21" textAnchor="middle" fontSize="6.4" fontWeight="700" fill="#ffffff" fontFamily="Roboto, system-ui, sans-serif">
+        {label}
+      </text>
+    </svg>
+  );
+}
+
+/** File attachment: a bubble in the sender's colour with a round doc chip, name and meta. */
+function FileBubble({ file, mine, pal, corners }: { file: FileShare; mine: boolean; pal: Pal; corners: Corners }) {
+  const ext = extOf(file.name);
+  // each part isolated so "245 KB" / "PDF" keep their order inside the Arabic UI
+  const parts = [file.pages, file.size, ext ? ext.toUpperCase() : ""].filter((p): p is string => !!p);
+  return (
+    <div
+      className="flex items-center"
+      style={{ ...corners, background: mine ? THEME : pal.inBubble, color: mine ? "#ffffff" : pal.bubbleFg, padding: "8px 14px 8px 8px", gap: 10, maxWidth: M.maxW }}
+    >
+      <span className="flex shrink-0 items-center justify-center rounded-full" style={{ width: 40, height: 40, background: mine ? "rgba(255,255,255,0.22)" : pal.button }}>
+        <DocGlyph ext={ext} />
+      </span>
+      <div className="min-w-0">
+        <div className="truncate" style={{ fontSize: 15, lineHeight: "20px", fontWeight: 700, textAlign: "start" }}>
+          <bdi>{file.name}</bdi>
+        </div>
+        {parts.length > 0 && (
+          <div className="truncate" style={{ fontSize: 13, lineHeight: "17px", opacity: mine ? 0.85 : 1, color: mine ? undefined : pal.sub, textAlign: "start" }}>
+            {parts.map((p, k) => (
+              <Fragment key={k}>
+                {k > 0 && " · "}
+                <bdi>{p}</bdi>
+              </Fragment>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CallGlyph({ video, color, size }: { video: boolean; color: string; size: number }) {
+  return video ? (
+    <svg width={size} height={size} viewBox="0 0 26 24" aria-hidden>
+      <rect x="1.5" y="5" width="15.5" height="14" rx="3.6" fill={color} />
+      <path fill={color} d="m18.6 10.1 4.6-3.1c.7-.5 1.6 0 1.6.9v8.2c0 .9-.9 1.4-1.6.9l-4.6-3.1v-3.8Z" />
+    </svg>
+  ) : (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>
+      <path
+        fill={color}
+        d="M7.3 2.6c.7-.3 1.5 0 1.9.6l1.9 3c.4.7.3 1.6-.3 2.1l-1.5 1.3c-.3.3-.4.7-.2 1.1.6 1.3 1.4 2.4 2.4 3.4s2.1 1.8 3.4 2.4c.4.2.8.1 1.1-.2l1.3-1.5c.5-.6 1.4-.7 2.1-.3l3 1.9c.6.4.9 1.2.6 1.9l-.6 1.6c-.4 1.1-1.5 1.9-2.7 1.9C11.2 21.8 2.2 12.8 2.2 4.3c0-1.2.8-2.3 1.9-2.7l3.2.9Z"
+      />
+    </svg>
+  );
+}
+
+const MISSED_RED = "#f02849";
+
+/** Call entry: grey card, round call glyph, title + detail, full-width action button. */
+function CallCard({ call, mine, time, pal, s }: { call: CallEntry; mine: boolean; time: string; pal: Pal; s: Strings }) {
+  const missedIn = call.missed && !mine;
+  const title = missedIn ? (call.video ? s.missedVideo : s.missedAudio) : call.video ? s.videoChat : s.audioCall;
+  const detail = call.missed ? (mine ? s.noAnswer : time) : call.duration || time;
+  return (
+    <div style={{ borderRadius: M.radius, background: pal.inBubble, color: pal.bubbleFg, padding: 10, width: 224 }}>
+      <div className="flex items-center" style={{ gap: 10, paddingInline: 2 }}>
+        <span className="flex shrink-0 items-center justify-center rounded-full" style={{ width: 36, height: 36, background: missedIn ? MISSED_RED : pal.callChip }}>
+          <CallGlyph video={call.video} color={missedIn ? "#ffffff" : pal.bubbleFg} size={18} />
+        </span>
+        <div className="min-w-0">
+          <div className="truncate" style={{ fontSize: 15, lineHeight: "20px", fontWeight: 700, textAlign: "start" }}>
+            {title}
+          </div>
+          <div dir="auto" className="truncate tabular-nums" style={{ fontSize: 13, lineHeight: "17px", color: pal.sub, textAlign: "start" }}>
+            {detail}
+          </div>
+        </div>
+      </div>
+      <div
+        className="flex items-center justify-center"
+        style={{ marginTop: 10, height: 36, borderRadius: 18, background: pal.callButton, fontSize: 14, fontWeight: 700 }}
+      >
+        {missedIn ? s.callBack : s.callAgain}
+      </div>
+    </div>
+  );
+}
+
+/** "You unsent a message": outlined, unfilled bubble with secondary text. */
+function UnsentBubble({ label, pal, corners }: { label: string; pal: Pal; corners: Corners }) {
+  return (
+    <div style={{ ...corners, border: `1px solid ${pal.unsentBorder}`, padding: `${M.padY - 1}px ${M.padX - 1}px`, color: pal.sub }}>
+      <div dir="auto" style={{ fontSize: 14, lineHeight: `${M.line}px`, textAlign: "start" }}>
+        {label}
+      </div>
+    </div>
+  );
+}
+
+/** Sticker: no bubble — the image, or the emoji drawn large. */
+function Sticker({ m }: { m: Message }) {
+  if (m.imageSrc) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={m.imageSrc} alt="" draggable={false} className="block object-contain" style={{ width: 120, height: 120 }} />
+    );
+  }
+  const emoji = m.text.trim() || "🙂";
+  const n = emojiCount(emoji) || 1;
+  return (
+    <div dir="ltr" className="flex items-center justify-center" style={{ height: 120, minWidth: 120, fontSize: n === 1 ? 92 : n === 2 ? 62 : 46, lineHeight: "120px" }}>
+      {emoji}
+    </div>
+  );
+}
+
+/** Small grey line above a bubble ("Khalid", "Edited"). */
+function AboveLabel({ children, pal }: { children: ReactNode; pal: Pal }) {
+  return (
+    <div className="max-w-full truncate" dir="auto" style={{ paddingInline: 12, marginBottom: 3, fontSize: 12, lineHeight: "16px", color: pal.sub, textAlign: "start" }}>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * Keeps the newest message in view when the thread shrinks (keyboard rising):
+ * the scroll position follows the bottom edge like a RecyclerView with
+ * stackFromEnd. Off during video export, where the exporter owns `.rcss-scroll`.
+ */
+function useBottomAnchor(ref: RefObject<HTMLDivElement | null>, enabled: boolean) {
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !enabled || typeof ResizeObserver === "undefined") return;
+    let prevH = el.clientHeight;
+    const ro = new ResizeObserver(() => {
+      const h = el.clientHeight;
+      if (h < prevH) el.scrollTop += prevH - h;
+      prevH = h;
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref, enabled]);
+}
+
 /* ------------------------------ thread ------------------------------ */
+
+const firstNameOf = (name: string) => name.trim().split(/\s+/)[0] || name;
 
 export function MessengerAndroid({ scenario, playback, lang, rtl }: PlatformProps) {
   const dark = scenario.theme === "dark";
   const pal = palette(dark);
   const s = STR[lang];
+  const kb = useKeyboardInset();
   const { messages, typing, clockMs } = playback;
-  const live = playback.isLive && clockMs === undefined;
-  const showTyping = typing || (!playback.isLive && clockMs === undefined && scenario.presence === "typing");
+  const exporting = clockMs !== undefined;
+  const live = playback.isLive && !exporting;
+  const showTyping = typing || (!playback.isLive && !exporting && scenario.presence === "typing");
   const draft = playback.draft;
   const draftText = draft?.text ?? "";
   const composing = draftText.length > 0;
   // rough wrapped-line estimate so the thread stays pinned while the composer grows
   const draftLines = draftText ? Math.min(5, Math.ceil(draftText.length / 24)) : 0;
-  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${showTyping}-${draftLines}`);
+  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${showTyping}-${draftLines}-${kb.inset > 0}`);
+  useBottomAnchor(scrollRef, !exporting);
+
+  const group = scenario.group && scenario.group.members.length > 0 ? scenario.group : null;
+  const members = group?.members ?? [scenario.them];
+  const authorOf = (m: Message): number =>
+    m.sender === "me" ? -1 : group ? Math.min(members.length - 1, Math.max(0, m.authorIndex ?? 0)) : 0;
+  const personOf = (m: Message): Person => (m.sender === "me" ? scenario.me : members[authorOf(m)]);
+  const nameOf = (m: Message) => firstNameOf(personOf(m).name);
 
   const byId = new Map(scenario.messages.map((m) => [m.id, m] as const));
-  const firstName = scenario.them.name.trim().split(/\s+/)[0] || scenario.them.name;
   const quoteOf = (m: Message): Message | null => (m.replyToId ? (byId.get(m.replyToId) ?? null) : null);
   const replyLabel = (m: Message, target: Message): string => {
-    if (m.sender === "me") return target.sender === "me" ? s.youRepliedToYourself : s.youRepliedTo(firstName);
-    return target.sender === "me" ? s.repliedToYou(firstName) : s.repliedToThemselves(firstName);
+    if (m.sender === "me") return target.sender === "me" ? s.youRepliedToYourself : s.youRepliedTo(nameOf(target));
+    if (target.sender === "me") return s.repliedToYou(nameOf(m));
+    return authorOf(target) === authorOf(m) ? s.repliedToThemselves(nameOf(m)) : s.replied(nameOf(m), nameOf(target));
+  };
+  /** one-line summary of a quoted message that has no text of its own */
+  const summaryOf = (t: Message): string | null => {
+    if (t.type === "deleted") return t.sender === "me" ? s.youUnsent : s.unsent(nameOf(t));
+    if (t.type === "location") return t.location?.live ? s.liveLocation : (t.location?.title ?? s.location);
+    if (t.type === "file") return t.file?.name ?? s.attachment;
+    if (t.type === "sticker") return s.sticker;
+    if (t.type === "call") return t.call?.video ? s.videoChat : s.audioCall;
+    return null;
   };
 
-  const active = scenario.presence !== "lastseen";
+  const active = group ? true : scenario.presence !== "lastseen";
   const subtitle = active ? s.activeNow : scenario.lastSeenText;
+  const title = group ? group.name : scenario.them.name;
+
+  // who is typing: the author of the next "them" message still to come
+  const lastShown = messages.length ? scenario.messages.findIndex((x) => x.id === messages[messages.length - 1].id) : -1;
+  const nextThem = scenario.messages.slice(lastShown + 1).find((x) => x.sender === "them");
+  const typingPerson = nextThem ? personOf(nextThem) : members[0];
 
   const kinds = messages.map(kindOf);
-  /** bubble-like kinds join their neighbours' corners; big emoji break the run */
-  const joins = (a: Kind | undefined, b: Kind | undefined) => !!a && !!b && a !== "emoji" && b !== "emoji";
+  const sameRun = (a: Message | undefined, b: Message | undefined) => !!a && !!b && a.sender === b.sender && authorOf(a) === authorOf(b);
 
-  /* Receipts: reader avatar on the newest outgoing message they have seen, and
-     a status circle on your newest outgoing message if it is not seen yet. */
+  /* Receipts. 1:1 — reader avatar on the newest outgoing message they have
+     seen, and a status circle on your newest outgoing message if it is not
+     seen yet. Groups — a row of the members' seen-heads under the newest
+     message they have all seen. */
   let lastRead = -1;
   let lastMine = -1;
+  let lastTheirs = -1;
   messages.forEach((m, i) => {
-    if (m.sender !== "me") return;
+    if (m.sender !== "me") {
+      lastTheirs = i;
+      return;
+    }
     lastMine = i;
     if (playback.statusOf(m) === "read") lastRead = i;
   });
+  let headsAt = -1;
+  let heads: Person[] = [];
+  if (group) {
+    if (lastRead >= 0 && lastRead > lastTheirs) {
+      headsAt = lastRead;
+      heads = members;
+    } else if (lastTheirs >= 0) {
+      headsAt = lastTheirs;
+      heads = members.filter((_, k) => k !== authorOf(messages[lastTheirs]));
+    }
+  }
 
   return (
-    <div className="flex h-full w-full flex-col" style={{ background: pal.bg, color: pal.fg }}>
+    <div
+      className="flex h-full w-full flex-col"
+      style={{
+        background: pal.bg,
+        color: pal.fg,
+        paddingBottom: kb.inset,
+        transition: kb.transition === "none" ? "none" : `padding-bottom ${kb.transition}`,
+      }}
+    >
       <style>{KEYFRAMES}</style>
       <SamsungStatusBar tint={dark ? "light" : "dark"} background={pal.bg} lang={lang} />
 
@@ -738,7 +1224,7 @@ export function MessengerAndroid({ scenario, playback, lang, rtl }: PlatformProp
           <BackArrow />
         </span>
         <div className="relative shrink-0">
-          <Avatar person={scenario.them} size={M.headerAvatar} />
+          {group ? <GroupAvatar group={group} size={M.headerAvatar} ring={pal.bg} /> : <Avatar person={scenario.them} size={M.headerAvatar} />}
           {active && (
             <span
               className="absolute rounded-full"
@@ -756,7 +1242,7 @@ export function MessengerAndroid({ scenario, playback, lang, rtl }: PlatformProp
         </div>
         <div className="min-w-0 flex-1" style={{ marginInlineStart: 10 }}>
           <div className="truncate" dir="auto" style={{ fontSize: 16, lineHeight: "20px", fontWeight: 700, textAlign: "start" }}>
-            {scenario.them.name}
+            {title}
           </div>
           {subtitle && (
             <div className="truncate" dir="auto" style={{ fontSize: 13, lineHeight: "16px", color: pal.sub, textAlign: "start" }}>
@@ -781,16 +1267,24 @@ export function MessengerAndroid({ scenario, playback, lang, rtl }: PlatformProp
         style={{ background: pal.bg, paddingInline: M.bodyX, paddingTop: 8, paddingBottom: 8 }}
       >
         <div className="flex flex-col">
-          {/* Profile intro + E2EE notice that open every Messenger thread */}
+          {/* Profile / group intro + E2EE notice that open every Messenger thread */}
           <div className="flex flex-col items-center text-center" style={{ marginTop: 24, marginBottom: 20, paddingInline: 24 }}>
-            <Avatar person={scenario.them} size={80} />
+            {group ? <GroupAvatar group={group} size={80} ring={pal.bg} /> : <Avatar person={scenario.them} size={80} />}
             <div className="max-w-full truncate" dir="auto" style={{ marginTop: 12, fontSize: 20, lineHeight: "24px", fontWeight: 700 }}>
-              {scenario.them.name}
+              {title}
             </div>
-            <div style={{ marginTop: 4, fontSize: 13, lineHeight: "16px", color: pal.sub }}>{s.friends}</div>
-            <div style={{ marginTop: 12, background: pal.button, fontSize: 14, lineHeight: "18px", fontWeight: 600, padding: "7px 14px", borderRadius: 18 }}>
-              {s.viewProfile}
-            </div>
+            {group ? (
+              <div className="max-w-full truncate" dir="auto" style={{ marginTop: 4, fontSize: 13, lineHeight: "16px", color: pal.sub }}>
+                {s.memberList(members.map((p) => firstNameOf(p.name)))}
+              </div>
+            ) : (
+              <>
+                <div style={{ marginTop: 4, fontSize: 13, lineHeight: "16px", color: pal.sub }}>{s.friends}</div>
+                <div style={{ marginTop: 12, background: pal.button, fontSize: 14, lineHeight: "18px", fontWeight: 600, padding: "7px 14px", borderRadius: 18 }}>
+                  {s.viewProfile}
+                </div>
+              </>
+            )}
             <div style={{ marginTop: 24, fontSize: 12, lineHeight: "16px", color: pal.sub }}>
               <LockIcon color={pal.sub} /> {s.e2ee} <span className="whitespace-nowrap" style={{ fontWeight: 600, color: pal.fg }}>{s.learnMore}</span>
             </div>
@@ -801,29 +1295,32 @@ export function MessengerAndroid({ scenario, playback, lang, rtl }: PlatformProp
             const onRight = mine ? !rtl : rtl;
             const kind = kinds[i];
             const sep = needsSeparator(messages, i);
-            const g = groupInfo(messages, i);
             const quote = quoteOf(m);
             // a quoted reply opens its own run: full corners above, sender-gap spacing
-            const firstOfGroup = g.firstOfGroup || sep || !!quote;
+            const firstOfGroup = !sameRun(messages[i - 1], m) || sep || !!quote;
             const nextSep = i + 1 < messages.length && needsSeparator(messages, i + 1);
             const nextQuoted = i + 1 < messages.length && !!quoteOf(messages[i + 1]);
-            const lastOfGroup = g.lastOfGroup || nextSep || nextQuoted;
-            const reaction = m.reaction?.trim() || null;
+            const lastOfGroup = !sameRun(m, messages[i + 1]) || nextSep || nextQuoted;
+            const reaction = kind === "deleted" ? null : m.reaction?.trim() || null;
             const badge = reaction ? <ReactionBadge emoji={reaction} pal={pal} onRight={onRight} /> : null;
             const joinAbove = !firstOfGroup && joins(kinds[i - 1], kind);
             const joinBelow = !lastOfGroup && joins(kind, kinds[i + 1]);
+            const author = personOf(m);
+            const showName = !!group && !mine && firstOfGroup && !quote;
+            const link = kind === "text" && m.link ? m.link : null;
 
             const caption = kind === "image" ? m.text.trim() : "";
             const marginTop = sep ? 0 : firstOfGroup ? M.senderGap : M.groupGap;
             const status = mine ? playback.statusOf(m) : null;
 
             let receipt: ReactNode = null;
-            if (mine && i === lastRead) {
+            if (mine && !group && i === lastRead) {
               receipt = <Avatar person={scenario.them} size={14} />;
             } else if (mine && i === lastMine && status !== "read") {
               receipt = <StatusCircle filled={status === "delivered"} bg={pal.bg} />;
             }
 
+            const corners = cornersFor(onRight, joinAbove, joinBelow, M.radius);
             let body: ReactNode;
             if (kind === "emoji") {
               body = (
@@ -832,6 +1329,36 @@ export function MessengerAndroid({ scenario, playback, lang, rtl }: PlatformProp
                   {badge}
                 </div>
               );
+            } else if (kind === "sticker") {
+              body = (
+                <div className="relative">
+                  <Sticker m={m} />
+                  {badge}
+                </div>
+              );
+            } else if (kind === "location") {
+              body = (
+                <div className="relative">
+                  <LocationCard loc={m.location ?? { title: s.location }} person={author} pal={pal} dark={dark} corners={corners} liveLabel={s.liveLocation} />
+                  {badge}
+                </div>
+              );
+            } else if (kind === "file") {
+              body = (
+                <div className="relative">
+                  <FileBubble file={m.file ?? { name: s.attachment }} mine={mine} pal={pal} corners={corners} />
+                  {badge}
+                </div>
+              );
+            } else if (kind === "call") {
+              body = (
+                <div className="relative">
+                  <CallCard call={m.call ?? { video: false, missed: false }} mine={mine} time={m.time} pal={pal} s={s} />
+                  {badge}
+                </div>
+              );
+            } else if (kind === "deleted") {
+              body = <UnsentBubble label={mine ? s.youUnsent : s.unsent(firstNameOf(author.name))} pal={pal} corners={corners} />;
             } else if (kind === "image") {
               const imgCorners = cornersFor(onRight, joinAbove, !!caption || joinBelow, M.imgRadius);
               body = (
@@ -861,7 +1388,7 @@ export function MessengerAndroid({ scenario, playback, lang, rtl }: PlatformProp
                       }}
                     >
                       <div dir={dirOf(caption)} className="whitespace-pre-wrap break-words" style={{ fontSize: M.text, lineHeight: `${M.line}px`, textAlign: "start" }}>
-                        {caption}
+                        <Linkified text={caption} />
                       </div>
                       {badge}
                     </div>
@@ -869,11 +1396,11 @@ export function MessengerAndroid({ scenario, playback, lang, rtl }: PlatformProp
                 </>
               );
             } else {
-              body = (
+              const textBubble = (
                 <div
                   className="relative"
                   style={{
-                    ...cornersFor(onRight, joinAbove, joinBelow, M.radius),
+                    ...cornersFor(onRight, joinAbove, !!link || joinBelow, M.radius),
                     background: mine ? THEME : pal.inBubble,
                     color: mine ? "#ffffff" : pal.bubbleFg,
                     padding: kind === "voice" ? "6px 12px 6px 6px" : `${M.padY}px ${M.padX}px`,
@@ -883,11 +1410,22 @@ export function MessengerAndroid({ scenario, playback, lang, rtl }: PlatformProp
                     <VoiceContent mine={mine} pal={pal} duration={m.voiceDuration} />
                   ) : (
                     <div dir={dirOf(m.text)} className="whitespace-pre-wrap break-words" style={{ fontSize: M.text, lineHeight: `${M.line}px`, textAlign: "start" }}>
-                      {m.text}
+                      <Linkified text={m.text} />
                     </div>
                   )}
-                  {badge}
+                  {!link && badge}
                 </div>
+              );
+              body = link ? (
+                <>
+                  {textBubble}
+                  <div className="relative" style={{ marginTop: M.groupGap }}>
+                    <LinkCard link={link} pal={pal} corners={cornersFor(onRight, true, joinBelow, M.radius)} />
+                    {badge}
+                  </div>
+                </>
+              ) : (
+                textBubble
               );
             }
 
@@ -908,12 +1446,21 @@ export function MessengerAndroid({ scenario, playback, lang, rtl }: PlatformProp
                 >
                   {!mine && (
                     <div className="shrink-0" style={{ width: M.inAvatar, marginInlineEnd: 8 }}>
-                      {lastOfGroup && <Avatar person={scenario.them} size={M.inAvatar} />}
+                      {lastOfGroup && <Avatar person={author} size={M.inAvatar} />}
                     </div>
                   )}
                   <div className={`flex min-w-0 flex-col ${mine ? "items-end" : "items-start"}`} style={{ maxWidth: M.maxW }}>
+                    {showName && <AboveLabel pal={pal}>{firstNameOf(author.name)}</AboveLabel>}
+                    {m.edited && kind !== "deleted" && <AboveLabel pal={pal}>{s.edited}</AboveLabel>}
                     {quote && (
-                      <QuoteBlock target={quote} mine={mine} label={replyLabel(m, quote)} pal={pal} voiceLabel={s.voiceMessage} />
+                      <QuoteBlock
+                        target={quote}
+                        mine={mine}
+                        label={replyLabel(m, quote)}
+                        pal={pal}
+                        voiceLabel={s.voiceMessage}
+                        summary={summaryOf(quote)}
+                      />
                     )}
                     {body}
                   </div>
@@ -927,11 +1474,23 @@ export function MessengerAndroid({ scenario, playback, lang, rtl }: PlatformProp
                     </div>
                   )}
                 </div>
+                {/* group seen-heads: a row under the newest message the members have seen */}
+                {i === headsAt && heads.length > 0 && (
+                  <div
+                    key={`heads-${headsAt}`}
+                    className={`flex justify-end ${live ? "msa-fade" : ""}`}
+                    style={{ gap: 3, marginTop: 4, paddingInlineEnd: 1 }}
+                  >
+                    {heads.map((p, k) => (
+                      <Avatar key={k} person={p} size={14} />
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}
 
-          {showTyping && <TypingRow person={scenario.them} pal={pal} animate={live} clockMs={clockMs} />}
+          {showTyping && <TypingRow person={typingPerson} pal={pal} animate={live} clockMs={clockMs} />}
         </div>
       </div>
 

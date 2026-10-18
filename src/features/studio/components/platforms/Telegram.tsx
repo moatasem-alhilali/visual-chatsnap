@@ -65,8 +65,9 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type 
 import type { DeliveryStatus, Message, Person } from "../../types";
 import { dirOf, SystemBottomBar, useChatScroll } from "../shared";
 import { StatusBar } from "../devices/StatusBar";
+import { useKeyboardInset } from "../devices/keyboard-context";
 import type { Lang } from "./chrome";
-import { groupInfo, type PlatformMotion, type PlatformProps } from "./types";
+import type { PlatformMotion, PlatformProps } from "./types";
 
 /** CSS `url("data:…")` value for an inline SVG. */
 const svgUri = (svg: string) => `url("data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}")`;
@@ -106,6 +107,12 @@ const LIST_TOP = NAV_TOP + 60;
 const PANEL_BOTTOM = 42;
 const PANEL_H = 40;
 const LIST_BOTTOM = PANEL_BOTTOM + PANEL_H + 8;
+/** Keyboard up: the glass input panel keeps its 8pt inputPanelsInset above the keyboard (no home inset). */
+const KB_GAP = 8;
+/** Group chats (compact layout): 37pt avatar beside the last bubble of a run; incoming bubbles shift by 44pt. */
+const GROUP_AVATAR = 37;
+const GROUP_AVATAR_LEFT = 8;
+const GROUP_AVATAR_INSET = 44;
 
 const R_MAIN = 16;
 const R_AUX = 8;
@@ -516,9 +523,11 @@ function Wallpaper({ dark }: { dark: boolean }) {
 }
 
 /** Wallpaper-gradient copies (no pattern) fading over the list under the top bar and the input panel. */
-function EdgeEffects({ dark }: { dark: boolean }) {
+function EdgeEffects({ dark, kb }: { dark: boolean; kb: { inset: number; transition: string } }) {
   const topH = LIST_TOP + 34;
-  const bottomTop = SCREEN_H - PANEL_BOTTOM - PANEL_H - 20;
+  // with the keyboard up the panel floats 8pt above it (no home-indicator inset)
+  const panelBottom = kb.inset > 0 ? kb.inset + KB_GAP : PANEL_BOTTOM;
+  const bottomTop = SCREEN_H - panelBottom - PANEL_H - 20;
   const fill = (y: number): CSSProperties =>
     dark
       ? { background: "#000" }
@@ -541,7 +550,13 @@ function EdgeEffects({ dark }: { dark: boolean }) {
       <div
         aria-hidden
         className="pointer-events-none absolute inset-x-0 bottom-0"
-        style={{ height: SCREEN_H - bottomTop, opacity: 0.75, ...fill(bottomTop), ...fade("top", 60) }}
+        style={{
+          height: SCREEN_H - bottomTop,
+          opacity: 0.75,
+          ...fill(bottomTop),
+          ...fade("top", 60),
+          transition: kb.transition === "none" ? undefined : `height ${kb.transition}, background-position ${kb.transition}`,
+        }}
       />
     </>
   );
@@ -1016,6 +1031,38 @@ function useScreenGradient(rootRef: DarkGradRef, scrollRef: RefObject<HTMLDivEle
       scroller.removeEventListener("scroll", paint);
     };
   }, [rootRef, scrollRef, enabled, dep]);
+}
+
+/**
+ * Keep the newest message just above the input panel while the list shrinks for the keyboard: whenever the
+ * scroller resizes (it animates with the keyboard), pin it to the bottom. The first observer call is skipped so
+ * a deliberate initial scroll position (e.g. the harness' scroll=top) is kept.
+ */
+function useKeepBottom(scrollRef: RefObject<HTMLDivElement | null>, inset: number) {
+  const insetRef = useRef(inset);
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (el && insetRef.current !== inset) el.scrollTop = el.scrollHeight;
+    insetRef.current = inset;
+  }, [scrollRef, inset]);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let first = true;
+    let lastH = el.clientHeight;
+    const ro = new ResizeObserver(() => {
+      const h = el.clientHeight;
+      if (first) {
+        first = false;
+        lastH = h;
+        return;
+      }
+      if (h !== lastH) el.scrollTop = el.scrollHeight;
+      lastH = h;
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [scrollRef]);
 }
 
 const DARK_OUT_BG = "linear-gradient(180deg, #61bcf9 0px, #0088ff 852px)";
@@ -1502,6 +1549,429 @@ function EmojiMessage({ ctx, count, freeBg }: { ctx: RowCtx; count: number; free
 }
 
 /* ------------------------------------------------------------------ */
+/* Round 5: groups, link previews, sticker, location, file, call       */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Sources (Telegram-iOS master, Oct 2026):
+ *  - ChatMessageBubbleItemNode: group author name = semibold 14 (fontSize × 14/17) in the peer's name colour,
+ *    inside the first bubble of a run; avatar (37pt, compact layout) beside the last bubble of a run.
+ *  - ChatMessageDateAndStatusNode: edited → "edited 10:41" (Conversation.MessageEditedLabel + date).
+ *  - ChatMessageAttachedContentNode (webpage): inline block like replies — 3pt bar + accent × .1 fill, site name
+ *    semibold accentTextColor, title semibold, description regular (15 × 14/15 in compact chats), small 54pt
+ *    thumbnail top-right or a large image under the text; date on its own line under the block.
+ *  - ChatMessageInteractiveFileNode: 44pt status circle at x 3 (accentControlColor, file glyph), title regular
+ *    16 in fileTitleColor, description regular 13 = size only (dataSizeString) in fileDescriptionColor.
+ *  - ChatMessageCallBubbleContentNode: title medium 16 (primary), label regular 13 (fileDurationColor) at x 14
+ *    after the arrow (CallIncoming/OutgoingArrow, green #36c033 / red #ff4747), "time, duration"
+ *    (Notification.CallFormat + Call.Minutes); call button glyph at width − w − 8, y 15; content height 47.
+ *  - ChatMessageMapBubbleContentNode: map snapshot inset like photos, venue title + address under it; live
+ *    location = "Live Location" + "updated just now" with the timer ring; pin = venue circle / sender avatar.
+ *  - Telegram has no "deleted" placeholder: a message deleted for everyone just disappears from the list, so
+ *    `deleted` rows are not rendered (and do not break the bubble runs around them).
+ *  - Sticker (ChatMessageStickerItemNode): no bubble, ~160pt, time in a free service pill.
+ */
+
+const WEBPAGE_W = 300;
+const URL_RE = /(https?:\/\/[^\s]+|www\.[^\s]+)/g;
+
+/** Text with URLs drawn in linkTextColor (underlined only where the link colour equals the text colour). */
+function linkify(text: string, color: string, underline: boolean): ReactNode {
+  const parts = text.split(URL_RE);
+  if (parts.length === 1) return text;
+  return parts.map((p, i) =>
+    i % 2 === 1 ? (
+      <span key={i} style={{ color, textDecoration: underline ? "underline" : undefined }}>
+        {p}
+      </span>
+    ) : (
+      p
+    ),
+  );
+}
+
+function hostOf(url: string): string {
+  return url.replace(/^[a-z]+:\/\//i, "").replace(/^www\./i, "").split(/[/?#]/)[0];
+}
+
+function StatusLine({ ctx, hidden }: { ctx: RowCtx; hidden?: boolean }) {
+  const { color, check } = metaColors(ctx);
+  return (
+    <span style={hidden ? { visibility: "hidden" } : undefined}>
+      <MetaRun time={ctx.time} mine={ctx.mine} status={ctx.status} color={color} checkColor={check} inset={5} animate={!hidden && ctx.animate} />
+    </span>
+  );
+}
+
+/** Group author name at the top of the first bubble of a run. */
+function NameHeader({ ctx, style }: { ctx: RowCtx; style?: CSSProperties }) {
+  if (!ctx.name) return null;
+  return (
+    <div
+      dir="auto"
+      className="truncate"
+      style={{
+        padding: "6px 10px 0",
+        fontSize: 14,
+        lineHeight: "17px",
+        fontWeight: 600,
+        letterSpacing: "-0.15px",
+        color: ctx.name.color,
+        textAlign: "left",
+        maxWidth: BODY_MAX,
+        ...style,
+      }}
+    >
+      {ctx.name.text}
+    </div>
+  );
+}
+
+function WebpageBlock({ ctx, link }: { ctx: RowCtx; link: NonNullable<Message["link"]> }) {
+  const part = ctx.mine ? ctx.t.part.out : ctx.t.part.in;
+  const main = part.accent;
+  const site = link.siteName?.trim() || hostOf(link.url);
+  const dims = link.image ? dimsFromSrc(link.image) : null;
+  const large = !!link.image && (!dims || dims.w / dims.h >= 1.2);
+  const small = !!link.image && !large;
+  const line: CSSProperties = { fontSize: 14, lineHeight: "17px", letterSpacing: "-0.15px", textAlign: "start" };
+  const clamp = (n: number): CSSProperties => ({ display: "-webkit-box", WebkitLineClamp: n, WebkitBoxOrient: "vertical", overflow: "hidden" });
+  const imgW = WEBPAGE_W - 20 - 11 - 8;
+  const imgH = dims ? Math.min(200, Math.round((imgW * dims.h) / dims.w)) : Math.round(imgW / 1.91);
+  return (
+    <div
+      className="relative overflow-hidden"
+      style={{
+        marginTop: 6,
+        marginBottom: 3,
+        borderRadius: 4,
+        background: alpha(main, 0.1),
+        padding: `4px ${small ? 8 + 54 + 4 : 8}px 6px 11px`,
+        minHeight: small ? 54 + 12 : undefined,
+      }}
+    >
+      <span aria-hidden className="absolute inset-y-0 left-0 block" style={{ width: 3, background: main }} />
+      {small && link.image && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={link.image}
+          alt=""
+          draggable={false}
+          className="absolute block object-cover"
+          style={{ right: 6, top: 6, width: 54, height: 54, borderRadius: 4 }}
+        />
+      )}
+      <div dir="auto" className="truncate" style={{ ...line, fontWeight: 600, color: main }}>
+        {site}
+      </div>
+      {link.title && (
+        <div dir="auto" style={{ ...line, ...clamp(2), fontWeight: 600, color: ctx.t.text }}>
+          {link.title}
+        </div>
+      )}
+      {link.description && (
+        <div dir="auto" style={{ ...line, ...clamp(3), color: ctx.t.text }}>
+          {link.description}
+        </div>
+      )}
+      {large && link.image && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={link.image}
+          alt=""
+          draggable={false}
+          className="block object-cover"
+          style={{ marginTop: 6, width: imgW, height: imgH, borderRadius: 4 }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Small deterministic hash → [0,1). */
+function rand01(seed: string, k: number): number {
+  let h = 2166136261 ^ k;
+  for (let i = 0; i < seed.length; i++) h = Math.imul(h ^ seed.charCodeAt(i), 16777619);
+  h ^= h >>> 13;
+  return ((h >>> 0) % 1000) / 1000;
+}
+
+/** Plausible Apple Maps snapshot (streets, blocks, a park, water) drawn as inline SVG. */
+function MapArt({ t, w, h, seed }: { t: IosTheme; w: number; h: number; seed: string }) {
+  const m = t.map;
+  const j = (k: number, span: number) => (rand01(seed, k) - 0.5) * span;
+  const xs = [0.18, 0.5, 0.82].map((f, i) => f * w + j(i, 24));
+  const ys = [0.24, 0.62].map((f, i) => f * h + j(10 + i, 18));
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden className="block">
+      <rect width={w} height={h} fill={m.land} />
+      {/* city blocks */}
+      {[0, 1, 2, 3].map((cx) =>
+        [0, 1, 2].map((cy) => {
+          const x0 = cx === 0 ? -10 : xs[cx - 1] + 6;
+          const x1 = cx === 3 ? w + 10 : xs[cx] - 6;
+          const y0 = cy === 0 ? -10 : ys[cy - 1] + 6;
+          const y1 = cy === 2 ? h + 10 : ys[cy] - 6;
+          const park = cx === 2 && cy === 0;
+          return <rect key={`${cx}-${cy}`} x={x0} y={y0} width={Math.max(0, x1 - x0)} height={Math.max(0, y1 - y0)} rx={3} fill={park ? m.park : m.block} />;
+        }),
+      )}
+      <path d={`M0 ${h * 0.78} C ${w * 0.12} ${h * 0.74} ${w * 0.16} ${h * 0.9} ${w * 0.3} ${h + 4} L0 ${h + 4} Z`} fill={m.water} />
+      {/* streets */}
+      {xs.map((x, i) => (
+        <line key={`v${i}`} x1={x} y1={-4} x2={x + j(20 + i, 10)} y2={h + 4} stroke={m.road} strokeWidth={i === 1 ? 7 : 5} strokeLinecap="round" />
+      ))}
+      {ys.map((y, i) => (
+        <line key={`h${i}`} x1={-4} y1={y} x2={w + 4} y2={y + j(30 + i, 8)} stroke={m.road} strokeWidth={5} strokeLinecap="round" />
+      ))}
+      {/* arterial */}
+      <line x1={-6} y1={h * 0.95} x2={w + 6} y2={h * 0.08} stroke={m.stroke} strokeWidth={11} strokeLinecap="round" />
+      <line x1={-6} y1={h * 0.95} x2={w + 6} y2={h * 0.08} stroke={m.major} strokeWidth={9} strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Venue pin (white teardrop + accent circle with a pin glyph) or the sender-avatar pin for live locations. */
+function MapPin({ t, avatar, colorIdx }: { t: IosTheme; avatar: Person | null; colorIdx?: number }) {
+  return (
+    <span className="absolute block" style={{ left: "50%", top: "50%", width: 40, height: 50, transform: "translate(-50%, -100%)" }}>
+      <svg width="40" height="50" viewBox="0 0 40 50" aria-hidden className="block" style={{ filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.25))" }}>
+        <path d="M20 49c-1.4-4.6-4.6-8.3-8.6-10.6A19 19 0 1 1 28.6 38.4C24.6 40.7 21.4 44.4 20 49Z" fill="#ffffff" />
+      </svg>
+      <span className="absolute block overflow-hidden rounded-full" style={{ left: 4, top: 4, width: 32, height: 32 }}>
+        {avatar ? (
+          <TgAvatar person={avatar} size={32} colorIdx={colorIdx} />
+        ) : (
+          <span className="flex h-full w-full items-center justify-center" style={{ background: t.accent }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden>
+              <path d="M12 2.5a7 7 0 0 0-7 7c0 5 7 12 7 12s7-7 7-12a7 7 0 0 0-7-7Zm0 9.6a2.6 2.6 0 1 1 0-5.2 2.6 2.6 0 0 1 0 5.2Z" fill="#ffffff" />
+            </svg>
+          </span>
+        )}
+      </span>
+    </span>
+  );
+}
+
+function LocationBubble({ ctx, avatar }: { ctx: RowCtx; avatar: { person: Person; idx: number } }) {
+  const loc = ctx.m.location ?? { title: "" };
+  const live = !!loc.live;
+  const part = ctx.mine ? ctx.t.part.out : ctx.t.part.in;
+  const w = 270;
+  const h = 150;
+  const onRight = ctx.mine;
+  const radius = radiiFor(onRight, ctx.first, ctx.last, R_MAIN, R_AUX);
+  const senderTop = ctx.first ? IMG_R_MAIN : IMG_R_AUX;
+  const header = !!ctx.quote || !!ctx.name;
+  const tl = header ? 0 : onRight ? IMG_R_MAIN : senderTop;
+  const tr = header ? 0 : onRight ? senderTop : IMG_R_MAIN;
+  const title = live ? ctx.s.liveLocation : loc.title;
+  const sub = live ? ctx.s.updatedJustNow : (loc.subtitle ?? "");
+  return (
+    <BubbleShell ctx={ctx} radius={radius} tail={ctx.last} style={{ width: w + 2 }}>
+      <NameHeader ctx={ctx} style={{ paddingBottom: ctx.quote ? 0 : 4 }} />
+      {ctx.quote && <ReplyHeader q={ctx.quote} t={ctx.t} outgoing={ctx.mine} style={{ margin: `${ctx.name ? 3 : 10}px 10px 5px` }} />}
+      <div className="relative overflow-hidden" style={{ margin: "1px 1px 0", width: w, height: h, borderTopLeftRadius: tl, borderTopRightRadius: tr }}>
+        <MapArt t={ctx.t} w={w} h={h} seed={ctx.m.id} />
+        <MapPin t={ctx.t} avatar={live ? avatar.person : null} colorIdx={avatar.idx} />
+      </div>
+      <div className="relative" style={{ padding: `${7 - HALF_LEAD}px ${live ? 48 : 10}px ${TEXT_PAD_BOTTOM}px 10px` }}>
+        <div dir="auto" className="truncate" style={{ fontSize: 16, lineHeight: "20px", fontWeight: 500, letterSpacing: "-0.3px", color: ctx.t.text, textAlign: "start" }}>
+          {title}
+        </div>
+        <div dir="auto" style={{ fontSize: 14, lineHeight: "18px", color: part.fileDesc, textAlign: "start", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {sub}
+          {!live && (
+            <span aria-hidden style={{ display: "inline-block", width: 70 }} />
+          )}
+        </div>
+        {live && (
+          <span className="absolute block" style={{ right: 10, top: 9 }}>
+            <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden className="block">
+              <circle cx="14" cy="14" r="12" fill="none" stroke={alpha(part.accent, 0.2)} strokeWidth="2" />
+              <path d="M14 2a12 12 0 1 1-11.4 8.3" fill="none" stroke={part.accent} strokeWidth="2" strokeLinecap="round" />
+              <text x="14" y="18" textAnchor="middle" fontSize="11" fontWeight="600" fill={part.accent}>
+                15
+              </text>
+            </svg>
+          </span>
+        )}
+        {live && <div style={{ height: 14 }} />}
+        <span className="pointer-events-none absolute" style={{ right: 10, bottom: META_BOTTOM }}>
+          <StatusLine ctx={ctx} />
+        </span>
+      </div>
+      {ctx.react && (
+        <div style={{ padding: "0 10px 6px" }}>
+          <ReactionChip r={ctx.react} t={ctx.t} outgoing={ctx.mine} />
+        </div>
+      )}
+    </BubbleShell>
+  );
+}
+
+function FileGlyph({ color }: { color: string }) {
+  // radialIndicatorFileIcon: page with a folded corner
+  return (
+    <svg width="44" height="44" viewBox="0 0 44 44" aria-hidden className="block">
+      <path d="M16.5 12h7.4c.5 0 1 .2 1.4.6l4.6 4.6c.4.4.6.9.6 1.4V30a2 2 0 0 1-2 2h-12a2 2 0 0 1-2-2V14a2 2 0 0 1 2-2Z" style={{ fill: color }} />
+      <path d="M24 12.4V17a1.6 1.6 0 0 0 1.6 1.6h4.5" fill="none" stroke="rgba(0,0,0,0.18)" strokeWidth="1.3" />
+    </svg>
+  );
+}
+
+function FileBubble({ ctx }: { ctx: RowCtx }) {
+  const f = ctx.m.file ?? { name: "" };
+  const part = ctx.mine ? ctx.t.part.out : ctx.t.part.in;
+  const radius = radiiFor(ctx.mine, ctx.first, ctx.last, R_MAIN, R_AUX);
+  const inner = ctx.mine && ctx.t.dark ? "var(--tgi-tail, #1a8cfb)" : part.controlInner;
+  return (
+    <BubbleShell ctx={ctx} radius={radius} tail={ctx.last} style={{ maxWidth: BODY_MAX }}>
+      <NameHeader ctx={ctx} />
+      {ctx.quote && <ReplyHeader q={ctx.quote} t={ctx.t} outgoing={ctx.mine} style={{ margin: `${ctx.name ? 3 : 10}px 10px 0` }} />}
+      <div className="relative flex items-center" style={{ padding: `${ctx.name || ctx.quote ? 5 : 9}px 10px 9px 13px` }}>
+        <span className="block shrink-0 rounded-full" style={{ width: 44, height: 44, background: part.control }}>
+          <FileGlyph color={inner} />
+        </span>
+        <div style={{ marginLeft: 8, minWidth: 0 }}>
+          <div dir="auto" className="truncate" style={{ fontSize: 16, lineHeight: "20px", letterSpacing: "-0.3px", color: part.fileTitle, textAlign: "left", maxWidth: BODY_MAX - 75 }}>
+            {f.name || ctx.s.file}
+          </div>
+          <div dir="ltr" className="whitespace-nowrap" style={{ fontSize: 13, lineHeight: "16px", color: part.fileDesc, textAlign: "left", fontVariantNumeric: "tabular-nums" }}>
+            {f.size ?? ""}
+            <span aria-hidden style={{ display: "inline-block", width: ctx.mine ? 62 : 46 }} />
+          </div>
+        </div>
+        <span className="pointer-events-none absolute" style={{ right: 10, bottom: META_BOTTOM + 1 }}>
+          <StatusLine ctx={ctx} />
+        </span>
+      </div>
+      {ctx.react && (
+        <div style={{ padding: "0 10px 6px" }}>
+          <ReactionChip r={ctx.react} t={ctx.t} outgoing={ctx.mine} />
+        </div>
+      )}
+    </BubbleShell>
+  );
+}
+
+function CallArrow({ outgoing, color }: { outgoing: boolean; color: string }) {
+  // Chat/Message/CallOutgoingArrow (↗) / CallIncomingArrow (↙), 9pt
+  return (
+    <svg width="9" height="9" viewBox="0 0 9 9" fill="none" aria-hidden className="block">
+      <path
+        d={outgoing ? "M1.2 7.8 7.6 1.4M2.8 1.2h5v5" : "M7.8 1.2 1.4 7.6M6.2 7.8h-5v-5"}
+        stroke={color}
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function CallButtonGlyph({ video, color }: { video: boolean; color: string }) {
+  return video ? (
+    <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden className="block">
+      <rect x="4" y="9" width="15" height="12" rx="3.2" style={{ fill: color }} />
+      <path d="M20.5 13.3 25 10.6c.6-.4 1.4.1 1.4.8v7.2c0 .7-.8 1.2-1.4.8l-4.5-2.7Z" style={{ fill: color }} />
+    </svg>
+  ) : (
+    <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden className="block">
+      <path
+        d="M22.6 18.6 20.4 18.3c-.7-.1-1.6.3-2.8 1.3-.1.1-.2.2-.4.2-.2 0-.4-.1-.4-.1-2-1.1-3.3-2.4-4.4-4.4 0-.1-.1-.2-.1-.4 0-.1.1-.2.2-.3.9-1.1 1.4-2.1 1.4-2.8l-.3-2.2c-.1-.9-.8-1.5-1.7-1.5H10.4c-1 0-1.8.8-1.7 1.8.5 7.3 6.3 13.1 13.6 13.6 1 .1 1.8-.7 1.8-1.7v-1.5c0-.9-.6-1.6-1.5-1.7Z"
+        style={{ fill: color }}
+      />
+    </svg>
+  );
+}
+
+function CallBubble({ ctx }: { ctx: RowCtx }) {
+  const c = ctx.m.call ?? { video: false, missed: false };
+  const part = ctx.mine ? ctx.t.part.out : ctx.t.part.in;
+  const cs = ctx.s.call;
+  const title = ctx.mine
+    ? c.missed
+      ? c.video ? cs.vCancelled : cs.cancelled
+      : c.video ? cs.vOut : cs.out
+    : c.missed
+      ? c.video ? cs.vMissed : cs.missed
+      : c.video ? cs.vIn : cs.in;
+  const secs = parseDuration(c.duration);
+  const label = !c.missed && secs > 1 ? `${ctx.m.time}${ctx.s.callSep}${ctx.s.duration(secs)}` : ctx.m.time;
+  const radius = radiiFor(ctx.mine, ctx.first, ctx.last, R_MAIN, R_AUX);
+  const button = ctx.mine && ctx.t.dark ? "#ffffff" : part.control;
+  return (
+    <BubbleShell ctx={ctx} radius={radius} tail={ctx.last} style={{ maxWidth: BODY_MAX }}>
+      <NameHeader ctx={ctx} />
+      <div className="relative" style={{ padding: `${ctx.name ? 3 : 9}px 54px 8px 11px` }}>
+        <div dir="auto" className="whitespace-nowrap" style={{ fontSize: 16, lineHeight: "19px", fontWeight: 500, letterSpacing: "-0.3px", color: ctx.t.text, textAlign: "left" }}>
+          {title}
+        </div>
+        <div className="flex items-center whitespace-nowrap" dir="ltr" style={{ marginTop: 2, height: 16 }}>
+          <span style={{ marginLeft: 1, marginRight: 4 }}>
+            <CallArrow outgoing={ctx.mine} color={c.missed ? "#ff4747" : "#36c033"} />
+          </span>
+          <span dir="auto" style={{ fontSize: 13, lineHeight: "16px", color: part.fileDuration }}>
+            {label}
+          </span>
+        </div>
+        <span className="absolute block" style={{ right: 8, top: ctx.name ? 9 : 15 }}>
+          <CallButtonGlyph video={c.video} color={button} />
+        </span>
+      </div>
+      {ctx.react && (
+        <div style={{ padding: "0 10px 6px" }}>
+          <ReactionChip r={ctx.react} t={ctx.t} outgoing={ctx.mine} />
+        </div>
+      )}
+    </BubbleShell>
+  );
+}
+
+function StickerMessage({ ctx, freeBg }: { ctx: RowCtx; freeBg: string }) {
+  const src = ctx.m.imageSrc ?? null;
+  const emoji = ctx.m.text.trim();
+  const n = emojiCount(emoji) || 1;
+  const size = 160;
+  return (
+    <div style={{ margin: "2px 0" }}>
+      <div className="relative" style={{ width: size, height: size }}>
+        {src ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={src} alt="" draggable={false} className="block h-full w-full object-contain" />
+        ) : (
+          <div
+            dir="ltr"
+            className="flex h-full w-full items-center justify-center whitespace-nowrap"
+            style={{ fontSize: n === 1 ? 128 : n === 2 ? 66 : 46, lineHeight: 1 }}
+          >
+            {emoji}
+          </div>
+        )}
+        <MetaPill time={ctx.time} mine={ctx.mine} status={ctx.status} bg={freeBg} animate={ctx.animate} style={{ right: 4, bottom: 4 }} />
+      </div>
+      {ctx.react && (
+        <div className={`flex ${ctx.mine ? "justify-end" : "justify-start"}`} style={{ paddingTop: 4 }}>
+          <ReactionChip
+            r={ctx.react}
+            t={{ ...ctx.t, react: { ...ctx.t.react, inOther: freeBg, outOther: freeBg, outChosen: ctx.t.react.inChosen } }}
+            outgoing={ctx.mine}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Bubble runs: consecutive messages from the same sender — and, in a group, the same member. */
+function runInfo(list: Message[], i: number, grouped: boolean): { first: boolean; last: boolean } {
+  const key = (m: Message | undefined) => (m ? `${m.sender}:${grouped && m.sender === "them" ? (m.authorIndex ?? 0) : 0}` : "");
+  const k = key(list[i]);
+  return { first: key(list[i - 1]) !== k, last: key(list[i + 1]) !== k };
+}
+
+/* ------------------------------------------------------------------ */
 /* Motion                                                             */
 /* ------------------------------------------------------------------ */
 
@@ -1679,12 +2149,17 @@ function Composer({
   text,
   clockMs,
   live,
+  bottom,
+  kbTransition,
 }: {
   t: IosTheme;
   placeholder: string;
   text: string | null;
   clockMs?: number;
   live: boolean;
+  /** panel bottom: home inset + 8, or keyboard inset + 8 while the keyboard is up */
+  bottom: number;
+  kbTransition: string;
 }) {
   const on = text !== null;
   const sw = useSwitchClock(on ? "on" : "off", clockMs);
@@ -1696,7 +2171,10 @@ function Composer({
     const p = SPRING(Math.min(1, sw.since / SEND_MS));
     k = on ? p : 1 - p;
   }
-  const move: CSSProperties = exporting || !live ? {} : { transition: `right ${SEND_MS}ms ${SPRING_CSS}` };
+  const lift = kbTransition === "none" ? null : `bottom ${kbTransition}`;
+  const slide = exporting || !live ? null : `right ${SEND_MS}ms ${SPRING_CSS}`;
+  const move: CSSProperties = slide || lift ? { transition: [slide, lift].filter(Boolean).join(", ") } : {};
+  const liftOnly: CSSProperties = lift ? { transition: lift } : {};
   const fieldRight = 54 + (8 - 54) * k;
   // send button (export: computed from the clock; live: CSS keyframes on mount)
   let sendStyle: CSSProperties | null = null;
@@ -1720,7 +2198,7 @@ function Composer({
   const animateSend = !exporting && live;
   return (
     <>
-      <div className="absolute flex items-center justify-center" style={{ left: 8, bottom: PANEL_BOTTOM, ...glass(t, { w: 40, h: 40 }) }}>
+      <div className="absolute flex items-center justify-center" style={{ left: 8, bottom, ...glass(t, { w: 40, h: 40 }), ...liftOnly }}>
         <AttachIcon color={t.control} />
       </div>
       <div
@@ -1728,7 +2206,7 @@ function Composer({
         style={{
           left: 54,
           right: fieldRight,
-          bottom: PANEL_BOTTOM,
+          bottom,
           minHeight: PANEL_H,
           ...glass(t, { h: PANEL_H }),
           height: undefined,
@@ -1772,7 +2250,7 @@ function Composer({
       </div>
       <div
         className="absolute flex items-center justify-center"
-        style={{ right: 8 + (-48 - 8) * k, bottom: PANEL_BOTTOM, ...glass(t, { w: 40, h: 40 }), ...move }}
+        style={{ right: 8 + (-48 - 8) * k, bottom, ...glass(t, { w: 40, h: 40 }), ...move }}
       >
         <MicIcon color={t.control} />
       </div>
@@ -1804,9 +2282,34 @@ export function Telegram({ scenario, playback, lang, rtl }: PlatformProps) {
     return () => cancelAnimationFrame(id);
   }, []);
 
+  // Group chat: members are the other participants; "them" messages pick one through authorIndex.
+  const group = scenario.group ?? null;
+  const members = group && group.members.length > 0 ? group.members : null;
+  const authorOf = (m: Message): { person: Person; idx: number } => {
+    if (m.sender === "me") return { person: scenario.me, idx: nameColorIndex(scenario.me.name) };
+    if (!members) return { person: scenario.them, idx: nameColorIndex(scenario.them.name) };
+    const i = Math.max(0, Math.min(members.length - 1, m.authorIndex ?? 0));
+    // stable per-member colour (PeerNameColors / avatar gradients share the index)
+    return { person: members[i], idx: i % 7 };
+  };
+  const visible = messages.filter((m) => m.type !== "deleted");
+
+  // keyboard: lift the panel onto it and shrink the list; drop the home-indicator inset meanwhile
+  const kb = useKeyboardInset();
+  const panelBottom = kb.inset > 0 ? kb.inset + KB_GAP : PANEL_BOTTOM;
+  const kbLift = kb.transition === "none" ? undefined : `bottom ${kb.transition}`;
+  useKeepBottom(scrollRef, kb.inset);
+
   const showTyping = typing || scenario.presence === "typing";
   const online = scenario.presence === "online";
-  const subtitle = online ? s.online : scenario.lastSeenText.trim() || s.lastSeenRecently;
+  // in a group the subtitle is the member count (incl. me); typing names the member who types next
+  const nextThem = scenario.messages.slice(messages.length).find((m) => m.sender === "them");
+  const typer = members ? authorOf(nextThem ?? { ...scenario.messages[0], sender: "them", authorIndex: 0 }).person : null;
+  const subtitle = members ? s.members(members.length + 1) : online ? s.online : scenario.lastSeenText.trim() || s.lastSeenRecently;
+  const subtitleAccent = !members && online;
+  const typingLabel = typer ? s.userTyping(typer.name.trim().split(/\s+/)[0]) : s.typing;
+  const headerName = group ? group.name : scenario.them.name;
+  const headerPerson: Person = group ? { name: group.name, avatar: group.avatar } : scenario.them;
   const dateChipBg = serviceFillAt(dark, 0.5, (LIST_TOP + 17) / SCREEN_H);
   const freeBg = serviceFillAt(dark, 0.3, 0.6);
 
@@ -1823,8 +2326,13 @@ export function Telegram({ scenario, playback, lang, rtl }: PlatformProps) {
       {/* Message list — scrolls under the floating glass bar and input panel */}
       <div
         ref={scrollRef}
-        className="rcss-scroll absolute inset-0 overflow-y-auto"
-        style={{ paddingTop: LIST_TOP, paddingBottom: LIST_BOTTOM - PANEL_H }}
+        className="rcss-scroll absolute inset-x-0 top-0 overflow-y-auto"
+        style={{
+          bottom: kb.inset,
+          paddingTop: LIST_TOP,
+          paddingBottom: kb.inset > 0 ? KB_GAP + 8 : LIST_BOTTOM - PANEL_H,
+          transition: kbLift,
+        }}
       >
         {messages.length > 0 && (
         <div className="flex items-center justify-center" style={{ height: 34 }}>
@@ -1847,9 +2355,12 @@ export function Telegram({ scenario, playback, lang, rtl }: PlatformProps) {
         </div>
         )}
 
-        {messages.map((m, i) => {
+        {visible.map((m, i) => {
           const mine = m.sender === "me";
-          const { firstOfGroup, lastOfGroup } = groupInfo(messages, i);
+          const { first: firstOfGroup, last: lastOfGroup } = runInfo(visible, i, !!members);
+          const author = authorOf(m);
+          const emoji = m.type === "text" ? emojiCount(m.text) : 0;
+          const bubbleless = m.type === "sticker" || (emoji > 0 && emoji <= 3);
           const ctx: RowCtx = {
             t,
             m,
@@ -1859,29 +2370,42 @@ export function Telegram({ scenario, playback, lang, rtl }: PlatformProps) {
             status: playback.statusOf(m),
             animate: mounted && clockMs === undefined,
             react: m.reaction
-              ? { emoji: m.reaction, by: mine ? scenario.them : scenario.me, chosen: !mine }
+              ? { emoji: m.reaction, by: mine ? (members ? members[0] : scenario.them) : scenario.me, chosen: !mine }
               : null,
-            quote: m.replyToId ? quoteOf(byId.get(m.replyToId), scenario.me, scenario.them, s) : null,
+            quote: m.replyToId ? quoteOf(byId.get(m.replyToId), authorOf, s) : null,
+            time: m.edited ? `${s.edited} ${m.time}` : m.time,
+            name: members && !mine && firstOfGroup && !bubbleless ? { text: author.person.name, color: t.names[author.idx] } : null,
+            s,
           };
-          const emoji = m.type === "text" ? emojiCount(m.text) : 0;
           let body: ReactNode;
           if (m.type === "voice") body = <VoiceBubble ctx={ctx} />;
           else if (m.type === "image") body = <ImageBubble ctx={ctx} />;
+          else if (m.type === "sticker") body = <StickerMessage ctx={ctx} freeBg={freeBg} />;
+          else if (m.type === "location") body = <LocationBubble ctx={ctx} avatar={author} />;
+          else if (m.type === "file") body = <FileBubble ctx={ctx} />;
+          else if (m.type === "call") body = <CallBubble ctx={ctx} />;
           else if (emoji > 0 && emoji <= 3) body = <EmojiMessage ctx={ctx} count={emoji} freeBg={freeBg} />;
           else body = <TextBubble ctx={ctx} />;
+          const withAvatar = !!members && !mine;
           return (
             <div
               key={m.id}
               data-mid={m.id}
               data-sender={m.sender}
-              className={`flex ${mine ? "justify-end" : "justify-start"} ${live ? (mine ? "tgi-in-me" : "tgi-in-them") : ""}`}
+              className={`relative flex ${mine ? "justify-end" : "justify-start"} ${live ? (mine ? "tgi-in-me" : "tgi-in-them") : ""}`}
               style={{
                 paddingTop: firstOfGroup ? SPACING : 0,
                 paddingBottom: lastOfGroup ? SPACING : 0,
-                paddingLeft: 10,
-                paddingRight: 10,
+                paddingLeft: withAvatar ? 10 + GROUP_AVATAR_INSET : 10,
+                // the max content width shrinks by the avatar inset (right edge stays where it was)
+                paddingRight: withAvatar ? SCREEN_W - 10 - BODY_MAX : 10,
               }}
             >
+              {withAvatar && lastOfGroup && (
+                <span className="absolute block" style={{ left: GROUP_AVATAR_LEFT, bottom: SPACING + 1 }}>
+                  <TgAvatar person={author.person} size={GROUP_AVATAR} colorIdx={author.idx} />
+                </span>
+              )}
               {body}
             </div>
           );
@@ -1892,7 +2416,7 @@ export function Telegram({ scenario, playback, lang, rtl }: PlatformProps) {
         </div>
       </div>
 
-      <EdgeEffects dark={dark} />
+      <EdgeEffects dark={dark} kb={kb} />
 
       {/* Status bar + glass navigation */}
       <div className="pointer-events-none absolute inset-x-0 top-0" dir={rtl ? "rtl" : "ltr"}>
@@ -1918,20 +2442,22 @@ export function Telegram({ scenario, playback, lang, rtl }: PlatformProps) {
           dir="auto"
           style={{ fontSize: 17, lineHeight: "21px", fontWeight: 600, letterSpacing: "-0.43px", color: t.control }}
         >
-          {scenario.them.name}
+          {headerName}
         </div>
         <div className="flex max-w-full items-center justify-center" style={{ height: 15, fontSize: 12, lineHeight: "15px" }}>
           {showTyping ? (
-            <span key="typing" className={`flex items-center ${live ? "tgi-fade" : ""}`} style={{ color: t.accent }}>
+            <span key="typing" className={`flex min-w-0 items-center ${live ? "tgi-fade" : ""}`} style={{ color: t.accent }}>
               <TypingDots color={t.accent} clockMs={clockMs} />
-              <span dir="auto">{s.typing}</span>
+              <span dir="auto" className="truncate">
+                {typingLabel}
+              </span>
             </span>
           ) : (
             <span
               key="status"
               dir="auto"
               className={`truncate ${live ? "tgi-fade" : ""}`}
-              style={{ color: online ? t.accent : t.inputControl }}
+              style={{ color: subtitleAccent ? t.accent : t.inputControl }}
             >
               {subtitle}
             </span>
@@ -1939,11 +2465,24 @@ export function Telegram({ scenario, playback, lang, rtl }: PlatformProps) {
         </div>
       </div>
       <div className="absolute flex items-center justify-center" style={{ right: 16, top: BTN_TOP, ...glass(t, { w: 44, h: 44 }) }}>
-        <TgAvatar person={scenario.them} size={38} />
+        <TgAvatar
+          person={headerPerson}
+          size={38}
+          letters={group ? groupLetters(group.name) : undefined}
+          colorIdx={group ? nameColorIndex(group.name) : undefined}
+        />
       </div>
 
-      {/* Input panel */}
-      <Composer t={t} placeholder={s.placeholder} text={draftText} clockMs={clockMs} live={clockMs === undefined} />
+      {/* Input panel (rides on the keyboard while it is up) */}
+      <Composer
+        t={t}
+        placeholder={s.placeholder}
+        text={draftText}
+        clockMs={clockMs}
+        live={clockMs === undefined}
+        bottom={panelBottom}
+        kbTransition={kb.transition}
+      />
       <div className="absolute inset-x-0 bottom-0">
         <SystemBottomBar device={scenario.device} bg="transparent" fg={dark ? "#ffffff" : "#000000"} />
       </div>

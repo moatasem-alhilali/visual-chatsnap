@@ -430,7 +430,6 @@
     "paceNatural": "Natural",
     "paceSlow": "Relaxed",
     "genApply": "Apply times",
-    "genRange": "{from} → {to}",
     "genInvalid": "Use a time like 10:41, 4:05 PM or 22:05",
     "genDone": "Message times updated",
     "genLocked": "{count} locked time(s) kept",

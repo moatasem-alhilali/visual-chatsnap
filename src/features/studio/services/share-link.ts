@@ -1,6 +1,7 @@
 import type { Message, Person, Scenario } from "../types";
 import { SCENARIO_VERSION, createId } from "../data/defaults";
 import { parseScenario } from "../validations/scenario";
+import { isLibraryAsset } from "../data/media-library";
 
 /**
  * Share links: the whole scenario travels in the URL hash (never sent to a
@@ -54,7 +55,8 @@ async function pipe(bytes: Uint8Array, stream: CompressionStream | Decompression
 }
 
 function keepImage(src: string | null | undefined): boolean {
-  return !!src && (!src.startsWith("data:") || src.length <= MAX_INLINE_IMAGE);
+  // built-in library SVGs are small and compress very well: always keep them
+  return !!src && (!src.startsWith("data:") || src.length <= MAX_INLINE_IMAGE || isLibraryAsset(src));
 }
 
 /** Shareable copy: short ids, no heavy images. */
@@ -76,9 +78,22 @@ function slim(scenario: Scenario): { data: Scenario; dropped: number } {
       dropped++;
       next.imageSrc = null;
     }
+    if (m.link?.image && !keepImage(m.link.image)) {
+      dropped++;
+      next.link = { ...m.link, image: null };
+    }
     return next;
   });
-  return { data: { ...scenario, me: person(scenario.me), them: person(scenario.them), messages }, dropped };
+  let group = scenario.group ?? null;
+  if (group) {
+    let avatar = group.avatar;
+    if (avatar && !keepImage(avatar)) {
+      dropped++;
+      avatar = null;
+    }
+    group = { ...group, avatar, members: group.members.map(person) };
+  }
+  return { data: { ...scenario, me: person(scenario.me), them: person(scenario.them), group, messages }, dropped };
 }
 
 /** Build a share URL for the scenario on the current page. */

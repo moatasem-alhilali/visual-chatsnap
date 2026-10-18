@@ -72,6 +72,33 @@
  *    #1D9BF0 disc with a white icon-arrow-up (18pt), 4pt from the capsule's end and
  *    bottom. The client swaps voice ↔ send with an 80 ms opacity/scale 0.9 fade [C].
  *
+ * Round 5 — groups, new kinds, keyboard. X Chat client bundle (abs.twimg.com/x-web/xchat/
+ * embed/…/pin-page-rweb chunk, en/ar tables) is the source; web px × 17/15 for iOS:
+ *  - Groups (T2 message row): the sender's display name above the first bubble of a
+ *    burst (subtext3, gray-700, aligned with the bubble text: px-16 + px-2), a 32px
+ *    avatar beside the LAST bubble of the burst (avatarDisplayMode Shown/AsPadding,
+ *    self-end mb-0.5, gap-x-2). Header = group avatar or the inline facepile (two
+ *    overlapping 24px heads, the front one ringed 1px in the page colour, St/_t) + the
+ *    group title; X shows no member subtitle in the conversation bar.
+ *  - Calls are informational rows, not bubbles (zU/RU/LU): centred 20px icon-phone-stroke
+ *    / icon-camera-video-stroke + "<Audio|Video|Group> call missed|ended · <time>",
+ *    subtext2 medium, red-500 #F4212E when missed, gray-700 when ended (X never shows the
+ *    duration); a missed incoming call adds the "Call Back" pill (h-8 px-4, fg-alpha-10).
+ *  - "Edited" (V1): subtext3 secondary under the bubble, mx-1 mt-1, on the sender's side.
+ *  - Link preview (uE): a separate card ABOVE the text bubble (attachments render before
+ *    the text, gap-1): rounded-chat, gray-50 fill, 1px gray-100 border, 16:9 banner
+ *    (max-h-40), then p-4 title (body medium) + hostname (subtext2 secondary). Without an
+ *    image: the favicon row card (lE). URLs in text: accent blue on theirs, white
+ *    underlined on mine (uH linkColor/underlineLinks).
+ *  - File (RC): gray-100 card, px-6 py-3, icon-document 20px gray-500, file name (body
+ *    medium, the extension never truncates) and "Tap to download · 245 KB".
+ *  - X Chat has no stickers, location sharing or deleted-message tombstone. Closest real
+ *    behaviour: a sticker is the supersize emoji (64px, tracking-widest) or a borderless
+ *    image; a location is the link card of a maps.apple.com link (map banner + place
+ *    name + host); a message deleted for everyone simply disappears.
+ *  - Keyboard: the composer rides on the keyboard (8pt gap) and the thread shrinks with
+ *    it, pinned to its newest message.
+ *
  * Uncertain (no primary capture found): the 1:1 header's trailing call buttons
  * (phone + video drawn, from X's icon set), light-mode composer fills (taken from
  * the tokens), the Arabic receipt/typing strings, the native-iOS sizes of the reply/reaction
@@ -80,13 +107,14 @@
  */
 
 import type { CSSProperties, ReactNode } from "react";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import type { Message, Person } from "../../types";
+import type { CallEntry, FileShare, LinkPreview, LocationShare, Message, Person } from "../../types";
 import { Avatar, dirOf, SystemBottomBar, useChatScroll } from "../shared";
 import { StatusBar } from "../devices/StatusBar";
+import { useKeyboardInset } from "../devices/keyboard-context";
 import type { Lang } from "./chrome";
-import { groupInfo, type PlatformMotion, type PlatformProps } from "./types";
+import type { PlatformMotion, PlatformProps } from "./types";
 
 /* ------------------------------- tokens ------------------------------- */
 
@@ -105,11 +133,18 @@ interface Palette {
   photoFill: string;
   avatarBg: string;
   avatarFg: string;
-  /** gray-200 hairline around reply thumbnails */
+  /** gray-200 hairline around reply thumbnails; also the gray-100 card border */
   hairline: string;
+  /** gray-100: file card fill, favicon tile */
+  tile: string;
+  /** gray-500: document glyph */
+  docIcon: string;
+  /** fg-alpha-10: "Call Back" pill */
+  pill: string;
 }
 
 const BLUE = "#1d9bf0";
+const RED = "#f4212e"; // red-500
 
 const LIGHT: Palette = {
   bg: "#ffffff",
@@ -123,6 +158,9 @@ const LIGHT: Palette = {
   avatarBg: "#ccd6dd",
   avatarFg: "#ffffff",
   hairline: "#e5e5e5",
+  tile: "#ebebeb",
+  docIcon: "#8c8c8c",
+  pill: "rgba(0,0,0,0.1)",
 };
 
 const DARK: Palette = {
@@ -137,6 +175,9 @@ const DARK: Palette = {
   avatarBg: "#3b3b3b",
   avatarFg: "#8a8a8a",
   hairline: "#2e2e2e",
+  tile: "#1f1f1f",
+  docIcon: "#5e5e5e",
+  pill: "rgba(255,255,255,0.1)",
 };
 
 interface Strings {
@@ -147,12 +188,60 @@ interface Strings {
   typing: (n: string) => string;
   voice: string;
   photo: string;
+  edited: string;
+  callBack: string;
+  call: (c: CallEntry, group: boolean) => string;
+  download: string;
+  /** "245 KB" → the localised unit ("{filesize} KB" table) */
+  size: (s: string) => string;
 }
 
-/* X Chat bundle strings; "Voice message" / "Photo" are the reply-preview labels. */
+/* X Chat bundle strings (en / ar tables); "Voice message" / "Photo" are the reply-preview labels. */
 const LOCAL: Record<Lang, Strings> = {
-  en: { today: "Today", placeholder: "Message", seen: "Seen", sent: "Sent", typing: (n) => `${n} is typing …`, voice: "Voice message", photo: "Photo" },
-  ar: { today: "اليوم", placeholder: "رسالة", seen: "تمت المشاهدة", sent: "تم الإرسال", typing: (n) => `${n} يكتب …`, voice: "رسالة صوتية", photo: "الصورة" },
+  en: {
+    today: "Today",
+    placeholder: "Message",
+    seen: "Seen",
+    sent: "Sent",
+    typing: (n) => `${n} is typing …`,
+    voice: "Voice message",
+    photo: "Photo",
+    edited: "Edited",
+    callBack: "Call Back",
+    call: (c, g) =>
+      g ? (c.missed ? "Group call missed" : "Group call ended") : `${c.video ? "Video" : "Audio"} call ${c.missed ? "missed" : "ended"}`,
+    download: "Tap to download",
+    size: (s) => s,
+  },
+  ar: {
+    today: "اليوم",
+    placeholder: "رسالة",
+    seen: "تمت المشاهدة",
+    sent: "تم الإرسال",
+    typing: (n) => `${n} يكتب …`,
+    voice: "رسالة صوتية",
+    photo: "الصورة",
+    edited: "تم التحرير",
+    callBack: "معاودة الاتصال",
+    call: (c, g) =>
+      g
+        ? c.missed
+          ? "مكالمة جماعية فائتة"
+          : "انتهت المكالمة الجماعية"
+        : c.missed
+          ? c.video
+            ? "مكالمة فيديو فائتة"
+            : "مكالمة صوتية فائتة"
+          : c.video
+            ? "انتهت مكالمة الفيديو"
+            : "انتهت المكالمة الصوتية",
+    download: "اضغط للتنزيل",
+    size: (s) =>
+      s.replace(/^\s*([\d.,٠-٩]+)\s*(GB|MB|KB|B)\s*$/i, (_, n: string, u: string) => {
+        const unit: Record<string, string> = { GB: "جيجابايت", MB: "ميجابايت", KB: "كيلوبايت", B: "بايت" };
+        return `${n} ${unit[u.toUpperCase()]}`;
+      }),
+  },
 };
 
 /* metrics (pt) */
@@ -188,6 +277,26 @@ const CHIP_EMOJI = 17; // 18px × 0.84
 const CHIP_OVERLAP = 11; // -mt-2.5
 const CHIP_INSET = 14; // mx-3
 const CHIP_AFTER = 4; // pb-1
+
+/* Round 5: group rows, cards, calls — X Chat client metrics (web px) × 17/15. */
+const GROUP_AVATAR = 32; // size-8 (kept at the header's 32pt)
+const GROUP_GAP = 8; // gap-x-2
+const NAME_TEXT = 12.5; // subtext3 11px
+const NAME_LINE = 15; // 12px + leading
+const NAME_AFTER = 4.5; // burst pt-1
+const CARD_RADIUS = 18; // rounded-chat 16px
+const CARD_PAD = 18; // p-4
+const CARD_BANNER_MAX = 181; // max-h-40
+const META_TEXT = 14.7; // subtext2 13px
+const META_LINE = 18; // 16px
+const CALL_ICON = 22.5; // h-5 w-5
+const CALL_PILL_H = 36; // h-8
+const CALL_PILL_PAD = 18; // px-4
+const EDITED_GAP = 4.5; // mt-1 / mx-1
+const STICKER_EMOJI = 72; // supersize 64px
+const STICKER_IMG = 160;
+const KB_GAP = 8; // composer → keyboard
+const HOME_BAND = 19; // SystemBottomBar's iPhone band
 
 /* Compose typing [D]: capsule grows with fixed 22pt corners, send disc bottom-aligned. */
 const SEND_D = 36;
@@ -455,8 +564,279 @@ function TextBubble({ m, mine, p }: { m: Message; mine: boolean; p: Palette }) {
         className="whitespace-pre-wrap break-words"
         style={{ margin: 0, padding: `${PAD_Y}px ${PAD_X}px`, fontSize: 17, lineHeight: `${LINE}px`, textAlign: "start" }}
       >
-        {m.text}
+        {linkify(m.text, mine)}
       </p>
+    </div>
+  );
+}
+
+const URL_RE = /((?:https?:\/\/|www\.)[^\s]+[^\s!),.:;?\]}*_~])/gi;
+
+/** URL entities [uH]: accent blue on theirs, white + underline on mine. */
+function linkify(text: string, mine: boolean): ReactNode {
+  if (!URL_RE.test(text)) return text;
+  URL_RE.lastIndex = 0;
+  return text.split(URL_RE).map((part, i) =>
+    i % 2 === 1 ? (
+      <span key={i} dir="ltr" style={mine ? { textDecoration: "underline", textUnderlineOffset: 2 } : { color: BLUE }}>
+        {part}
+      </span>
+    ) : (
+      part
+    ),
+  );
+}
+
+function hostOf(link: LinkPreview): string {
+  if (link.siteName?.trim()) return link.siteName.trim();
+  try {
+    return new URL(/^https?:/i.test(link.url) ? link.url : `https://${link.url}`).hostname.replace(/^www\./, "");
+  } catch {
+    return link.url;
+  }
+}
+
+/* X icon-document / icon-link (24×24) [C]. */
+const DOC_D = [
+  "M8 11h8v2H8zm0-4h5v2H8z",
+  "M17.5 2h-11C5.12 2 4 3.12 4 4.5v15C4 20.88 5.12 22 6.5 22h6c4.14 0 7.5-3.36 7.5-7.5v-10C20 3.12 18.88 2 17.5 2zm-2.52 17.41c.01-.1.02-.21.02-.32v-1.27c0-.48.32-.82.84-.82h1.28c.09 0 .19 0 .29-.01-.53 1.04-1.39 1.89-2.43 2.42zM18 14c0 .58-.46 1-.88 1h-1.28C14.26 15 13 16.19 13 17.82v1.27c0 .46-.43.91-.97.91H6.5c-.28 0-.5-.22-.5-.5v-15c0-.28.22-.5.5-.5h11c.27 0 .5.22.5.5V14z",
+];
+const LINK_D =
+  "M18.36 5.64c-1.95-1.96-5.11-1.96-7.07 0L9.88 7.05 8.46 5.64l1.42-1.42c2.73-2.73 7.16-2.73 9.9 0 2.73 2.74 2.73 7.17 0 9.9l-1.42 1.42-1.41-1.42 1.41-1.41c1.96-1.96 1.96-5.12 0-7.07zm-2.12 3.53l-7.07 7.07-1.41-1.41 7.07-7.07 1.41 1.41zm-12.02.71l1.42-1.42 1.41 1.42-1.41 1.41c-1.96 1.96-1.96 5.12 0 7.07 1.95 1.96 5.11 1.96 7.07 0l1.41-1.41 1.42 1.41-1.42 1.42c-2.73 2.73-7.16 2.73-9.9 0-2.73-2.74-2.73-7.17 0-9.9z";
+
+function PathGlyph({ d, size, color }: { d: string | string[]; size: number; color: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={color} style={{ display: "block", flexShrink: 0 }}>
+      {(Array.isArray(d) ? d : [d]).map((p, i) => (
+        <path key={i} d={p} />
+      ))}
+    </svg>
+  );
+}
+
+/** Card shell shared by link / location previews: rounded-chat, gray-50, 1px gray-100 [uE]. */
+function CardShell({ p, children, width }: { p: Palette; children: ReactNode; width?: number }) {
+  return (
+    <div
+      className="flex flex-col overflow-hidden"
+      style={{ width, maxWidth: MAX_W, background: p.inBubble, border: `1px solid ${p.hairline}`, borderRadius: CARD_RADIUS }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function CardText({ title, host, p }: { title: string; host: string; p: Palette }) {
+  return (
+    <div className="flex flex-col" style={{ padding: CARD_PAD, gap: 1 }}>
+      {title && (
+        <span dir={dirOf(title)} className="break-words" style={{ fontSize: 17, lineHeight: `${LINE}px`, fontWeight: 500, color: p.fg, textAlign: "start" }}>
+          {title}
+        </span>
+      )}
+      <span dir="ltr" className="truncate" style={{ fontSize: META_TEXT, lineHeight: `${META_LINE}px`, color: p.secondary, textAlign: "start" }}>
+        {host}
+      </span>
+    </div>
+  );
+}
+
+/** Link preview [uE / lE]: banner card when the page has an image, favicon row otherwise. */
+function LinkCard({ link, p }: { link: LinkPreview; p: Palette }) {
+  const host = hostOf(link);
+  if (link.image) {
+    return (
+      <CardShell p={p} width={MAX_W}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={link.image} alt="" draggable={false} className="block w-full object-cover" style={{ aspectRatio: "16 / 9", maxHeight: CARD_BANNER_MAX }} />
+        <CardText title={link.title} host={host} p={p} />
+      </CardShell>
+    );
+  }
+  return (
+    <div className="flex items-center" style={{ maxWidth: MAX_W, background: p.inBubble, borderRadius: CARD_RADIUS, border: `1px solid ${p.hairline}`, padding: "13.5px 22px 13.5px 13.5px", gap: 13.5 }}>
+      <span className="flex shrink-0 items-center justify-center" style={{ width: 45, height: 45, borderRadius: 9, background: p.tile }}>
+        <PathGlyph d={LINK_D} size={22.5} color={p.secondary} />
+      </span>
+      <span className="flex min-w-0 flex-col" style={{ gap: 1 }}>
+        <span dir={dirOf(link.title || host)} className="truncate" style={{ fontSize: 17, lineHeight: `${LINE}px`, fontWeight: 500, color: p.fg }}>
+          {link.title || host}
+        </span>
+        {link.title && (
+          <span dir="ltr" className="truncate" style={{ fontSize: 16, lineHeight: "18px", color: p.secondary }}>
+            {host}
+          </span>
+        )}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Apple Maps snapshot used as the banner of a maps.apple.com link card: blocks, a park,
+ * water, white streets with a yellow arterial, and the red Maps pin in the centre.
+ */
+function AppleMapArt({ dark, live }: { dark: boolean; live?: boolean }) {
+  const c = dark
+    ? { land: "#2b2c2e", block: "#323336", park: "#25392b", water: "#1c2c3f", road: "#4a4b4f", major: "#6d6343", label: "#8e8e93" }
+    : { land: "#f2efe9", block: "#e9e5dc", park: "#cfe8c4", water: "#a9d3f5", road: "#ffffff", major: "#fbd879", label: "#8e8e93" };
+  return (
+    <svg viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice" className="block h-full w-full" aria-hidden>
+      <rect width="320" height="180" fill={c.land} />
+      <path d="M-10 150 C60 128 110 170 180 150 S300 120 340 136 V200 H-10Z" fill={c.water} />
+      <rect x="212" y="18" width="70" height="46" rx="6" fill={c.park} />
+      {[
+        [14, 14, 54, 38],
+        [84, 14, 58, 38],
+        [150, 14, 52, 38],
+        [14, 66, 54, 44],
+        [84, 66, 58, 44],
+        [212, 76, 70, 34],
+        [290, 18, 40, 92],
+      ].map(([x, y, w, h], i) => (
+        <rect key={i} x={x} y={y} width={w} height={h} rx="3" fill={c.block} />
+      ))}
+      <g stroke={c.road} strokeLinecap="round" fill="none">
+        <path d="M-10 60 H340" strokeWidth="7" />
+        <path d="M76 -10 V200" strokeWidth="6" />
+        <path d="M146 -10 V140" strokeWidth="5" />
+        <path d="M206 -10 V140" strokeWidth="5" />
+        <path d="M-10 118 C80 112 200 122 340 114" strokeWidth="6" />
+        <path d="M286 -10 V120" strokeWidth="4" />
+      </g>
+      <path d="M-10 60 H340" stroke={c.major} strokeWidth="4" strokeLinecap="round" />
+      <path d="M-10 118 C80 112 200 122 340 114" stroke={c.major} strokeWidth="3" strokeLinecap="round" fill="none" />
+      {live && <circle cx="160" cy="92" r="30" fill="#0a84ff" opacity="0.16" />}
+      <g transform="translate(160 92)">
+        <ellipse cx="0" cy="2" rx="6" ry="2.2" fill="#000" opacity="0.18" />
+        {live ? (
+          <>
+            <circle r="11" fill="#fff" />
+            <circle r="8" fill="#0a84ff" />
+          </>
+        ) : (
+          <>
+            <path d="M0 0 L-3.2 -12 H3.2Z" fill="#c4271d" />
+            <circle cy="-24" r="14" fill="#ff3b30" stroke="#fff" strokeWidth="2.5" />
+            <circle cy="-24" r="4.5" fill="#fff" />
+          </>
+        )}
+      </g>
+    </svg>
+  );
+}
+
+/** A shared place = the link card of a maps.apple.com link (X Chat has no location messages). */
+function LocationCard({ loc, p, dark }: { loc: LocationShare; p: Palette; dark: boolean }) {
+  return (
+    <CardShell p={p} width={MAX_W}>
+      <div style={{ width: "100%", height: Math.min(CARD_BANNER_MAX, (MAX_W * 9) / 16) }}>
+        <AppleMapArt dark={dark} live={loc.live} />
+      </div>
+      <CardText title={loc.title} host="maps.apple.com" p={p} />
+    </CardShell>
+  );
+}
+
+/** Document card [RC]: gray-100, px-6 py-3, icon-document, name (ext kept) + meta line. */
+function FileCard({ file, p, l }: { file: FileShare; p: Palette; l: Strings }) {
+  const dot = file.name.lastIndexOf(".");
+  const base = dot > 0 ? file.name.slice(0, dot) : file.name;
+  const ext = dot > 0 ? file.name.slice(dot) : "";
+  const meta = [l.download, file.size?.trim() ? l.size(file.size.trim()) : ""].filter(Boolean).join(" · ");
+  return (
+    <div
+      className="flex items-center"
+      style={{ maxWidth: MAX_W, background: p.tile, border: `1px solid ${p.tile}`, borderRadius: CARD_RADIUS, padding: "13.5px 27px", gap: 13.5 }}
+    >
+      <PathGlyph d={DOC_D} size={22.5} color={p.docIcon} />
+      <div className="flex min-w-0 flex-col">
+        <div dir="ltr" className="flex min-w-0" style={{ fontSize: 17, lineHeight: `${LINE}px`, fontWeight: 500, color: p.fg }}>
+          <span className="truncate">{base}</span>
+          <span className="shrink-0">{ext}</span>
+        </div>
+        <span className="truncate" style={{ fontSize: META_TEXT, lineHeight: `${META_LINE}px`, color: p.secondary, textAlign: "start" }}>
+          {meta}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** Call entry [RU/LU]: centred icon + "<kind> call missed · time", Call Back pill when missed. */
+function CallRow({ call, time, incoming, group, p, l }: { call: CallEntry; time: string; incoming: boolean; group: boolean; p: Palette; l: Strings }) {
+  const tint = call.missed ? RED : p.secondary;
+  return (
+    <div className="flex flex-col items-center" style={{ gap: 9, paddingBlock: 2 }}>
+      <div className="flex items-center justify-center" style={{ gap: 6.5, color: tint }}>
+        {call.video ? <VideoGlyphSized color={tint} size={CALL_ICON} /> : <PhoneGlyphSized color={tint} size={CALL_ICON} />}
+        <span style={{ fontSize: META_TEXT, lineHeight: `${META_LINE}px`, fontWeight: 500, whiteSpace: "nowrap" }}>
+          {l.call(call, group)}
+          {" · "}
+          <span dir="ltr">{time}</span>
+        </span>
+      </div>
+      {call.missed && incoming && (
+        <span
+          className="inline-flex items-center justify-center rounded-full"
+          style={{ height: CALL_PILL_H, paddingInline: CALL_PILL_PAD, background: p.pill, color: p.fg, fontSize: META_TEXT, fontWeight: 500 }}
+        >
+          {l.callBack}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function PhoneGlyphSized({ color, size }: { color: string; size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={color} style={{ display: "block", flexShrink: 0 }}>
+      <path d="M3 6.42A3.4 3.4 0 0 1 6.42 3h3.2l2.6 5.2-1.53 1.52a7 7 0 0 0 3.58 3.59l1.53-1.53 5.2 2.6v3.2A3.4 3.4 0 0 1 17.58 21 14.6 14.6 0 0 1 3 6.42m2 0C5 13.37 10.63 19 17.58 19c.78 0 1.42-.64 1.42-1.42v-1.96l-2.8-1.4-1 .99-.46.46-.61-.24a9.3 9.3 0 0 1-5.56-5.56l-.24-.61.46-.47 1-.99L8.38 5H6.41C5.64 5 5 5.64 5 6.42" />
+    </svg>
+  );
+}
+
+function VideoGlyphSized({ color, size }: { color: string; size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={color} style={{ display: "block", flexShrink: 0 }}>
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M13.73 4a4.5 4.5 0 0 1 4.16 3.51l4.61-2.05v13.08l-4.61-2.05A4.5 4.5 0 0 1 13.5 20H6a4.5 4.5 0 0 1-4.5-4.5v-7A4.5 4.5 0 0 1 6 4zM6 6a2.5 2.5 0 0 0-2.5 2.5v7A2.5 2.5 0 0 0 6 18h7.5a2.5 2.5 0 0 0 2.5-2.5v-7a2.5 2.5 0 0 0-2.24-2.49L13.5 6zm12 3.65v4.7l2.5 1.11V8.54z"
+      />
+    </svg>
+  );
+}
+
+/** Sticker: X has none — the supersize emoji (no bubble) or a borderless image. */
+function Sticker({ m }: { m: Message }) {
+  if (m.imageSrc) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={m.imageSrc} alt="" draggable={false} className="block object-contain" style={{ width: STICKER_IMG, height: STICKER_IMG }} />
+    );
+  }
+  return (
+    <div dir="ltr" style={{ fontSize: STICKER_EMOJI, lineHeight: `${STICKER_EMOJI * 1.15}px`, letterSpacing: "0.1em", paddingInline: 4.5 }}>
+      {m.text.trim() || "🙂"}
+    </div>
+  );
+}
+
+/** Group facepile [St/_t]: two 24px heads, the front one (member 0) ringed in the page colour. */
+function Facepile({ members, p, size }: { members: Person[]; p: Palette; size: number }) {
+  const head = Math.round(size * 0.75);
+  const ring = 1;
+  const a = members[0] ?? { name: "", avatar: null };
+  const b = members[1] ?? a;
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <div className="absolute" style={{ top: 0, insetInlineStart: 0 }}>
+        <XAvatar person={b} size={head} p={p} />
+      </div>
+      <div className="absolute rounded-full" style={{ bottom: 0, insetInlineEnd: 0, padding: ring, background: p.bg }}>
+        <XAvatar person={a} size={head} p={p} />
+      </div>
     </div>
   );
 }
@@ -743,6 +1123,11 @@ function TypingRow({
 
 /* ------------------------------ component ------------------------------ */
 
+/** Calls are informational rows; a message deleted for everyone is gone from the thread. */
+const isInfo = (m: Message) => m.type === "call" || m.type === "deleted";
+
+const COMPOSER_BOTTOM = 16;
+
 export function XChat({ scenario, playback, lang, rtl }: PlatformProps) {
   const dark = scenario.theme === "dark";
   const p = dark ? DARK : LIGHT;
@@ -756,6 +1141,16 @@ export function XChat({ scenario, playback, lang, rtl }: PlatformProps) {
   const draft = playback.draft;
   const composerRef = useRef<HTMLDivElement>(null);
   const composerH = useRef<number | undefined>(undefined);
+  const kb = useKeyboardInset();
+  const kbUp = kb.inset > 0;
+  const prevInset = useRef<number | undefined>(undefined);
+
+  const group = scenario.group ?? null;
+  const members = group?.members ?? [];
+  const memberAt = (i: number | undefined): Person =>
+    members.length ? members[Math.min(members.length - 1, Math.max(0, i ?? 0))] : scenario.them;
+  const personOf = (m: Message): Person => (m.sender === "me" ? scenario.me : group ? memberAt(m.authorIndex) : scenario.them);
+  const keyOf = (m: Message) => (m.sender === "me" ? "me" : group ? `t${Math.max(0, m.authorIndex ?? 0)}` : "t");
 
   // As the composer grows with the draft, keep the thread pinned to its bottom (the
   // real list scrolls with the input instead of hiding its last rows).
@@ -768,6 +1163,27 @@ export function XChat({ scenario, playback, lang, rtl }: PlatformProps) {
     composerH.current = h;
     if (prev !== undefined && h !== prev) list.scrollTop += h - prev;
   }, [draft?.text, scrollRef]);
+
+  // Keyboard: the thread shrinks above the lifted composer and stays on its newest row
+  // (exact per export frame; the observer follows the live height transition).
+  useLayoutEffect(() => {
+    const list = scrollRef.current;
+    const prev = prevInset.current;
+    prevInset.current = kb.inset;
+    if (list && prev !== undefined && prev !== kb.inset) list.scrollTop = list.scrollHeight;
+  }, [kb.inset, scrollRef]);
+  useEffect(() => {
+    const list = scrollRef.current;
+    if (!list || typeof ResizeObserver === "undefined") return;
+    let h = list.clientHeight;
+    const ro = new ResizeObserver(() => {
+      const nh = list.clientHeight;
+      if (nh < h) list.scrollTop = list.scrollHeight;
+      h = nh;
+    });
+    ro.observe(list);
+    return () => ro.disconnect();
+  }, [scrollRef]);
 
   // Typing row entrance in exported frames (CSS animations don't run there).
   useLayoutEffect(() => {
@@ -785,18 +1201,43 @@ export function XChat({ scenario, playback, lang, rtl }: PlatformProps) {
   // The receipt sits under the user's most recent message, even after replies.
   let lastMineId: string | undefined;
   for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].sender === "me") {
+    if (messages[i].sender === "me" && !isInfo(messages[i])) {
       lastMineId = messages[i].id;
       break;
     }
   }
 
+  const vis = messages.filter((m) => m.type !== "deleted");
+  const visIndex = new Map(vis.map((m, i) => [m.id, i]));
   const byId = new Map(messages.map((m) => [m.id, m]));
   const rows: ReactNode[] = [];
   let prevHadReceipt = false;
-  messages.forEach((m, i) => {
+  messages.forEach((m) => {
     const mine = m.sender === "me";
-    const { firstOfGroup } = groupInfo(messages, i);
+    if (m.type === "deleted") {
+      rows.push(<div key={m.id} data-mid={m.id} data-sender={m.sender} aria-hidden style={{ height: 0, overflow: "hidden" }} />);
+      return;
+    }
+    const vi = visIndex.get(m.id) ?? 0;
+    const prevV = vis[vi - 1];
+    const nextV = vis[vi + 1];
+    const firstOfBurst = !prevV || isInfo(prevV) || keyOf(prevV) !== keyOf(m);
+    const lastOfBurst = !nextV || isInfo(nextV) || keyOf(nextV) !== keyOf(m);
+    const anim = live ? (mine ? "x-ios-anim-out" : "x-ios-anim-in") : "";
+
+    let marginTop = 0;
+    if (prevV) marginTop = prevHadReceipt ? GAP_AFTER_RECEIPT : m.type === "call" || firstOfBurst ? GAP_SENDER : GAP_GROUP;
+
+    if (m.type === "call") {
+      rows.push(
+        <div key={m.id} data-mid={m.id} data-sender={m.sender} className={anim} style={{ marginTop, paddingInline: SIDE, transformOrigin: originFor(mine, rtl) }}>
+          <CallRow call={m.call ?? { video: false, missed: true }} time={m.time} incoming={!mine} group={!!group} p={p} l={l} />
+        </div>,
+      );
+      prevHadReceipt = false;
+      return;
+    }
+
     const status = mine && m.id === lastMineId ? playback.statusOf(m) : undefined;
     const hasText = m.text.trim().length > 0;
     const emojis = m.type === "text" ? emojiCount(m.text) : 0;
@@ -815,11 +1256,24 @@ export function XChat({ scenario, playback, lang, rtl }: PlatformProps) {
           )}
         </>
       );
+    } else if (m.type === "sticker") {
+      content = <Sticker m={m} />;
+    } else if (m.type === "location") {
+      content = <LocationCard loc={m.location ?? { title: m.text || "Location" }} p={p} dark={dark} />;
+    } else if (m.type === "file") {
+      content = <FileCard file={m.file ?? { name: m.text || "Document.pdf" }} p={p} l={l} />;
     } else if (emojis) {
       const fs = JUMBO_SIZE[emojis];
       content = (
         <div dir="ltr" style={{ fontSize: fs, lineHeight: `${Math.round(fs * 1.2)}px` }}>
           {m.text.trim()}
+        </div>
+      );
+    } else if (m.link) {
+      content = (
+        <div className="flex max-w-full flex-col" style={{ alignItems: mine ? "flex-end" : "flex-start", gap: 4.5 }}>
+          <LinkCard link={m.link} p={p} />
+          {hasText && <TextBubble m={m} mine={mine} p={p} />}
         </div>
       );
     } else {
@@ -828,41 +1282,68 @@ export function XChat({ scenario, playback, lang, rtl }: PlatformProps) {
 
     const target = m.replyToId ? byId.get(m.replyToId) : undefined;
     const reaction = m.reaction?.trim();
-    if (target || reaction) {
-      content = (
-        <div className="flex max-w-full flex-col" style={{ alignItems: mine ? "flex-end" : "flex-start" }}>
-          {target && (
-            <ReplyPreview
-              target={target}
-              name={target.sender === "me" ? scenario.me.name : scenario.them.name}
-              mine={mine}
-              p={p}
-              l={l}
-            />
-          )}
-          {content}
+    const align = mine ? "flex-end" : "flex-start";
+    const main = (
+      <div className="flex min-w-0 max-w-full flex-col" style={{ alignItems: align }}>
+        {target && <ReplyPreview target={target} name={personOf(target).name} mine={mine} p={p} l={l} />}
+        {content}
+      </div>
+    );
+    const info =
+      reaction || m.edited ? (
+        <div className="flex max-w-full flex-col" style={{ alignItems: align }}>
           {reaction && <ReactionChip emoji={reaction} mine={mine} p={p} />}
+          {m.edited && (
+            <div style={{ marginTop: reaction ? 0 : EDITED_GAP, paddingInline: EDITED_GAP, color: p.secondary, fontSize: 12, lineHeight: "16px", whiteSpace: "nowrap" }}>
+              {l.edited}
+            </div>
+          )}
         </div>
-      );
-    }
+      ) : null;
 
-    let marginTop = 0;
-    if (i > 0) marginTop = prevHadReceipt ? GAP_AFTER_RECEIPT : firstOfGroup ? GAP_SENDER : GAP_GROUP;
-
+    const inGroup = !!group && !mine;
+    const sender = personOf(m);
     rows.push(
       <div
         key={m.id}
         data-mid={m.id}
         data-sender={m.sender}
-        className={`flex flex-col ${live ? (mine ? "x-ios-anim-out" : "x-ios-anim-in") : ""}`}
-        style={{
-          alignItems: mine ? "flex-end" : "flex-start",
-          paddingInline: SIDE,
-          marginTop,
-          transformOrigin: originFor(mine, rtl),
-        }}
+        className={`flex flex-col ${anim}`}
+        style={{ alignItems: align, paddingInline: SIDE, marginTop, transformOrigin: originFor(mine, rtl) }}
       >
-        {content}
+        {inGroup ? (
+          <>
+            {firstOfBurst && (
+              <div
+                dir={dirOf(sender.name)}
+                className="max-w-full truncate"
+                style={{
+                  paddingInlineStart: GROUP_AVATAR + GROUP_GAP + PAD_X,
+                  marginBottom: NAME_AFTER,
+                  color: p.secondary,
+                  fontSize: NAME_TEXT,
+                  lineHeight: `${NAME_LINE}px`,
+                  alignSelf: "stretch",
+                  textAlign: "start",
+                }}
+              >
+                {sender.name}
+              </div>
+            )}
+            <div className="flex max-w-full items-end" style={{ gap: GROUP_GAP }}>
+              <div className="shrink-0" style={{ width: GROUP_AVATAR, marginBottom: 2 }}>
+                {lastOfBurst && <XAvatar person={sender} size={GROUP_AVATAR} p={p} />}
+              </div>
+              {main}
+            </div>
+            {info && <div style={{ paddingInlineStart: GROUP_AVATAR + GROUP_GAP }}>{info}</div>}
+          </>
+        ) : (
+          <>
+            {main}
+            {info}
+          </>
+        )}
         {status && (
           <div
             key={status}
@@ -884,8 +1365,19 @@ export function XChat({ scenario, playback, lang, rtl }: PlatformProps) {
     prevHadReceipt = !!status;
   });
 
-  const last = messages[messages.length - 1];
-  const typingGap = !last ? 0 : prevHadReceipt ? GAP_AFTER_RECEIPT : last.sender === "them" ? GAP_GROUP + 4 : GAP_SENDER;
+  const last = vis[vis.length - 1];
+  const shown = new Set(messages.map((m) => m.id));
+  const nextThem = scenario.messages.find((m) => !shown.has(m.id) && m.sender === "them");
+  const typist = group ? memberAt((nextThem ?? (last?.sender === "them" ? last : undefined))?.authorIndex) : scenario.them;
+  const typingGap = !last
+    ? 0
+    : prevHadReceipt
+      ? GAP_AFTER_RECEIPT
+      : last.sender === "them" && !isInfo(last) && keyOf(last) === (group ? `t${Math.max(0, nextThem?.authorIndex ?? last.authorIndex ?? 0)}` : "t")
+        ? GAP_GROUP + 4
+        : GAP_SENDER;
+
+  const title = group ? group.name : scenario.them.name;
 
   return (
     <div
@@ -911,18 +1403,22 @@ export function XChat({ scenario, playback, lang, rtl }: PlatformProps) {
           <ArrowBack color={p.fg} />
         </div>
         <div className="absolute" style={{ insetInlineStart: 48, top: HEADER_H / 2 - 16 }}>
-          <XAvatar person={scenario.them} size={32} p={p} />
+          {group ? (
+            group.avatar ? (
+              <Avatar person={{ name: group.name, avatar: group.avatar }} size={32} />
+            ) : (
+              <Facepile members={members} p={p} size={32} />
+            )
+          ) : (
+            <XAvatar person={scenario.them} size={32} p={p} />
+          )}
         </div>
         <div
           className="absolute flex items-center"
           style={{ insetInlineStart: 92, insetInlineEnd: 104, top: 0, height: HEADER_H }}
         >
-          <span
-            dir={dirOf(scenario.them.name)}
-            className="truncate"
-            style={{ fontSize: 17, lineHeight: "22px", fontWeight: 700, color: p.fg }}
-          >
-            {scenario.them.name}
+          <span dir={dirOf(title)} className="truncate" style={{ fontSize: 17, lineHeight: "22px", fontWeight: 700, color: p.fg }}>
+            {title}
           </span>
         </div>
         <div
@@ -944,14 +1440,7 @@ export function XChat({ scenario, playback, lang, rtl }: PlatformProps) {
             {rows}
             {typing && (
               <div style={{ marginTop: typingGap }}>
-                <TypingRow
-                  person={scenario.them}
-                  p={p}
-                  label={l.typing(scenario.them.name)}
-                  live={live}
-                  clockMs={clockMs}
-                  boxRef={typingRef}
-                />
+                <TypingRow person={typist} p={p} label={l.typing(typist.name)} live={live} clockMs={clockMs} boxRef={typingRef} />
               </div>
             )}
           </div>
@@ -962,7 +1451,7 @@ export function XChat({ scenario, playback, lang, rtl }: PlatformProps) {
       <div
         ref={composerRef}
         className="flex shrink-0 items-end"
-        style={{ minHeight: COMPOSER_H, paddingInlineStart: SIDE, paddingInlineEnd: 15, gap: 8, marginBottom: 16 }}
+        style={{ minHeight: COMPOSER_H, paddingInlineStart: SIDE, paddingInlineEnd: 15, gap: 8, marginBottom: COMPOSER_BOTTOM }}
       >
         <div
           className="flex shrink-0 items-center justify-center rounded-full"
@@ -1010,7 +1499,19 @@ export function XChat({ scenario, playback, lang, rtl }: PlatformProps) {
         )}
       </div>
 
-      <SystemBottomBar device={scenario.device} bg={p.bg} fg={p.fg} />
+      {/* Home-indicator band; while the keyboard is up it grows so the composer rides
+          KB_GAP above the keyboard (continuous in the inset, so export frames match). */}
+      <div
+        className="relative shrink-0"
+        style={{
+          height: kbUp ? Math.max(HOME_BAND, kb.inset + KB_GAP - COMPOSER_BOTTOM) : HOME_BAND,
+          transition: kb.transition === "none" ? undefined : `height ${kb.transition}`,
+        }}
+      >
+        <div className="absolute inset-x-0 bottom-0">
+          <SystemBottomBar device={scenario.device} bg={p.bg} fg={p.fg} />
+        </div>
+      </div>
     </div>
   );
 }

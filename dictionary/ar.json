@@ -430,7 +430,6 @@
     "paceNatural": "طبيعي",
     "paceSlow": "هادئ",
     "genApply": "تطبيق الأوقات",
-    "genRange": "{from} ← {to}",
     "genInvalid": "اكتب وقتاً مثل 10:41 أو 4:05 م أو 22:05",
     "genDone": "تم تحديث أوقات الرسائل",
     "genLocked": "تم الإبقاء على {count} من الأوقات المقفلة",

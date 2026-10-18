@@ -864,7 +864,16 @@ function TtFileIcon({ ext }: { ext: string }) {
 
 function TtFile({ file, mine, pal }: { file: NonNullable<Message["file"]>; mine: boolean; pal: TtPalette }) {
   const ext = extOf(file.name);
-  const meta = [file.pages, file.size, ext ? ext.toUpperCase() : null].filter(Boolean).join(" · ");
+  const parts = [file.pages, file.size, ext ? ext.toUpperCase() : null].filter((p): p is string => !!p);
+  // each part isolated so "245 KB" / "PDF" keep their order inside an Arabic line
+  const meta = parts.length
+    ? parts.map((p, i) => (
+        <Fragment key={i}>
+          {i > 0 && " · "}
+          <span style={{ unicodeBidi: "isolate" }}>{p}</span>
+        </Fragment>
+      ))
+    : null;
   return (
     <div className="flex items-center" style={{ gap: 10, width: 216 }}>
       <TtFileIcon ext={ext} />

@@ -1,6 +1,20 @@
-import type { ChatTheme, DeliveryStatus, Message, Platform, PresenceStatus, Scenario } from "../types";
+import type {
+  CallEntry,
+  ChatTheme,
+  DeliveryStatus,
+  FileShare,
+  GroupChat,
+  LocationShare,
+  Message,
+  MessageType,
+  Platform,
+  PresenceStatus,
+  Scenario,
+} from "../types";
 import { applyNaturalTiming } from "../services/smart-timing";
+import { draftLinkPreview, firstUrl } from "../services/link-preview";
 import { SCENARIO_VERSION, createId } from "./defaults";
+import { mediaSrc } from "./media-library";
 
 /**
  * Ready-made marketing conversations for the template gallery. Each one ships
@@ -21,7 +35,11 @@ export type TemplateId =
   | "course"
   | "carRental"
   | "testimonial"
-  | "flashSale";
+  | "flashSale"
+  | "familyGroup"
+  | "teamOrder"
+  | "supportCall"
+  | "deliveryLive";
 
 type Who = "m" | "t";
 type LineOpts = {
@@ -33,12 +51,32 @@ type LineOpts = {
   v?: string;
   /** final delivery status for my messages (default read) */
   st?: DeliveryStatus;
+  /** group chats: index of the member who wrote a "them" line */
+  a?: number;
+  /** shows the app's "Edited" label */
+  ed?: true;
+  /** link preview for the first URL of the text (image = media library id) */
+  ln?: { title: string; d?: string; img?: string; site?: string };
+  /** media library id — makes the line an image (text = caption) */
+  img?: string;
+  /** sticker: 1–3 emoji, or a media library id prefixed with "lib:" */
+  stk?: string;
+  loc?: LocationShare;
+  f?: FileShare;
+  c?: CallEntry;
+  /** "This message was deleted" */
+  del?: true;
 };
 type Line = [Who, string, string, LineOpts?];
 
 interface TemplateContent {
   me: string;
   them: string;
+  /** media library ids for the participants' photos */
+  meAvatar?: string;
+  themAvatar?: string;
+  /** group chat: name, photo (library id) and members as [name, avatar id] */
+  group?: { name: string; avatar?: string; members: [string, string?][] };
   lines: Line[];
 }
 
@@ -441,20 +479,69 @@ export const TEMPLATES: ScenarioTemplate[] = [
 export function templateMessages(tpl: ScenarioTemplate, lang: TemplateLang): Message[] {
   const lines = tpl.content[lang].lines;
   const ids = lines.map(() => createId());
-  const messages: Message[] = lines.map(([who, text, time, o = {}], i) => ({
-    id: ids[i],
-    sender: who === "m" ? "me" : "them",
-    type: o.v ? "voice" : "text",
-    text,
-    time,
-    delayMs: 800,
-    typingMs: 0,
-    status: o.st ?? "read",
-    ...(o.v ? { voiceDuration: o.v } : {}),
-    ...(o.r ? { reaction: o.r } : {}),
-    ...(o.q !== undefined && o.q < i ? { replyToId: ids[o.q] } : {}),
-  }));
+  const group = !!tpl.content[lang].group;
+  const messages: Message[] = lines.map(([who, text, time, o = {}], i) => {
+    const type: MessageType = o.del
+      ? "deleted"
+      : o.c
+        ? "call"
+        : o.f
+          ? "file"
+          : o.loc
+            ? "location"
+            : o.stk
+              ? "sticker"
+              : o.img
+                ? "image"
+                : o.v
+                  ? "voice"
+                  : "text";
+    const sticker = o.stk?.startsWith("lib:") ? mediaSrc(o.stk.slice(4)) : null;
+    const url = o.ln ? firstUrl(text) : null;
+    return {
+      id: ids[i],
+      sender: who === "m" ? "me" : "them",
+      type,
+      text: type === "sticker" ? (sticker ? "" : (o.stk ?? "")) : text,
+      time,
+      delayMs: 800,
+      typingMs: 0,
+      status: o.st ?? "read",
+      ...(o.v ? { voiceDuration: o.v } : {}),
+      ...(o.r ? { reaction: o.r } : {}),
+      ...(o.q !== undefined && o.q < i ? { replyToId: ids[o.q] } : {}),
+      ...(group && who === "t" ? { authorIndex: o.a ?? 0 } : {}),
+      ...(o.ed ? { edited: true } : {}),
+      ...(o.img ? { imageSrc: mediaSrc(o.img) } : {}),
+      ...(sticker ? { imageSrc: sticker } : {}),
+      ...(o.loc ? { location: o.loc } : {}),
+      ...(o.f ? { file: o.f } : {}),
+      ...(o.c ? { call: o.c } : {}),
+      ...(o.ln && url
+        ? {
+            link: {
+              ...draftLinkPreview(url),
+              title: o.ln.title,
+              description: o.ln.d ?? "",
+              ...(o.ln.site ? { siteName: o.ln.site } : {}),
+              image: o.ln.img ? mediaSrc(o.ln.img) : null,
+            },
+          }
+        : {}),
+    };
+  });
   return applyNaturalTiming(messages);
+}
+
+/** Group chat of a template (null for a 1:1 conversation). */
+export function templateGroup(tpl: ScenarioTemplate, lang: TemplateLang): GroupChat | null {
+  const g = tpl.content[lang].group;
+  if (!g) return null;
+  return {
+    name: g.name,
+    avatar: g.avatar ? mediaSrc(g.avatar) : null,
+    members: g.members.map(([name, avatar]) => ({ name, avatar: avatar ? mediaSrc(avatar) : null })),
+  };
 }
 
 /**
@@ -463,14 +550,17 @@ export function templateMessages(tpl: ScenarioTemplate, lang: TemplateLang): Mes
  */
 export function buildFromTemplate(tpl: ScenarioTemplate, lang: TemplateLang, base: Scenario): Scenario {
   const c = tpl.content[lang];
+  const group = templateGroup(tpl, lang);
   return {
     ...base,
     version: SCENARIO_VERSION,
     platform: tpl.platform,
     theme: tpl.theme,
     presence: tpl.presence,
-    me: { name: c.me, avatar: null },
-    them: { name: c.them, avatar: null },
+    me: { name: c.me, avatar: c.meAvatar ? mediaSrc(c.meAvatar) : null },
+    // in a group the first member doubles as the 1:1 contact (used if the group is turned off)
+    them: group ? group.members[0] : { name: c.them, avatar: c.themAvatar ? mediaSrc(c.themAvatar) : null },
+    group,
     messages: templateMessages(tpl, lang),
   };
 }

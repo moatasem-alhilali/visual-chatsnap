@@ -77,6 +77,29 @@
  *     Placeholder casing on mobile is "Send a Chat" (May 2024 video, 2022
  *     assets); Snapchat Web lower-cases it.
  *
+ * Round 5 (groups, new kinds, keyboard) — all from the same Web bundle [W]
+ * (127ca002….js + main.css + translations-*.js):
+ * - Group chats: label colour = `participants.find(id).color` (server-assigned
+ *   per member, not in the client) — modelled with a fixed, stable palette by
+ *   member index (GROUP_COLORS); the bar takes the same colour. Header shows the
+ *   group name with the members' Bitmoji cluster; "{n} Members" strings from
+ *   the catalogue ("{groupMemberCount} من الأعضاء").
+ * - Status messages (`.ijyxU`): centred, uppercase, 9.5px / 500 / letter-
+ *   spacing 1px / --sigTextSecondary — used for a deleted chat: "{user} DELETED
+ *   A CHAT" / "YOU DELETED A CHAT" (ar: "تم حذف رسالة دردشة من قِبل {user}" /
+ *   "لقد حذفت رسالة دردشة").
+ * - Edited: the message header (`.GUB_w`, flex, gap 5px) carries
+ *   "(Edited)" / "(تم التعديل)" in --sigTextSecondary, not upper-cased.
+ * - Links: URL ranges are underlined in the text colour (`.CFuC2`); the
+ *   preview card follows the text (`.Zxfed`): row, 1px --sigDisabled border,
+ *   --sigSurface fill, radius 10, 5px block margin; 50×50 thumb (radius 10,
+ *   margin 10, --sigPlaceholder); title 15/600 2-line clamp; subtitle (site)
+ *   12/500 --sigTextSecondary at 0.67 opacity. The same card shape is reused
+ *   for files and calls.
+ * - Calls: missed → "Missed call" / "مكالمة فائتة" in the Web feed; the app's
+ *   in-chat call cards read "Missed Audio Call" / "Missed Video Chat" (Snapchat
+ *   still brands video calls "Video Chat").
+ *
  * Design notes
  * - Snapchat has no bubbles, no per-message timestamps and no "last seen";
  *   only the day separator ("TODAY"). `scenario.lastSeenText` is shown as the
@@ -89,13 +112,14 @@
  *   mic, smiley, memories, ⊕, and the voice-note play triangle.
  */
 
-import type { CSSProperties, ReactNode } from "react";
+import { useEffect, type CSSProperties, type ReactNode, type RefObject } from "react";
 
-import type { DeliveryStatus, Message, Person } from "../../types";
+import type { DeliveryStatus, Message, Person, Scenario } from "../../types";
 import { Avatar, dirOf, SystemBottomBar, useChatScroll } from "../shared";
 import { StatusBar } from "../devices/StatusBar";
+import { useKeyboardInset } from "../devices/keyboard-context";
 import type { Lang } from "./chrome";
-import { groupInfo, type PlatformMotion, type PlatformProps } from "./types";
+import type { PlatformMotion, PlatformProps } from "./types";
 
 /* ======================================================================
    iOS renderer
@@ -107,10 +131,36 @@ const IOS_THEM = "#0EADFF";
 /** --sigBrandSecondary: the composer send arrow [C]. */
 const SNAP_SEND_BLUE = "#0FADFF";
 
-const IOS_STR: Record<
-  Lang,
-  { me: string; today: string; sendAChat: string; sending: string; delivered: string; opened: string }
-> = {
+/**
+ * Group member colours. Snapchat assigns each member a server-side colour
+ * (`participant.color`); this is a stable stand-in palette in the same
+ * saturated family, picked by member index. "ME" stays Snapchat red.
+ */
+const GROUP_COLORS = ["#A05DCD", "#11A866", "#F7861C", "#0EADFF", "#E5458F", "#00A3A6", "#6F6CF2", "#C99A00"];
+/** Missed-call accent (Snapchat red). */
+const SNAP_MISSED = "#F23C57";
+
+interface SnapStrings {
+  me: string;
+  today: string;
+  sendAChat: string;
+  sending: string;
+  delivered: string;
+  opened: string;
+  edited: string;
+  youDeleted: string;
+  deletedBy: (name: string) => string;
+  missedAudio: string;
+  missedVideo: string;
+  audioCall: string;
+  videoChat: string;
+  tapToCallBack: string;
+  noAnswer: string;
+  liveLocation: string;
+  members: (n: number) => string;
+}
+
+const IOS_STR: Record<Lang, SnapStrings> = {
   en: {
     me: "Me",
     today: "Today",
@@ -118,6 +168,17 @@ const IOS_STR: Record<
     sending: "Sending...",
     delivered: "Delivered",
     opened: "Opened",
+    edited: "(Edited)",
+    youDeleted: "YOU DELETED A CHAT",
+    deletedBy: (n) => `${n} DELETED A CHAT`,
+    missedAudio: "Missed Audio Call",
+    missedVideo: "Missed Video Chat",
+    audioCall: "Audio Call",
+    videoChat: "Video Chat",
+    tapToCallBack: "Tap to call back",
+    noAnswer: "No answer",
+    liveLocation: "Live Location",
+    members: (n) => `${n} Members`,
   },
   ar: {
     me: "أنا",
@@ -127,8 +188,91 @@ const IOS_STR: Record<
     sending: "جارٍ الإرسال...",
     delivered: "تم التسليم",
     opened: "تم الفتح",
+    edited: "(تم التعديل)",
+    youDeleted: "لقد حذفت رسالة دردشة",
+    deletedBy: (n) => `تم حذف رسالة دردشة من قِبل ${n}`,
+    missedAudio: "مكالمة صوتية فائتة",
+    missedVideo: "دردشة فيديو فائتة",
+    audioCall: "مكالمة صوتية",
+    videoChat: "دردشة فيديو",
+    tapToCallBack: "انقر لمعاودة الاتصال",
+    noAnswer: "لم يتم الرد",
+    liveLocation: "الموقع المباشر",
+    members: (n) => `${n} من الأعضاء`,
   },
 };
+
+/* ----------------------------- group helpers ----------------------------- */
+
+/** Author of a message: the group member (by authorIndex) or the 1:1 friend. */
+function snapAuthor(scenario: Scenario, m: Message): { person: Person; index: number } {
+  const g = scenario.group;
+  if (g && g.members.length > 0) {
+    const idx = Math.min(Math.max(0, m.authorIndex ?? 0), g.members.length - 1);
+    return { person: g.members[idx], index: idx };
+  }
+  return { person: scenario.them, index: -1 };
+}
+
+/** Colour of a "them" author: group palette by index, Snapchat blue in 1:1. */
+function snapThemColor(index: number): string {
+  return index < 0 ? "#0EADFF" : GROUP_COLORS[index % GROUP_COLORS.length];
+}
+
+/** Rows rendered as centred status messages (they break sender runs). */
+function isStatusRow(m: Message): boolean {
+  return m.type === "deleted";
+}
+
+/** Sender run key: me, or the specific friend / group member. */
+function runKey(m: Message): string {
+  return m.sender === "me" ? "me" : `them-${m.authorIndex ?? 0}`;
+}
+
+/** Grouping that also splits runs per group member, on status rows and on edited chats (their header carries "(Edited)"). */
+function snapRuns(messages: Message[], i: number, group: boolean): { first: boolean; last: boolean } {
+  const m = messages[i];
+  const prev = messages[i - 1];
+  const next = messages[i + 1];
+  const key = (x: Message) => (group ? runKey(x) : x.sender);
+  return {
+    first: !prev || isStatusRow(prev) || key(prev) !== key(m) || !!m.edited,
+    last: !next || isStatusRow(next) || key(next) !== key(m) || !!next.edited,
+  };
+}
+
+/** Which member is typing: the author of the next "them" message not yet shown. */
+function typingAuthor(scenario: Scenario, shown: Message[]): number {
+  const lastShown = shown[shown.length - 1];
+  const from = lastShown ? scenario.messages.findIndex((x) => x.id === lastShown.id) + 1 : 0;
+  const next = scenario.messages.slice(from).find((x) => x.sender === "them");
+  return next?.authorIndex ?? 0;
+}
+
+/** Underline URL ranges in the text (Snapchat `.CFuC2`: underline, inherit colour). */
+function linkify(text: string): ReactNode {
+  const re = /(https?:\/\/[^\s]+|www\.[^\s]+)/g;
+  const out: ReactNode[] = [];
+  let last = 0;
+  let k = 0;
+  for (let mt = re.exec(text); mt; mt = re.exec(text)) {
+    if (mt.index > last) out.push(text.slice(last, mt.index));
+    out.push(
+      <span key={k++} style={{ textDecoration: "underline", textUnderlineOffset: 2 }}>
+        {mt[0]}
+      </span>,
+    );
+    last = mt.index + mt[0].length;
+  }
+  if (out.length === 0) return text;
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+
+function siteOf(url: string, siteName?: string): string {
+  if (siteName) return siteName;
+  return url.replace(/^https?:\/\//, "").replace(/^www\./, "").split(/[/?#]/)[0];
+}
 
 const SNAP_IOS_FONT =
   '"Avenir Next", "AvenirNext-Medium", -apple-system, BlinkMacSystemFont, "SF Pro Text", var(--font-inter), system-ui, var(--font-tajawal), sans-serif';
@@ -151,6 +295,14 @@ interface IosPalette {
   /** quoted-reply card: --sigSurface fill and --sigDisabled hairline [Q] */
   quoteBg: string;
   quoteBorder: string;
+  /** --sigPlaceholder: thumbnail / icon tile behind link, file and call cards */
+  thumb: string;
+  /** Snap Map tile colours */
+  mapLand: string;
+  mapBlock: string;
+  mapRoad: string;
+  mapPark: string;
+  mapWater: string;
 }
 
 function iosPalette(dark: boolean): IosPalette {
@@ -172,6 +324,12 @@ function iosPalette(dark: boolean): IosPalette {
         missing: "#1e1e1e",
         quoteBg: "#1e1e1e",
         quoteBorder: "rgba(255,255,255,0.1)",
+        thumb: "#2b2b2b",
+        mapLand: "#232a33",
+        mapBlock: "#2b333d",
+        mapRoad: "#3b4552",
+        mapPark: "#1f3a2c",
+        mapWater: "#16304a",
       }
     : {
         bg: "#ffffff",
@@ -190,6 +348,12 @@ function iosPalette(dark: boolean): IosPalette {
         missing: "#f2f2f2",
         quoteBg: "#ffffff",
         quoteBorder: "#e3e6e9",
+        thumb: "#f1f2f4",
+        mapLand: "#eef0eb",
+        mapBlock: "#e2e5dd",
+        mapRoad: "#ffffff",
+        mapPark: "#cdebc4",
+        mapWater: "#a9dcf5",
       };
 }
 
@@ -541,9 +705,23 @@ function IosQuoteBody({ target, accent, pal, rtl }: { target: Message; accent: s
       </div>
     );
   }
+  const alt =
+    target.type === "deleted"
+      ? rtl
+        ? "تم حذف هذه الرسالة"
+        : "This message was deleted"
+      : target.type === "location"
+        ? `📍 ${target.location?.title ?? ""}`
+        : target.type === "file"
+          ? `📄 ${target.file?.name ?? ""}`
+          : target.type === "call"
+            ? target.call?.video
+              ? "📹"
+              : "📞"
+            : target.text;
   return (
-    <div dir={dirOf(target.text)} style={snippet}>
-      {target.text}
+    <div dir={dirOf(alt)} style={{ ...snippet, ...(target.type === "deleted" ? { color: pal.sub, fontStyle: "italic" } : null) }}>
+      {alt}
     </div>
   );
 }
@@ -596,6 +774,263 @@ function IosQuote({
         <IosQuoteBody target={target} accent={accent} pal={pal} rtl={rtl} />
       </div>
     </div>
+  );
+}
+
+/* --------------------------- cards (round 5) --------------------------- */
+
+/** Snapchat's attachment card (`.Zxfed`): 50×50 tile, title (2 lines), grey subtitle. */
+function IosCard({
+  pal,
+  tile,
+  title,
+  subtitle,
+  titleColor,
+}: {
+  pal: IosPalette;
+  tile: ReactNode;
+  title: ReactNode;
+  subtitle?: ReactNode;
+  titleColor?: string;
+}) {
+  return (
+    <div
+      className="flex items-center"
+      style={{
+        border: `1px solid ${pal.quoteBorder}`,
+        background: pal.quoteBg,
+        borderRadius: 10,
+        marginBlock: 5,
+        maxWidth: 330,
+      }}
+    >
+      <div
+        className="relative flex shrink-0 items-center justify-center overflow-hidden"
+        style={{ width: 50, height: 50, margin: 10, borderRadius: 10, background: pal.thumb }}
+      >
+        {tile}
+      </div>
+      <div className="min-w-0 flex-1" dir="auto" style={{ marginInlineEnd: 10, paddingBlock: 6 }}>
+        <div
+          style={{
+            color: titleColor ?? pal.text,
+            fontSize: 15.5,
+            lineHeight: "20px",
+            fontWeight: 600,
+            display: "-webkit-box",
+            WebkitBoxOrient: "vertical",
+            WebkitLineClamp: 2,
+            overflow: "hidden",
+            overflowWrap: "anywhere",
+            textAlign: "start",
+          }}
+        >
+          {title}
+        </div>
+        {subtitle && (
+          <div
+            className="truncate"
+            style={{ color: pal.sub, opacity: 0.67, fontSize: 12.5, lineHeight: "17px", fontWeight: 500, marginTop: 1, textAlign: "start" }}
+          >
+            {subtitle}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Link preview card (thumbnail = og:image, subtitle = site). */
+function IosLinkCard({ link, pal }: { link: NonNullable<Message["link"]>; pal: IosPalette }) {
+  return (
+    <IosCard
+      pal={pal}
+      tile={
+        link.image ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={link.image} alt="" draggable={false} className="block h-full w-full object-cover" style={{ borderRadius: 6, border: `0.5px solid ${pal.quoteBorder}` }} />
+        ) : (
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+            <path
+              d="M10.2 13.8a3.6 3.6 0 0 0 5.1 0l3.2-3.2a3.6 3.6 0 0 0-5.1-5.1l-1.1 1.1M13.8 10.2a3.6 3.6 0 0 0-5.1 0l-3.2 3.2a3.6 3.6 0 0 0 5.1 5.1l1.1-1.1"
+              stroke={pal.iconSecondary}
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
+          </svg>
+        )
+      }
+      title={<span dir={dirOf(link.title)}>{link.title}</span>}
+      subtitle={siteOf(link.url, link.siteName)}
+    />
+  );
+}
+
+/** Document glyph: folded page with the type label (PDF red, DOC blue, XLS green…). */
+function SnapDocGlyph({ ext }: { ext: string }) {
+  const e = ext.toUpperCase();
+  const fill =
+    e === "PDF" ? "#E5252A" : /^DOCX?$/.test(e) ? "#2B65D9" : /^(XLSX?|CSV)$/.test(e) ? "#1E9E57" : /^PPTX?$/.test(e) ? "#E5612A" : /^(ZIP|RAR|7Z)$/.test(e) ? "#8A8F98" : "#5B6470";
+  return (
+    <svg width="30" height="36" viewBox="0 0 30 36" fill="none">
+      <path d="M4 0h15l11 11v21a4 4 0 0 1-4 4H4a4 4 0 0 1-4-4V4a4 4 0 0 1 4-4Z" fill={fill} />
+      <path d="M19 0v7a4 4 0 0 0 4 4h7" fill="#ffffff" fillOpacity="0.35" />
+      <text x="15" y="28" textAnchor="middle" fontSize={e.length > 3 ? 7 : 8.5} fontWeight="800" fill="#ffffff" fontFamily="-apple-system, system-ui, sans-serif">
+        {e.slice(0, 4)}
+      </text>
+    </svg>
+  );
+}
+
+function fileExt(name: string): string {
+  const i = name.lastIndexOf(".");
+  return i > 0 ? name.slice(i + 1).toUpperCase() : "FILE";
+}
+
+function IosFileCard({ file, pal }: { file: NonNullable<Message["file"]>; pal: IosPalette }) {
+  const ext = fileExt(file.name);
+  const meta = [file.pages, file.size, ext].filter(Boolean).join(" · ");
+  return (
+    <IosCard
+      pal={pal}
+      tile={<SnapDocGlyph ext={ext} />}
+      title={<span dir="ltr">{file.name}</span>}
+      subtitle={<span dir="auto">{meta}</span>}
+    />
+  );
+}
+
+/** In-chat call card: phone / camcorder tile, "Missed Audio Call" / "Video Chat" + detail. */
+function IosCallCard({ call, mine, pal, s }: { call: NonNullable<Message["call"]>; mine: boolean; pal: IosPalette; s: SnapStrings }) {
+  const missed = call.missed;
+  const title = missed && !mine ? (call.video ? s.missedVideo : s.missedAudio) : call.video ? s.videoChat : s.audioCall;
+  const detail = missed ? (mine ? s.noAnswer : s.tapToCallBack) : call.duration || "0:00";
+  const glyph = missed && !mine ? SNAP_MISSED : pal.icon;
+  return (
+    <IosCard
+      pal={pal}
+      tile={call.video ? <IosVideo color={glyph} /> : <IosPhone color={glyph} />}
+      title={title}
+      titleColor={missed && !mine ? SNAP_MISSED : undefined}
+      subtitle={<span style={{ fontVariantNumeric: "tabular-nums" }}>{detail}</span>}
+    />
+  );
+}
+
+/** Snap Map tile: pastel blocks, white streets, a park and water, deterministic. */
+function SnapMapTile({ pal, seed }: { pal: IosPalette; seed: string }) {
+  let h = 7;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  const dx = (h % 40) - 20;
+  return (
+    <svg width="100%" height="100%" viewBox="0 0 300 150" preserveAspectRatio="xMidYMid slice" className="block" aria-hidden>
+      <rect width="300" height="150" fill={pal.mapLand} />
+      <g transform={`translate(${dx} 0)`}>
+        <path d="M-40 118c60-14 118-6 170 10s118 18 190-6v60H-40Z" fill={pal.mapWater} />
+        <rect x="18" y="14" width="62" height="40" rx="5" fill={pal.mapBlock} />
+        <rect x="96" y="12" width="48" height="44" rx="5" fill={pal.mapPark} />
+        <rect x="162" y="16" width="70" height="36" rx="5" fill={pal.mapBlock} />
+        <rect x="248" y="10" width="60" height="46" rx="5" fill={pal.mapBlock} />
+        <rect x="10" y="70" width="80" height="34" rx="5" fill={pal.mapBlock} />
+        <rect x="106" y="72" width="56" height="30" rx="5" fill={pal.mapBlock} />
+        <rect x="178" y="70" width="44" height="34" rx="5" fill={pal.mapPark} />
+        <rect x="238" y="72" width="70" height="30" rx="5" fill={pal.mapBlock} />
+        <path d="M-40 62h400M-40 112c80-6 160-2 380 2M88 -10v170M154 -10l14 170M232 -10l-6 170" stroke={pal.mapRoad} strokeWidth="7" strokeLinecap="round" />
+        <path d="M-40 62h400" stroke={pal.mapRoad} strokeWidth="11" />
+        <path d="M40 -10 300 150" stroke={pal.mapRoad} strokeWidth="4" opacity="0.8" />
+      </g>
+    </svg>
+  );
+}
+
+/**
+ * Snap Map location card: map tile with the sharer's Bitmoji standing on the
+ * spot, then the place name and address (live: blue dot + "Live Location").
+ */
+function IosLocationCard({
+  loc,
+  person,
+  pal,
+  s,
+  seed,
+}: {
+  loc: NonNullable<Message["location"]>;
+  person: Person;
+  pal: IosPalette;
+  s: SnapStrings;
+  seed: string;
+}) {
+  return (
+    <div
+      className="overflow-hidden"
+      style={{ border: `1px solid ${pal.quoteBorder}`, background: pal.quoteBg, borderRadius: 10, marginBlock: 5, width: "min(100%, 270px)" }}
+    >
+      <div className="relative" style={{ height: 136 }}>
+        <SnapMapTile pal={pal} seed={seed} />
+        <span className="absolute flex flex-col items-center" style={{ left: "50%", top: 30, transform: "translateX(-50%)" }}>
+          <span className="flex rounded-full" style={{ padding: 2.5, background: "#ffffff", boxShadow: "0 2px 6px rgba(0,0,0,0.25)" }}>
+            <Avatar person={person} size={40} />
+          </span>
+          <span style={{ width: 10, height: 4, borderRadius: "50%", background: "rgba(0,0,0,0.22)", marginTop: 4 }} />
+        </span>
+      </div>
+      <div style={{ padding: "8px 12px 10px" }} dir="auto">
+        <div className="truncate" style={{ color: pal.text, fontSize: 15.5, lineHeight: "20px", fontWeight: 600, textAlign: "start" }}>
+          {loc.title}
+        </div>
+        {(loc.live || loc.subtitle) && (
+          <div className="flex items-center" style={{ gap: 5, marginTop: 1 }}>
+            {loc.live && <span className="shrink-0 rounded-full" style={{ width: 7, height: 7, background: SNAP_SEND_BLUE }} />}
+            <span className="truncate" style={{ color: loc.live ? SNAP_SEND_BLUE : pal.sub, fontSize: 12.5, lineHeight: "17px", fontWeight: loc.live ? 600 : 500 }}>
+              {loc.live ? s.liveLocation : loc.subtitle}
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Sticker: image, or the 1–3 emoji drawn big, no bubble. */
+function SnapSticker({ m }: { m: Message }) {
+  if (m.imageSrc) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={m.imageSrc} alt="" draggable={false} className="block object-contain" style={{ width: 120, height: 120, marginBlock: 2 }} />
+    );
+  }
+  return (
+    <div
+      className="select-none"
+      style={{
+        fontSize: 78,
+        lineHeight: "96px",
+        height: 96,
+        fontFamily: "'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', system-ui, sans-serif",
+        textAlign: "start",
+      }}
+    >
+      {m.text.trim() || "🙂"}
+    </div>
+  );
+}
+
+/** Group avatar: the members' Bitmoji cluster (back one up-end, front one down-start). */
+function SnapGroupAvatar({ group, size, ring }: { group: NonNullable<Scenario["group"]>; size: number; ring: string }) {
+  if (group.avatar) return <Avatar person={{ name: group.name, avatar: group.avatar }} size={size} />;
+  const a = group.members[0] ?? { name: group.name, avatar: null };
+  const b = group.members[1];
+  if (!b) return <Avatar person={a} size={size} />;
+  const sub = Math.round(size * 0.7);
+  return (
+    <span className="relative block shrink-0" style={{ width: size, height: size }}>
+      <span className="absolute" style={{ top: 0, insetInlineEnd: 0 }}>
+        <Avatar person={b} size={sub} />
+      </span>
+      <span className="absolute flex rounded-full" style={{ bottom: -1.5, insetInlineStart: -1.5, padding: 1.5, background: ring }}>
+        <Avatar person={a} size={sub} />
+      </span>
+    </span>
   );
 }
 
@@ -662,6 +1097,25 @@ function statusText(status: DeliveryStatus, live: boolean, lang: Lang): string {
   return s.delivered;
 }
 
+/**
+ * Keep the newest chat in view while the thread shrinks (keyboard rising):
+ * whenever the scroller gets shorter, scroll by the same amount.
+ */
+function useBottomAnchor(ref: RefObject<HTMLDivElement | null>) {
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let lastH = el.clientHeight;
+    const ro = new ResizeObserver(() => {
+      const h = el.clientHeight;
+      if (h < lastH) el.scrollTop += lastH - h;
+      lastH = h;
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref]);
+}
+
 /* ------------------------------ screen ------------------------------ */
 
 export function Snapchat({ scenario, playback, lang, rtl }: PlatformProps) {
@@ -673,15 +1127,31 @@ export function Snapchat({ scenario, playback, lang, rtl }: PlatformProps) {
   const clockMs = playback.clockMs;
   const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}-${playback.draft?.text.length ?? -1}`);
 
+  const kb = useKeyboardInset();
+  const kbUp = kb.inset > 0;
+  useBottomAnchor(scrollRef);
+  const group = scenario.group && scenario.group.members.length > 0 ? scenario.group : null;
+
   const showTyping = typing || (!live && scenario.presence === "typing");
   const present = showTyping || scenario.presence === "online";
-  const subtitle = scenario.presence === "lastseen" ? scenario.lastSeenText : "";
+  const subtitle = group ? s.members(group.members.length + 1) : scenario.presence === "lastseen" ? scenario.lastSeenText : "";
   const themName = scenario.them.name || "";
+  const typerIndex = group ? typingAuthor(scenario, messages) : -1;
 
   const last = messages[messages.length - 1];
   const receiptId = last && last.sender === "me" ? last.id : null;
   const draft = playback.draft;
   const byId = new Map(scenario.messages.map((x) => [x.id, x] as const));
+  /** Label + colour for any message's sender (ME, the friend, or the group member). */
+  const who = (x: Message): { label: string; color: string; person: Person } => {
+    if (x.sender === "me") return { label: s.me, color: IOS_ME, person: scenario.me };
+    const a = snapAuthor(scenario, x);
+    return { label: a.person.name || themName, color: snapThemColor(a.index), person: a.person };
+  };
+  /** Friends shown in the presence row (all members in a group). */
+  const presentPeople: { person: Person; color: string; typing: boolean }[] = group
+    ? group.members.slice(0, 3).map((p, idx) => ({ person: p, color: snapThemColor(idx), typing: showTyping && idx === typerIndex }))
+    : [{ person: scenario.them, color: IOS_THEM, typing: showTyping }];
 
   const caretStyle: CSSProperties =
     clockMs === undefined ? {} : { opacity: clockMs % SNAP_CARET_MS < SNAP_CARET_MS / 2 ? 1 : 0 };
@@ -702,7 +1172,16 @@ export function Snapchat({ scenario, playback, lang, rtl }: PlatformProps) {
   };
 
   return (
-    <div className="flex h-full w-full flex-col" style={{ background: pal.bg, fontFamily: SNAP_IOS_FONT }}>
+    <div
+      className="flex h-full w-full flex-col"
+      style={{
+        background: pal.bg,
+        fontFamily: SNAP_IOS_FONT,
+        // keyboard: lift the composer onto the keyboard and shrink the thread
+        paddingBottom: kb.inset,
+        transition: kb.transition === "none" ? "none" : `padding-bottom ${kb.transition}`,
+      }}
+    >
       <style>{SNAP_IOS_CSS}</style>
       <StatusBar device={scenario.device} tint={dark ? "light" : "dark"} background={pal.bg} />
 
@@ -715,7 +1194,7 @@ export function Snapchat({ scenario, playback, lang, rtl }: PlatformProps) {
           <IosChevron color={pal.iconSecondary} />
         </span>
         <span className="shrink-0" style={{ marginInlineStart: 17 }}>
-          <Avatar person={scenario.them} size={32} />
+          {group ? <SnapGroupAvatar group={group} size={32} ring={pal.bg} /> : <Avatar person={scenario.them} size={32} />}
         </span>
         <div className="min-w-0 flex-1" style={{ marginInlineStart: 12, marginInlineEnd: 10 }}>
           <div
@@ -723,7 +1202,7 @@ export function Snapchat({ scenario, playback, lang, rtl }: PlatformProps) {
             dir="auto"
             style={{ color: pal.title, fontSize: 19.5, fontWeight: 700, lineHeight: "24px", textAlign: "start" }}
           >
-            {themName}
+            {group ? group.name : themName}
           </div>
           {subtitle && (
             <div className="truncate" style={{ color: pal.sub, fontSize: 12, fontWeight: 500, lineHeight: "15px" }}>
@@ -768,19 +1247,55 @@ export function Snapchat({ scenario, playback, lang, rtl }: PlatformProps) {
           const mine = m.sender === "me";
           const status = playback.statusOf(m);
           const pending = mine && status === "sent" && live;
-          const accent = mine ? IOS_ME : IOS_THEM;
+          const author = who(m);
+          const accent = author.color;
           const bar = pending ? pal.pending : accent;
-          const { firstOfGroup, lastOfGroup } = groupInfo(messages, i);
+          const { first: firstOfGroup, last: lastOfGroup } = snapRuns(messages, i, !!group);
           const caption = m.type === "image" ? m.text.trim() : "";
           const big = m.type === "text" && isEmojiOnly(m.text);
-          const label = mine ? s.me : themName;
+          const label = author.label;
           const anim = live ? `snap-ios-in-${mine ? "me" : "them"}-${rtl ? "rtl" : "ltr"}` : "";
           const quoted = m.replyToId ? byId.get(m.replyToId) : undefined;
-          const quotedMine = quoted?.sender === "me";
+          const quotedWho = quoted ? who(quoted) : null;
           const reaction = m.reaction?.trim();
 
+          // Deleted chat → Snapchat's centred status message (`.ijyxU`), no bar or label.
+          if (m.type === "deleted") {
+            return (
+              <div
+                key={m.id}
+                data-mid={m.id}
+                data-sender={m.sender}
+                className={anim}
+                style={{ marginTop: i > 0 ? 12 : 4, marginBottom: 5, textAlign: "center" }}
+              >
+                <span
+                  className="inline-block uppercase"
+                  dir="auto"
+                  style={{
+                    color: pal.tertiary,
+                    fontSize: lang === "ar" ? 11 : 9.5,
+                    fontWeight: lang === "ar" ? 600 : 500,
+                    letterSpacing: lang === "ar" ? 0 : 1,
+                    lineHeight: "1.2",
+                  }}
+                >
+                  {mine ? s.youDeleted : s.deletedBy(lang === "ar" ? label : label.toUpperCase())}
+                </span>
+              </div>
+            );
+          }
+
           let body: ReactNode;
-          if (m.type === "voice") {
+          if (m.type === "sticker") {
+            body = <SnapSticker m={m} />;
+          } else if (m.type === "location" && m.location) {
+            body = <IosLocationCard loc={m.location} person={author.person} pal={pal} s={s} seed={m.id} />;
+          } else if (m.type === "file" && m.file) {
+            body = <IosFileCard file={m.file} pal={pal} />;
+          } else if (m.type === "call" && m.call) {
+            body = <IosCallCard call={m.call} mine={mine} pal={pal} s={s} />;
+          } else if (m.type === "voice") {
             body = <IosVoice id={m.id} accent={accent} pal={pal} duration={m.voiceDuration} />;
           } else if (m.type === "image") {
             body = (
@@ -811,16 +1326,19 @@ export function Snapchat({ scenario, playback, lang, rtl }: PlatformProps) {
             );
           } else {
             body = (
-              <div
-                dir={dirOf(m.text)}
-                style={{
-                  ...textStyle,
-                  ...(big ? { fontSize: 34, lineHeight: "42px" } : null),
-                  textAlign: rtl ? "right" : "left",
-                }}
-              >
-                {m.text}
-              </div>
+              <>
+                <div
+                  dir={dirOf(m.text)}
+                  style={{
+                    ...textStyle,
+                    ...(big ? { fontSize: 34, lineHeight: "42px" } : null),
+                    textAlign: rtl ? "right" : "left",
+                  }}
+                >
+                  {big ? m.text : linkify(m.text)}
+                </div>
+                {m.link && <IosLinkCard link={m.link} pal={pal} />}
+              </>
             );
           }
 
@@ -833,20 +1351,26 @@ export function Snapchat({ scenario, playback, lang, rtl }: PlatformProps) {
               style={{ marginTop: firstOfGroup && i > 0 ? 7 : 0 }}
             >
               {firstOfGroup && (
-                <div
-                  className="truncate uppercase"
-                  dir="auto"
-                  style={{
-                    color: accent,
-                    fontSize: lang === "ar" ? 13.5 : 12,
-                    fontWeight: lang === "ar" ? 700 : 600,
-                    letterSpacing: lang === "ar" ? 0 : 0.5,
-                    lineHeight: "16px",
-                    marginBottom: 4,
-                    textAlign: "start",
-                  }}
-                >
-                  {label}
+                <div className="flex items-baseline" style={{ gap: 5, marginBottom: 4 }}>
+                  <span
+                    className="min-w-0 truncate uppercase"
+                    dir="auto"
+                    style={{
+                      color: accent,
+                      fontSize: lang === "ar" ? 13.5 : 12,
+                      fontWeight: lang === "ar" ? 700 : 600,
+                      letterSpacing: lang === "ar" ? 0 : 0.5,
+                      lineHeight: "16px",
+                      textAlign: "start",
+                    }}
+                  >
+                    {label}
+                  </span>
+                  {m.edited && (
+                    <span className="shrink-0" style={{ color: pal.sub, fontSize: lang === "ar" ? 12.5 : 12, fontWeight: 500, lineHeight: "16px" }}>
+                      {s.edited}
+                    </span>
+                  )}
                 </div>
               )}
               <div className="relative" style={{ paddingInlineStart: 9.5, paddingBlock: 1.5 }}>
@@ -866,21 +1390,14 @@ export function Snapchat({ scenario, playback, lang, rtl }: PlatformProps) {
                     transition: "background-color 200ms ease-out",
                   }}
                 />
-                {quoted && (
-                  <IosQuote
-                    target={quoted}
-                    label={quotedMine ? s.me : themName}
-                    accent={quotedMine ? IOS_ME : IOS_THEM}
-                    pal={pal}
-                    lang={lang}
-                    rtl={rtl}
-                  />
+                {quoted && quotedWho && (
+                  <IosQuote target={quoted} label={quotedWho.label} accent={quotedWho.color} pal={pal} lang={lang} rtl={rtl} />
                 )}
                 {body}
               </div>
               {reaction && (
                 <div className="flex" style={{ marginTop: 3, marginBottom: 1 }}>
-                  <SnapReaction emoji={reaction} person={mine ? scenario.them : scenario.me} ring={pal.bg} />
+                  <SnapReaction emoji={reaction} person={mine ? (group ? group.members[0] : scenario.them) : scenario.me} ring={pal.bg} />
                 </div>
               )}
               {m.id === receiptId && (
@@ -908,48 +1425,47 @@ export function Snapchat({ scenario, playback, lang, rtl }: PlatformProps) {
       {/* Presence: the friend's avatar peeks over their outlined name pill (in-flow, so
           the newest chat is never covered); it rises fully while they type. */}
       {present && (
-        <div className="flex shrink-0 items-end" style={{ height: 56, paddingInline: 10, paddingBottom: 8, background: pal.bg }}>
-          <div className="flex flex-col items-center">
-            <div className="overflow-hidden" style={{ height: 30, width: 30, marginBottom: -1 }}>
+        <div className="flex shrink-0 items-end" style={{ height: 56, paddingInline: 10, paddingBottom: 8, gap: 6, background: pal.bg }}>
+          {presentPeople.map(({ person, color, typing: isTyping }, pi) => (
+            <div key={pi} className="flex min-w-0 flex-col items-center">
+              <div className="overflow-hidden" style={{ height: 30, width: 30, marginBottom: -1 }}>
+                <span className="snap-ios-peek block" style={{ transform: `translateY(${isTyping ? 0 : 14}px)` }}>
+                  <Avatar person={person} size={30} />
+                </span>
+              </div>
               <span
-                className="snap-ios-peek block"
-                style={{ transform: `translateY(${showTyping ? 0 : 14}px)` }}
+                className="relative flex items-center uppercase"
+                style={{
+                  height: 20,
+                  paddingInline: 9,
+                  borderRadius: 10,
+                  border: `1.5px solid ${color}`,
+                  background: pal.bg,
+                  color,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  letterSpacing: lang === "ar" ? 0 : 0.5,
+                  gap: 5,
+                  whiteSpace: "nowrap",
+                }}
               >
-                <Avatar person={scenario.them} size={30} />
+                <span dir="auto" className="block max-w-[140px] truncate">
+                  {person.name || themName}
+                </span>
+                {isTyping && (
+                  <span className="flex items-center" style={{ gap: 2.5 }} dir="ltr">
+                    {[0, 1, 2].map((d) => (
+                      <span
+                        key={d}
+                        className={clockMs === undefined ? "snap-ios-dot" : ""}
+                        style={{ width: 4, height: 4, borderRadius: 2, background: color, ...dotStyle(d) }}
+                      />
+                    ))}
+                  </span>
+                )}
               </span>
             </div>
-            <span
-              className="relative flex items-center uppercase"
-              style={{
-                height: 20,
-                paddingInline: 9,
-                borderRadius: 10,
-                border: `1.5px solid ${IOS_THEM}`,
-                background: pal.bg,
-                color: IOS_THEM,
-                fontSize: 11,
-                fontWeight: 600,
-                letterSpacing: lang === "ar" ? 0 : 0.5,
-                gap: 5,
-                whiteSpace: "nowrap",
-              }}
-            >
-              <span dir="auto" className="block max-w-[140px] truncate">
-                {themName}
-              </span>
-              {showTyping && (
-                <span className="flex items-center" style={{ gap: 2.5 }} dir="ltr">
-                  {[0, 1, 2].map((d) => (
-                    <span
-                      key={d}
-                      className={clockMs === undefined ? "snap-ios-dot" : ""}
-                      style={{ width: 4, height: 4, borderRadius: 2, background: IOS_THEM, ...dotStyle(d) }}
-                    />
-                  ))}
-                </span>
-              )}
-            </span>
-          </div>
+          ))}
         </div>
       )}
 
@@ -963,7 +1479,8 @@ export function Snapchat({ scenario, playback, lang, rtl }: PlatformProps) {
           background: pal.bg,
           borderTop: `0.5px solid ${pal.divider}`,
           paddingTop: 7,
-          paddingBottom: 15,
+          // on the keyboard the bar sits 7pt above it (no home-indicator gap)
+          paddingBottom: kbUp ? 7 : 15,
           paddingInline: 10,
         }}
       >
