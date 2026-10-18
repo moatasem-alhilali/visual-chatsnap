@@ -11,14 +11,11 @@ import { stepBounds } from "../components/studio/timing";
  * that follow it, so a manual "5:51" in the middle of a chat is respected.
  */
 
-/**
- * Studio-only per-message flag (stored on the message, not in the shared
- * contract yet): the user typed this time and wants to keep it.
- */
-export type TimeLock = { timeLocked?: boolean };
+/** Kept for existing imports; the flag now lives on Message itself. */
+export type TimeLock = Pick<Message, "timeLocked">;
 
 export function isTimeLocked(m: Message): boolean {
-  return (m as Message & TimeLock).timeLocked === true;
+  return m.timeLocked === true;
 }
 
 export interface ClockStyle {

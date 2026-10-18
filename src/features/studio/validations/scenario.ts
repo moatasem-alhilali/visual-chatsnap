@@ -91,6 +91,7 @@ const messageSchema = z.object({
     .optional()
     .catch(null),
   authorIndex: z.coerce.number().int().min(0).max(63).optional().catch(undefined),
+  timeLocked: z.boolean().optional().catch(undefined),
 });
 
 const groupSchema = z

@@ -242,7 +242,7 @@ const STR: Record<Lang, Strings> = {
     voiceMessage: "رسالة صوتية",
     edited: "تم التعديل",
     youUnsent: "قمت بإلغاء إرسال رسالة",
-    unsent: (n) => `ألغى ${n} إرسال رسالة`,
+    unsent: (n) => `تم إلغاء إرسال رسالة من ${n}`,
     missedAudio: "مكالمة صوتية فائتة",
     missedVideo: "دردشة فيديو فائتة",
     audioCall: "مكالمة صوتية",

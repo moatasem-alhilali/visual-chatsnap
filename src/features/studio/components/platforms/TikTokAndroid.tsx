@@ -246,7 +246,7 @@ const STR: Record<Lang, Str> = {
     members: arMembers,
     isTyping: (name) => `${name} يكتب...`,
     youDeleted: "لقد حذفت رسالة",
-    theyDeleted: (name) => `‏${name} حذف رسالة`,
+    theyDeleted: (name) => `تم حذف رسالة من ${name}`,
     edited: "تم التعديل",
     voiceCall: "مكالمة صوتية",
     videoCall: "مكالمة فيديو",

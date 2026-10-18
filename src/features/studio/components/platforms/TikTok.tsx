@@ -257,7 +257,7 @@ const TT_STR: Record<Lang, TtStrings> = {
     members: arMembers,
     isTyping: (name) => `${name} يكتب...`,
     youDeleted: "لقد حذفت رسالة",
-    theyDeleted: (name) => `‏${name} حذف رسالة`,
+    theyDeleted: (name) => `تم حذف رسالة من ${name}`,
     edited: "تم التعديل",
     voiceCall: "مكالمة صوتية",
     videoCall: "مكالمة فيديو",

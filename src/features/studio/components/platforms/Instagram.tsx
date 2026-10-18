@@ -337,7 +337,7 @@ const IGI_STR: Record<Lang, {
     joinNames: "، ",
     edited: "تم التعديل",
     youUnsent: "ألغيت إرسال رسالة",
-    nameUnsent: (name) => `ألغى ${name} إرسال رسالة`,
+    nameUnsent: (name) => `تم إلغاء إرسال رسالة من ${name}`,
     videoEnded: "انتهت محادثة الفيديو",
     audioEnded: "انتهت المكالمة الصوتية",
     missedVideo: "محادثة فيديو فائتة",

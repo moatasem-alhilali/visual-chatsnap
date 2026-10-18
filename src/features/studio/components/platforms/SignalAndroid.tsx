@@ -721,6 +721,15 @@ export function SignalAndroid({ scenario, playback, lang, rtl }: PlatformProps) 
   const { messages, typing } = playback;
   const live = playback.isLive;
   const clock = playback.clockMs;
+  // group thread: Scenario.group replaces Scenario.them
+  const group = scenario.group && scenario.group.members.length > 0 ? scenario.group : null;
+  const members = group?.members ?? [];
+  const authorOf = (m: Message): Person => (group ? (members[m.authorIndex ?? 0] ?? members[0]) : scenario.them);
+  const shortName = (x: Person) => x.name.trim().split(/\s+/)[0] ?? x.name;
+  // OS keyboard: the window resizes (adjustResize), so the composer sits on the
+  // keyboard; it also draws the nav bar, so ours goes away while it is up.
+  const kb = useKeyboardInset();
+  const kbSpace = kb.inset > 0 ? Math.max(48, kb.inset) : 0;
   // the composer grows with a wrapping draft; keep the newest row pinned above it
   const composerRef = useRef<HTMLDivElement>(null);
   const [composerH, setComposerH] = useState(60);
@@ -729,6 +738,17 @@ export function SignalAndroid({ scenario, playback, lang, rtl }: PlatformProps) 
     if (h && h !== composerH) setComposerH(h);
   });
   const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}-${composerH}`);
+
+  // The list shrinks as the keyboard opens: keep the newest row in view.
+  const prevSpace = useRef(kbSpace);
+  useIsoLayoutEffect(() => {
+    const sc = scrollRef.current;
+    const delta = kbSpace - prevSpace.current;
+    prevSpace.current = kbSpace;
+    if (!sc || delta <= 0) return;
+    const atBottom = sc.scrollHeight - (sc.clientHeight + delta) - sc.scrollTop < 48;
+    if (atBottom) sc.scrollTop = sc.scrollHeight;
+  }, [kbSpace, scrollRef]);
 
   // Material3OnScrollHelper: toolbar (and status bar behind it) = colorBackground at the
   // top of the list, colorSurface2 once content can scroll under it; 200ms colour fade.
@@ -753,6 +773,12 @@ export function SignalAndroid({ scenario, playback, lang, rtl }: PlatformProps) 
   const barTransition = clock === undefined ? "background-color 200ms linear" : undefined;
 
   const lastSender = messages.length ? messages[messages.length - 1].sender : null;
+  // the member who is typing: author of the next (not yet revealed) message
+  const pending = scenario.messages[messages.length];
+  const typist = group ? (pending && pending.sender === "them" ? authorOf(pending) : members[0]) : null;
+  const title = group ? group.name : scenario.them.name;
+  // ConversationFragment.createGroupSubtitleString: participants joined by ", ", self as "You"
+  const subtitle = group ? [...members.map((x) => x.name), s.you].join(", ") : null;
 
   return (
     <div className="flex h-full w-full flex-col" style={{ background: p.bg, color: p.ink }} dir={uiDir}>
@@ -770,34 +796,49 @@ export function SignalAndroid({ scenario, playback, lang, rtl }: PlatformProps) 
           </Icon>
         </div>
         <div style={{ marginTop: 3 }}>
-          <SignalAvatar person={scenario.them} size={36} />
+          {group ? <GroupAvatar group={group} size={36} /> : <SignalAvatar person={scenario.them} size={36} />}
         </div>
-        <div className="flex min-w-0 flex-1 items-center" style={{ paddingInlineStart: 16, paddingInlineEnd: 4 }}>
-          <span
-            className="truncate"
-            style={{ fontSize: 18, lineHeight: "24px", letterSpacing: "0.009em", fontWeight: 400, color: p.ink }}
-          >
-            {scenario.them.name}
-          </span>
-          {/* system-contact end drawable (ic_profile_circle_outline_16), drawablePadding 3 */}
-          <span className="shrink-0" style={{ marginInlineStart: 3 }}>
-            <Icon size={16} vb={16}>
-              <path d={P.profile16} fill={p.contactGlyph} />
-            </Icon>
-          </span>
+        <div className="flex min-w-0 flex-1 flex-col justify-center" style={{ paddingInlineStart: 16, paddingInlineEnd: 4 }}>
+          <div className="flex min-w-0 items-center">
+            <span
+              className="truncate"
+              style={{ fontSize: 18, lineHeight: "24px", letterSpacing: "0.009em", fontWeight: 400, color: p.ink }}
+            >
+              {title}
+            </span>
+            {/* system-contact end drawable (ic_profile_circle_outline_16), drawablePadding 3 */}
+            {!group && (
+              <span className="shrink-0" style={{ marginInlineStart: 3 }}>
+                <Icon size={16} vb={16}>
+                  <path d={P.profile16} fill={p.contactGlyph} />
+                </Icon>
+              </span>
+            )}
+          </div>
+          {subtitle && (
+            // subtitle: Signal.Text.BodySmall (13sp), OnSurfaceVariant, 1 line
+            <span
+              className="truncate"
+              style={{ fontSize: 13, lineHeight: "16px", letterSpacing: "0.03em", color: p.sub, textAlign: "start" }}
+            >
+              {subtitle}
+            </span>
+          )}
         </div>
-        {/* menu: video + call (showAsAction=always, 48dp each) + overflow (36dp). Glyphs never mirror. */}
+        {/* menu: video + call (showAsAction=always, 48dp each) + overflow (36dp); groups: group-call video only. */}
         <div className="flex shrink-0 items-center">
           <div className="flex items-center justify-center" style={{ width: 48, height: 48 }}>
             <Icon>
               <path d={P.video} fill={p.ink} />
             </Icon>
           </div>
-          <div className="flex items-center justify-center" style={{ width: 48, height: 48 }}>
-            <Icon>
-              <path d={P.phone} fill={p.ink} />
-            </Icon>
-          </div>
+          {!group && (
+            <div className="flex items-center justify-center" style={{ width: 48, height: 48 }}>
+              <Icon>
+                <path d={P.phone} fill={p.ink} />
+              </Icon>
+            </div>
+          )}
           <div className="flex items-center justify-center" style={{ width: 36, height: 48 }}>
             <Icon>
               <path d={P.overflow} fill={p.ink} />
@@ -809,7 +850,7 @@ export function SignalAndroid({ scenario, playback, lang, rtl }: PlatformProps) 
       {/* Conversation list (reverse layout: short threads sit on the composer) */}
       <div ref={scrollRef} className="rcss-scroll min-h-0 flex-1 overflow-y-auto" style={{ background: p.bg }}>
         <div className="flex min-h-full flex-col justify-end" style={{ paddingBottom: 2 }}>
-          <ThreadHeader person={scenario.them} p={p} rtl={rtl} />
+          <ThreadHeader person={scenario.them} group={group} p={p} rtl={rtl} s={s} />
 
           {/* Date header decoration [R] */}
           <div className="flex justify-center" style={{ padding: "12px 28px 13px" }}>
@@ -826,28 +867,65 @@ export function SignalAndroid({ scenario, playback, lang, rtl }: PlatformProps) 
             </span>
           </div>
 
-          {messages.map((m, i) => (
-            <SignalRow
-              key={m.id}
-              m={m}
-              quote={(() => {
-                const t = m.replyToId ? scenario.messages.find((x) => x.id === m.replyToId) : undefined;
-                return t ? quoteOf(t, scenario.them, s) : null;
-              })()}
-              shape={shapeOf(messages, i)}
-              p={p}
-              rtl={rtl}
-              lang={lang}
-              status={playback.statusOf(m)}
-              live={live}
-            />
-          ))}
+          {messages.map((m, i) => {
+            if (m.type === "call") {
+              // ConversationUpdateItem: 12dp margins (8dp next to another update)
+              const prevCall = messages[i - 1]?.type === "call";
+              const nextCall = messages[i + 1]?.type === "call";
+              return (
+                <div
+                  key={m.id}
+                  data-mid={m.id}
+                  data-sender={m.sender}
+                  className={live ? "sig-android-enter" : undefined}
+                  style={{ marginTop: prevCall ? 8 : 12, marginBottom: nextCall ? 8 : 12 }}
+                >
+                  <CallUpdate m={m} s={s} p={p} lang={lang} groupAuthor={group ? shortName(authorOf(m)) : null} />
+                </div>
+              );
+            }
+            const mine = m.sender === "me";
+            const shape = shapeOf(messages, i);
+            const groupIncoming = !!group && !mine;
+            const author = authorOf(m);
+            const c = NAME_COLORS[(m.authorIndex ?? 0) % NAME_COLORS.length];
+            const t = m.replyToId ? scenario.messages.find((x) => x.id === m.replyToId) : undefined;
+            return (
+              <SignalRow
+                key={m.id}
+                m={m}
+                quote={t ? quoteOf(t, authorOf(t), s) : null}
+                shape={shape}
+                p={p}
+                rtl={rtl}
+                lang={lang}
+                s={s}
+                status={playback.statusOf(m)}
+                live={live}
+                sender={groupIncoming && isStarting(shape) ? { name: author.name, color: dark ? c[1] : c[0] } : null}
+                groupIncoming={groupIncoming}
+                avatar={groupIncoming && isEnding(shape) ? author : null}
+                authorName={shortName(author)}
+              />
+            );
+          })}
 
           {typing && (
             <div
               className={live && clock === undefined ? "sig-android-enter" : undefined}
-              style={{ padding: "3px 0 8px", paddingInlineStart: GUTTER, marginTop: lastSender ? 0 : 6 }}
+              style={{
+                display: "flex",
+                alignItems: "flex-end",
+                padding: "3px 0 8px",
+                paddingInlineStart: typist ? GROUP_START : GUTTER,
+                marginTop: lastSender ? 0 : 6,
+              }}
             >
+              {typist && (
+                <span className="shrink-0" style={{ marginInlineEnd: 8 }}>
+                  <SignalAvatar person={typist} size={GROUP_AVATAR} />
+                </span>
+              )}
               <div
                 className="flex items-center justify-center"
                 style={{ width: 66, height: 38, borderRadius: BIG, background: p.inBubble }}
@@ -881,6 +959,15 @@ export function SignalAndroid({ scenario, playback, lang, rtl }: PlatformProps) 
         <AndroidComposer p={p} rtl={rtl} placeholder={s.placeholder} text={playback.draft?.text ?? ""} clock={clock} />
       </div>
 
+      {/* the keyboard (drawn by PhoneScreen on top) takes this space, nav bar included */}
+      <div
+        className="shrink-0"
+        style={{
+          height: kbSpace,
+          background: p.bg,
+          transition: kb.transition === "none" ? undefined : `height ${kb.transition}`,
+        }}
+      />
       <SystemBottomBar device="android" bg={p.bg} fg={p.navFg} />
     </div>
   );
@@ -1191,8 +1278,22 @@ function QuoteSlot({ quote, mine, p, shape }: { quote: QuoteSpec; mine: boolean;
    Thread header (top of the conversation) [G]
    ====================================================================== */
 
-function ThreadHeader({ person, p, rtl }: { person: Person; p: Palette; rtl: boolean }) {
-  const glyph = (
+function ThreadHeader({
+  person,
+  group,
+  p,
+  rtl,
+  s,
+}: {
+  person: Person;
+  group: GroupChat | null;
+  p: Palette;
+  rtl: boolean;
+  s: Strings;
+}) {
+  const name = group ? group.name : person.name;
+  // groups: no system-contact glyph, chevron only (opens the group settings)
+  const glyph = group ? null : (
     <span style={{ display: "inline-block", verticalAlign: "-2.5px" }}>
       <Icon size={18}>
         <path d={P.personCircle1} fill={p.ink} />
@@ -1207,11 +1308,24 @@ function ThreadHeader({ person, p, rtl }: { person: Person; p: Palette; rtl: boo
       </Icon>
     </span>
   );
+  // GroupMemberSubtitle: group glyph + up to three names "and N others" (underlined), bodyMedium OnSurface
+  const members = group ? s.members(group.members.map((x) => x.name), group.members.length + 1) : null;
+  let membersText: ReactNode = members?.text ?? null;
+  if (members?.others) {
+    const at = members.text.lastIndexOf(members.others);
+    membersText = (
+      <>
+        {members.text.slice(0, at)}
+        <span style={{ textDecoration: "underline" }}>{members.others}</span>
+        {members.text.slice(at + members.others.length)}
+      </>
+    );
+  }
   return (
     <div className="flex justify-center" style={{ padding: "22px 16px 4px" }}>
       <div className="relative flex flex-col items-center" style={{ width: 277, maxWidth: "100%" }}>
         <div className="absolute" style={{ top: 0, left: "50%", transform: "translateX(-50%)", zIndex: 1 }}>
-          <SignalAvatar person={person} size={74} />
+          {group ? <GroupAvatar group={group} size={74} /> : <SignalAvatar person={person} size={74} />}
         </div>
         <div
           className="flex w-full flex-col items-center"
@@ -1231,22 +1345,281 @@ function ThreadHeader({ person, p, rtl }: { person: Person; p: Palette; rtl: boo
             {rtl ? (
               <>
                 {chevron}
-                {" "}
+                {" "}
                 {glyph}
-                {" "}
-                <bdi>{person.name}</bdi>
+                {glyph && " "}
+                <bdi>{name}</bdi>
               </>
             ) : (
               <>
-                <bdi>{person.name}</bdi>
-                {" "}
+                <bdi>{name}</bdi>
+                {" "}
                 {glyph}
-                {" "}
+                {glyph && " "}
                 {chevron}
               </>
             )}
           </div>
+          {membersText && (
+            <div
+              className="text-center"
+              style={{ marginTop: 8, fontSize: 14, lineHeight: "20px", letterSpacing: "0.0179em", color: p.ink }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" style={{ display: "inline-block", verticalAlign: "-3px", marginInlineEnd: 4 }}>
+                {P.group.map((d, i) => (
+                  <path key={i} d={d} fill={p.ink} fillRule="evenodd" />
+                ))}
+              </svg>
+              {membersText}
+            </div>
+          )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+interface SenderSpec {
+  name: string;
+  color: string;
+}
+
+/**
+ * SenderNameWithLabel (group threads, start of an author's cluster):
+ * labelMedium bold (13sp) in the member's NameColor, 12dp side padding, 7dp
+ * from the bubble top; 1dp to the body (CFv2) or 4dp (legacy items).
+ */
+function SenderName({ sender, legacy }: { sender: SenderSpec; legacy?: boolean }) {
+  return (
+    <div
+      className="truncate"
+      style={{
+        margin: `7px 0 ${legacy ? 4 : 1}px`,
+        padding: "0 12px",
+        fontSize: 13,
+        lineHeight: "16px",
+        letterSpacing: "0.0192em",
+        fontWeight: 700,
+        color: sender.color,
+        textAlign: "start",
+      }}
+    >
+      <bdi>{sender.name}</bdi>
+    </div>
+  );
+}
+
+/**
+ * LinkPreviewView (conversation type) inside the bubble: full width, filled
+ * with the default (incoming) bubble colour, 12/6 padding, 72dp thumbnail
+ * (top-start corner = the bubble's corner, others 4dp) with the title
+ * (LabelLarge, OnSurface, 2 lines) centred beside it 8dp away, then the
+ * description (13sp OnSurfaceVariant, 8dp below) and the site (12sp, 2dp).
+ */
+function AndroidLinkPreview({
+  link,
+  p,
+  topStart,
+  topEnd,
+}: {
+  link: LinkPreview;
+  p: Palette;
+  topStart: number;
+  topEnd: number;
+}) {
+  const clamp = (n: number): CSSProperties => ({
+    display: "-webkit-box",
+    WebkitBoxOrient: "vertical",
+    WebkitLineClamp: n,
+    overflow: "hidden",
+    overflowWrap: "anywhere",
+  });
+  return (
+    <div
+      style={{
+        background: p.inBubble,
+        padding: "6px 12px",
+        borderStartStartRadius: topStart,
+        borderStartEndRadius: topEnd,
+      }}
+    >
+      <div className="flex items-center" style={{ minHeight: link.image ? 72 : undefined }}>
+        {link.image && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={link.image}
+            alt=""
+            draggable={false}
+            className="block shrink-0"
+            style={{
+              width: 72,
+              height: 72,
+              objectFit: "cover",
+              borderRadius: 4,
+              borderStartStartRadius: topStart > 0 ? topStart : 4,
+            }}
+          />
+        )}
+        <div
+          dir="auto"
+          style={{
+            ...clamp(2),
+            marginInline: link.image ? 8 : "0 8px",
+            fontSize: 14,
+            lineHeight: "20px",
+            letterSpacing: "0.00714em",
+            fontWeight: 500,
+            color: p.ink,
+            textAlign: "start",
+          }}
+        >
+          {link.title}
+        </div>
+      </div>
+      {link.description && (
+        <div
+          dir="auto"
+          style={{ ...clamp(15), marginTop: 8, fontSize: 13, lineHeight: "18px", letterSpacing: "0.0179em", color: p.sub, textAlign: "start" }}
+        >
+          {link.description}
+        </div>
+      )}
+      <div
+        dir="auto"
+        style={{ ...clamp(2), marginTop: 2, fontSize: 12, lineHeight: "16px", letterSpacing: "0.033em", color: p.sub, textAlign: "start" }}
+      >
+        {domainOf(link)}
+      </div>
+    </div>
+  );
+}
+
+/** SignalSymbols.Glyph.X_CIRCLE, inline before the deleted-message text. */
+function XCircle({ color }: { color: string }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 20 20"
+      fill="none"
+      style={{ display: "inline-block", verticalAlign: "-2.5px", marginInlineEnd: 4 }}
+    >
+      <circle cx="10" cy="10" r="8.35" stroke={color} strokeWidth="1.5" />
+      <path d="M7 7l6 6M13 7l-6 6" stroke={color} strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/**
+ * ic_document_large (38×50): white page, rounded corners, curled top-end
+ * corner, soft grey edge; the lower-cased extension sits centred (10sp black).
+ */
+function DocumentIcon({ ext }: { ext: string }) {
+  return (
+    <div className="relative shrink-0" style={{ width: 38, height: 50, marginInlineStart: -4 }}>
+      <svg width="38" height="50" viewBox="0 0 38 50" style={{ display: "block" }}>
+        <path
+          d="M7.5 2.5h17.2c.8 0 1.6.3 2.1.9l7.8 8.3c.5.5.8 1.3.8 2V43.5a4 4 0 0 1-4 4h-24a4 4 0 0 1-4-4v-37a4 4 0 0 1 4-4Z"
+          fill="#ffffff"
+          stroke="#d9d9d9"
+          strokeWidth="0.8"
+        />
+        <path d="M25 2.8v6.4a3.6 3.6 0 0 0 3.6 3.6h6.6" fill="#efefef" stroke="#d9d9d9" strokeWidth="0.8" />
+      </svg>
+      <span
+        className="absolute inset-x-0 flex justify-center"
+        style={{ top: 21, fontSize: 10, lineHeight: "13px", color: "#000000", letterSpacing: "0.04em" }}
+      >
+        {ext}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Shared location: a Google Maps snapshot (SignalMapView.snapshot) sent as an
+ * image whose caption is SignalPlace.getDescription(). The art is a plausible
+ * Google Maps street grid with the red marker on the place.
+ */
+function GoogleMapArt() {
+  const c = { land: "#f5f3ef", block: "#ebe8e2", park: "#c8e6c0", water: "#aadaff", road: "#ffffff", casing: "#dedbd5", major: "#fde293", majorCasing: "#f3c95a" };
+  const minor = ["M-10 50H266", "M-10 112H266", "M-10 176H266", "M44 -10V266", "M112 -10V266", "M178 -10V266", "M232 -10V266"];
+  return (
+    <svg viewBox="0 0 256 192" preserveAspectRatio="xMidYMid slice" className="absolute inset-0 block h-full w-full">
+      <rect width="256" height="192" fill={c.land} />
+      {[
+        [6, 6, 32, 38], [52, 6, 54, 38], [120, 6, 52, 38], [186, 6, 40, 38], [240, 6, 16, 38],
+        [6, 58, 32, 48], [52, 58, 54, 48], [186, 58, 40, 48], [240, 58, 16, 48],
+        [6, 120, 32, 50], [120, 120, 52, 50], [186, 120, 40, 50], [240, 120, 16, 50],
+        [6, 184, 32, 10], [52, 184, 54, 10], [120, 184, 52, 10],
+      ].map(([x, y, w, h], i) => (
+        <rect key={i} x={x} y={y} width={w} height={h} rx="1.5" fill={c.block} />
+      ))}
+      <rect x="120" y="58" width="52" height="48" rx="2" fill={c.park} />
+      <rect x="52" y="120" width="54" height="50" rx="2" fill={c.park} />
+      <path d="M200 192C206 172 222 160 256 154V192Z" fill={c.water} />
+      {minor.map((d) => (
+        <path key={`c${d}`} d={d} stroke={c.casing} strokeWidth="8" fill="none" />
+      ))}
+      {minor.map((d) => (
+        <path key={d} d={d} stroke={c.road} strokeWidth="6.4" fill="none" />
+      ))}
+      <path d="M-10 168L266 20" stroke={c.majorCasing} strokeWidth="12" fill="none" />
+      <path d="M-10 168L266 20" stroke={c.major} strokeWidth="9.4" fill="none" />
+      {/* default Google Maps marker, tip on the place */}
+      <ellipse cx="128" cy="96.5" rx="4.5" ry="1.6" fill="rgba(0,0,0,0.25)" />
+      <path d="M128 96c-1.2-4.6-3.6-7.4-6-10.4a10 10 0 1 1 12 0c-2.4 3-4.8 5.8-6 10.4Z" fill="#ea4335" stroke="#b31412" strokeWidth="0.8" />
+      <circle cx="128" cy="77.6" r="3.4" fill="#b31412" />
+    </svg>
+  );
+}
+
+/**
+ * ConversationUpdateItem for a call: BodySmall (13sp, +3sp spacing), centred,
+ * "<glyph> <text> · <time>" in the update text colour, or core red for a
+ * missed incoming call; 24 + 12dp side padding, 12dp vertical margins.
+ */
+function CallUpdate({
+  m,
+  s,
+  p,
+  lang,
+  groupAuthor,
+}: {
+  m: Message;
+  s: Strings;
+  p: Palette;
+  lang: Lang;
+  groupAuthor: string | null;
+}) {
+  const c = m.call ?? { video: false, missed: false };
+  const mine = m.sender === "me";
+  const time = localDigits(m.time, lang);
+  let text: string;
+  let red = false;
+  let video = c.video;
+  if (groupAuthor !== null) {
+    video = true;
+    text = c.missed && !mine ? s.groupMissed(time) : mine ? s.groupStartedYou(time) : s.groupStartedBy(groupAuthor, time);
+  } else if (mine) {
+    text = s.withDate(c.missed ? (c.video ? s.unansweredVideo : s.unansweredVoice) : c.video ? s.outgoingVideo : s.outgoingVoice, time);
+  } else {
+    red = c.missed;
+    text = s.withDate(c.missed ? (c.video ? s.missedVideo : s.missedVoice) : c.video ? s.incomingVideo : s.incomingVoice, time);
+  }
+  const color = red ? (p.dark ? MISSED_RED.dark : MISSED_RED.light) : p.sub;
+  return (
+    <div className="flex justify-center" style={{ padding: "0 36px" }}>
+      <div style={{ color, fontSize: 13, lineHeight: "18px", letterSpacing: "0.03em", textAlign: "center" }}>
+        <svg
+          width="15"
+          height="15"
+          viewBox="0 0 24 24"
+          style={{ display: "inline-block", verticalAlign: "-2.5px", marginInlineEnd: 4 }}
+        >
+          <path d={video ? P.video : P.phone} fill={color} />
+        </svg>
+        {text}
       </div>
     </div>
   );
@@ -1263,8 +1636,13 @@ function SignalRow({
   p,
   rtl,
   lang,
+  s,
   status,
   live,
+  sender,
+  groupIncoming,
+  avatar,
+  authorName,
 }: {
   m: Message;
   quote: QuoteSpec | null;
@@ -1272,20 +1650,39 @@ function SignalRow({
   p: Palette;
   rtl: boolean;
   lang: Lang;
+  s: Strings;
   status: DeliveryStatus;
   live: boolean;
+  /** group: sender name at the top of an author's cluster */
+  sender: SenderSpec | null;
+  /** group incoming row: reserves the avatar column */
+  groupIncoming: boolean;
+  /** group: the avatar shown beside the last bubble of the cluster */
+  avatar: Person | null;
+  /** short display name of the author (deleted text) */
+  authorName: string;
 }) {
   const mine = m.sender === "me";
   const voice = m.type === "voice";
-  // CFv2 items: 6 / 1; legacy ConversationItem (audio): 8 / 1.
-  const edge = voice ? 8 : 6;
+  // legacy ConversationItem (audio, quotes, link previews, documents, stickers, location)
+  const legacy = voice || !!quote || !!m.link || m.type === "file" || m.type === "sticker" || m.type === "location";
+  // CFv2 items: 6 / 1; legacy ConversationItem: 8 / 1.
+  const edge = legacy ? 8 : 6;
   const top = isStarting(shape) ? edge : 1;
   const bottom = isEnding(shape) ? edge : 1;
   const corners = cornerStyle(shape, mine, rtl);
-  const time = localDigits(m.time, lang);
+  const maxW = groupIncoming ? 360 - GROUP_BUBBLE_START - FAR : MAX_W;
+  const rawTime = localDigits(m.time, lang);
+  const time = m.edited && m.type !== "deleted" ? s.edited(rawTime) : rawTime;
   // Text-only and media items only show the footer on the last message of a cluster;
-  // audio always forces it (ConversationItem.forceFooter).
-  const footerVisible = voice || isEnding(shape);
+  // audio always forces it (ConversationItem.forceFooter), as does an edit.
+  const footerVisible = voice || isEnding(shape) || !!m.edited;
+  const nameEl = sender ? <SenderName sender={sender} legacy={legacy} /> : null;
+  const quoteEl = quote ? <QuoteSlot quote={quote} mine={mine} p={p} shape={shape} /> : null;
+  const bubbleBg = mine ? p.outBubble : p.inBubble;
+  const textColor = mine ? p.outText : p.ink;
+  const footColor = mine ? p.outFooter : p.sub;
+  const footerExtra = mine && status === "sent" ? STATUS_RESERVED - 14 : 0;
 
   let content: ReactNode;
   if (voice) {
@@ -1299,10 +1696,13 @@ function SignalRow({
         status={status}
         time={time}
         corners={corners}
-        quote={quote ? <QuoteSlot quote={quote} mine={mine} p={p} shape={shape} /> : null}
+        quote={quoteEl}
+        sender={nameEl}
       />
     );
-  } else if (m.type === "image") {
+  } else if (m.type === "image" || m.type === "location") {
+    const loc = m.location ?? { title: "" };
+    const lines = [loc.title, loc.subtitle].filter((x): x is string => !!x && !!x.trim());
     content = (
       <ImageBubble
         m={m}
@@ -1313,35 +1713,127 @@ function SignalRow({
         time={time}
         corners={corners}
         footerVisible={footerVisible}
-        quote={quote ? <QuoteSlot quote={quote} mine={mine} p={p} shape={shape} /> : null}
+        quote={quoteEl}
+        sender={nameEl}
+        override={
+          m.type === "location"
+            ? { node: <GoogleMapArt />, w: 240, h: 180, caption: [...lines, mapsUrl(loc.title || m.id)].join("\n") }
+            : undefined
+        }
       />
     );
+  } else if (m.type === "sticker") {
+    // conversation_item_*_sticker: 175dp borderless image, plain footer below
+    const emoji = m.text.trim() || "🙂";
+    content = (
+      <div className="flex flex-col" style={{ alignItems: "flex-start" }}>
+        {nameEl}
+        <div className="flex items-center justify-center" style={{ width: STICKER, height: STICKER, marginTop: sender ? 0 : 7 }}>
+          {m.imageSrc ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={m.imageSrc} alt="" draggable={false} className="block h-full w-full" style={{ objectFit: "contain" }} />
+          ) : (
+            <span style={{ fontSize: 128, lineHeight: `${STICKER}px` }}>{emoji}</span>
+          )}
+        </div>
+        {footerVisible && (
+          <div style={{ alignSelf: "flex-end", marginTop: 4 }}>
+            <Footer time={time} mine={mine} status={status} color={p.sub} />
+          </div>
+        )}
+      </div>
+    );
+  } else if (m.type === "file") {
+    const f = m.file ?? { name: "Document" };
+    const dot = f.name.lastIndexOf(".");
+    const ext = dot > 0 ? f.name.slice(dot + 1).toLowerCase().slice(0, 4) : "";
+    content = (
+      <div className="flex flex-col" style={{ background: bubbleBg, maxWidth: maxW, ...corners }}>
+        {nameEl}
+        {quoteEl}
+        {/* document_view_stub: 210dp, 12/7/12/7 margins */}
+        <div className="flex items-center" style={{ width: 210, margin: `${sender && !quote ? 0 : 7}px 12px 7px` }}>
+          <DocumentIcon ext={ext} />
+          <div className="flex min-w-0 flex-1 flex-col" style={{ marginInlineStart: 2 }}>
+            <div className="truncate" style={{ fontSize: 16, lineHeight: "22px", letterSpacing: "0.01em", color: textColor }}>
+              <bdi>{f.name}</bdi>
+            </div>
+            {f.size && (
+              <div style={{ fontSize: 12, lineHeight: "16px", letterSpacing: "0.033em", color: footColor }}>
+                <bdi>{localDigits(f.size, lang)}</bdi>
+              </div>
+            )}
+          </div>
+        </div>
+        {footerVisible && (
+          <div className="flex" style={{ justifyContent: "flex-end", marginTop: -4 }}>
+            <Footer time={time} mine={mine} status={status} color={footColor} />
+          </div>
+        )}
+      </div>
+    );
+  } else if (m.type === "deleted") {
+    // remote delete without wallpaper: background-coloured bubble, 1dp
+    // OnSurfaceVariant outline, x-circle + "<name> deleted this message"
+    content = (
+      <div style={{ background: p.bg, border: `1px solid ${p.sub}`, boxSizing: "border-box", maxWidth: maxW, ...corners }}>
+        {nameEl}
+        <TextBody
+          text={mine ? s.youDeleted : s.deletedBy(authorName)}
+          color={p.sub}
+          rtl={rtl}
+          maxW={maxW - 2}
+          jumbo={0}
+          padTop={sender ? 0 : PAD_TOP - 1}
+          padBottom={PAD_BOTTOM - 1}
+          lead={<XCircle color={p.sub} />}
+          footer={footerVisible ? <Footer time={time} mine={false} status={status} color={p.sub} /> : null}
+          footerExtra={0}
+        />
+      </div>
+    );
   } else {
-    // a quoted message is a legacy media item: always a bubble, never jumbomoji
-    const count = quote ? 0 : emojiOnlyCount(m.text);
-    const textColor = mine ? p.outText : p.ink;
-    const footerColor = count ? p.sub : mine ? p.outFooter : p.sub;
+    // a quoted / link-preview message is a legacy item: always a bubble, never jumbomoji
+    const count = quote || m.link ? 0 : emojiOnlyCount(m.text);
+    const footerColor = count ? p.sub : footColor;
+    const link = m.link ?? null;
+    // setLinkPreviewCorners: square under a quote / group sender, else the bubble's top corners
+    const startR = (corners.borderTopLeftRadius as number) ?? BIG;
+    const endR = (corners.borderTopRightRadius as number) ?? BIG;
+    const ts = rtl ? endR : startR;
+    const te = rtl ? startR : endR;
     content = (
       <div
+        className={link ? "overflow-hidden" : undefined}
         style={{
-          background: count ? "transparent" : mine ? p.outBubble : p.inBubble,
-          maxWidth: quote ? MAX_W : "100%",
-          display: quote ? "flex" : undefined,
-          flexDirection: quote ? "column" : undefined,
+          background: count ? "transparent" : bubbleBg,
+          maxWidth: quote || link ? maxW : "100%",
+          width: link ? maxW : undefined,
+          display: quote || sender || link ? "flex" : undefined,
+          flexDirection: quote || sender || link ? "column" : undefined,
           ...corners,
         }}
       >
-        {quote && <QuoteSlot quote={quote} mine={mine} p={p} shape={shape} />}
+        {nameEl}
+        {quoteEl}
+        {link && (
+          <AndroidLinkPreview
+            link={link}
+            p={p}
+            topStart={quote || sender ? 0 : ts}
+            topEnd={quote || sender ? 0 : te}
+          />
+        )}
         <TextBody
           text={m.text}
           color={textColor}
           rtl={rtl}
-          maxW={MAX_W}
+          maxW={maxW}
           jumbo={count ? jumboSize(count) : 0}
-          // message_bubble_top_image_margin (4dp) under content above the body
-          padTop={quote ? 4 : PAD_TOP}
+          // message_bubble_top_image_margin (4dp) under a quote; 0 under a CFv2 sender name
+          padTop={quote ? 4 : sender && !link ? 1 : PAD_TOP}
           footer={footerVisible ? <Footer time={time} mine={mine} status={status} color={footerColor} /> : null}
-          footerExtra={mine && status === "sent" ? STATUS_RESERVED - 14 : 0}
+          footerExtra={footerExtra}
         />
       </div>
     );
@@ -1364,14 +1856,21 @@ function SignalRow({
       className={live ? "sig-android-enter" : undefined}
       style={{
         display: "flex",
+        alignItems: "flex-end",
         justifyContent: mine ? "flex-end" : "flex-start",
-        paddingInlineStart: mine ? FAR : GUTTER,
+        paddingInlineStart: mine ? FAR : groupIncoming ? GROUP_START : GUTTER,
         paddingInlineEnd: mine ? GUTTER : FAR,
         marginTop: top,
         // the reactions rail hangs 26 − 4 = 22dp below the bubble
         marginBottom: bottom + (reaction ? 22 : 0),
       }}
     >
+      {groupIncoming && (
+        // contact_photo: 28dp, bottom-aligned with the bubble, only on the cluster's last item
+        <div className="shrink-0" style={{ width: GROUP_AVATAR, height: GROUP_AVATAR, marginInlineEnd: 8 }}>
+          {avatar && <SignalAvatar person={avatar} size={GROUP_AVATAR} />}
+        </div>
+      )}
       {content}
     </div>
   );
@@ -1421,6 +1920,7 @@ function TextBody({
   footerExtra,
   padTop = PAD_TOP,
   padBottom = PAD_BOTTOM,
+  lead,
 }: {
   text: string;
   color: string;
@@ -1431,6 +1931,8 @@ function TextBody({
   footerExtra: number;
   padTop?: number;
   padBottom?: number;
+  /** inline glyph before the text (deleted-message x-circle) */
+  lead?: ReactNode;
 }) {
   const textRef = useRef<HTMLDivElement>(null);
   const footRef = useRef<HTMLDivElement>(null);
@@ -1517,7 +2019,8 @@ function TextBody({
           textAlign: "start",
         }}
       >
-        {text}
+        {lead}
+        {richText(text)}
       </div>
       {footer && (
         <div ref={footRef} className="absolute" style={{ bottom: 0, insetInlineEnd: 0 }}>
@@ -1542,6 +2045,8 @@ function ImageBubble({
   corners,
   footerVisible,
   quote,
+  sender,
+  override,
 }: {
   m: Message;
   p: Palette;
@@ -1552,12 +2057,19 @@ function ImageBubble({
   corners: CSSProperties;
   footerVisible: boolean;
   quote: ReactNode;
+  /** group sender name above the media */
+  sender?: ReactNode;
+  /** generated media (location map) with its own size and caption */
+  override?: { node: ReactNode; w: number; h: number; caption: string };
 }) {
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
-  const caption = m.text.trim();
+  const caption = override ? override.caption : m.text.trim();
   let w = 240;
   let h = 320;
-  if (dims && dims.w > 0 && dims.h > 0) {
+  if (override) {
+    w = override.w;
+    h = override.h;
+  } else if (dims && dims.w > 0 && dims.h > 0) {
     const k = Math.min(1, 240 / dims.w, 320 / dims.h);
     w = Math.round(dims.w * k);
     h = Math.round(dims.h * k);
@@ -1570,11 +2082,14 @@ function ImageBubble({
       className="overflow-hidden"
       style={{ width: w, maxWidth: "100%", background: mine ? p.outBubble : p.inBubble, ...corners }}
     >
+      {sender}
       {quote}
       {/* message_bubble_top_image_margin under a quote */}
       {quote && <div style={{ height: 4 }} />}
       <div className="relative" style={{ width: "100%", height: h }}>
-        {m.imageSrc ? (
+        {override ? (
+          override.node
+        ) : m.imageSrc ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={m.imageSrc}
@@ -1652,6 +2167,7 @@ function VoiceBubble({
   time,
   corners,
   quote,
+  sender,
 }: {
   m: Message;
   p: Palette;
@@ -1662,6 +2178,7 @@ function VoiceBubble({
   time: string;
   corners: CSSProperties;
   quote: ReactNode;
+  sender?: ReactNode;
 }) {
   const bars = waveform(m.id, 52);
   const footColor = mine ? p.outVoiceFooter : p.sub;
@@ -1688,6 +2205,7 @@ function VoiceBubble({
   );
   return (
     <div style={{ width: AUDIO_W + 24, maxWidth: "100%", background: mine ? p.outBubble : p.inBubble, ...corners }}>
+      {sender}
       {quote}
       <div className="flex items-center" style={{ padding: "12px 12px 0", height: 60 }}>
         <div className="flex shrink-0 items-center justify-center" style={{ width: 48, height: 48 }}>

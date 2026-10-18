@@ -245,7 +245,7 @@ const LOCAL: Record<Lang, LocalStrings> = {
     photo: "صورة",
     edited: "تم التعديل",
     unsentByMe: "لقد ألغيت إرسال رسالة.",
-    unsentBy: (name) => `ألغى ${name} إرسال رسالة.`,
+    unsentBy: (name) => `تم إلغاء إرسال رسالة من ${name}.`,
     faceTimeVideo: "فيديو FaceTime",
     faceTimeAudio: "صوت FaceTime",
     missedVideo: "مكالمة فيديو FaceTime فائتة",

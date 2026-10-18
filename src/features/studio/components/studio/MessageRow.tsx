@@ -501,7 +501,7 @@ function MessageRowImpl({
           aria-controls={detailsId}
           aria-label={`${expanded ? t.hideDetails : t.details} — ${fmt(t.jumpTo, { n })}`}
           onClick={() => onToggleExpand(m.id)}
-          className="flex h-7 min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-[11px] text-muted-foreground outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+          className="flex h-7 min-w-0 flex-1 cursor-pointer items-center gap-1.5 overflow-hidden rounded-md px-1.5 text-[11px] text-muted-foreground outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 focus-visible:ring-inset"
         >
           {live ? (
             <span className="relative flex size-2" aria-hidden>

@@ -143,6 +143,8 @@ export interface Message {
    * this "them" message (default 0).
    */
   authorIndex?: number;
+  /** studio-only: the user set this time by hand; "Generate times" keeps it */
+  timeLocked?: boolean;
 }
 
 export interface Scenario {
