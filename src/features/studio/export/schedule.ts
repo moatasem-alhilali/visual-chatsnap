@@ -1,3 +1,12 @@
+import {
+  COMPOSE_HOLD_MS,
+  COMPOSE_STEP_MS,
+  composeMsFor,
+  composesMessage,
+  composeWallMs,
+  draftAt,
+  type ComposeDraft,
+} from "../playback/compose";
 import type { DeliveryStatus, Scenario, Sender } from "../types";
 
 /** Resolved state of the conversation at a given moment, used to render a frame. */
@@ -5,12 +14,26 @@ export interface FrameState {
   visibleIds: Set<string>;
   typing: boolean;
   statuses: Map<string, DeliveryStatus>;
+  /** my message being typed into the composer at this moment (compose typing) */
+  draft: ComposeDraft | null;
 }
 
 export interface RevealEvent {
   id: string;
   sender: Sender;
   at: number;
+}
+/** a window during which one of my messages is typed into the composer */
+export interface ComposeWindow {
+  id: string;
+  text: string;
+  start: number;
+  /** typing duration (progress denominator) */
+  typeMs: number;
+  /** typing phase on the live step grid */
+  wallMs: number;
+  /** = reveal time (typing + hold) */
+  end: number;
 }
 export interface TypingWindow {
   start: number;
@@ -32,11 +55,14 @@ export interface Timeline {
   reveals: RevealEvent[];
   /** windows during which the other party is typing */
   typings: TypingWindow[];
+  /** windows during which my next message is being typed into the composer */
+  composes: ComposeWindow[];
 }
 
 // Mirrors usePlayback's timing constants exactly so the export matches playback:
 //  - play() starts the first step after a 30 ms tick,
 //  - each step waits delayMs, then (for "them") typingMs with the indicator on,
+//    or (for my text messages, compose typing) the composer typing + hold,
 //  - reveal, then 70 ms before the next step starts,
 //  - outgoing ticks: sent at reveal, delivered +520 ms, read +1250 ms.
 const START_TICK = 30;
@@ -48,12 +74,17 @@ const READ_AFTER = 1250;
 export function buildTimeline(scenario: Scenario): Timeline {
   const reveals: RevealEvent[] = [];
   const typings: TypingWindow[] = [];
+  const composes: ComposeWindow[] = [];
   const statusEvents: StatusEvent[] = [];
 
   let t = START_TICK;
   for (const m of scenario.messages) {
     t += Math.max(0, m.delayMs);
-    if (m.sender === "them" && m.typingMs > 0) {
+    if (composesMessage(scenario, m)) {
+      const wallMs = composeWallMs(m);
+      composes.push({ id: m.id, text: m.text, start: t, typeMs: composeMsFor(m), wallMs, end: t + wallMs + COMPOSE_HOLD_MS });
+      t += wallMs + COMPOSE_HOLD_MS;
+    } else if (m.sender === "them" && m.typingMs > 0) {
       typings.push({ start: t, end: t + m.typingMs });
       t += m.typingMs;
     }
@@ -99,8 +130,19 @@ export function buildTimeline(scenario: Scenario): Timeline {
       if (e.at <= time) statuses.set(e.id, e.status);
     }
 
-    return { visibleIds, typing, statuses };
+    // compose typing: progress advances on the same 45 ms grid as live playback
+    let draft: ComposeDraft | null = null;
+    for (const c of composes) {
+      if (time >= c.start && time < c.end) {
+        const e = time - c.start;
+        const elapsed = e >= c.wallMs ? c.typeMs : Math.min(c.typeMs, Math.floor(e / COMPOSE_STEP_MS) * COMPOSE_STEP_MS);
+        draft = { messageId: c.id, text: draftAt(c.text, elapsed / c.typeMs) };
+        break;
+      }
+    }
+
+    return { visibleIds, typing, statuses, draft };
   };
 
-  return { contentMs, stateAt, revealAt, reveals, typings };
+  return { contentMs, stateAt, revealAt, reveals, typings, composes };
 }

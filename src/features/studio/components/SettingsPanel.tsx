@@ -22,7 +22,7 @@ import { SegmentedControl } from "@/shared/components/ui/segmented";
 import { Switch } from "@/shared/components/ui/switch";
 import { Tooltip } from "@/shared/components/ui/tooltip";
 import { useStudioStore } from "../store";
-import type { PresenceStatus, Scenario, StatusBarConfig } from "../types";
+import type { PresenceStatus, Scenario } from "../types";
 import { DEFAULT_STATUS_BAR } from "../types";
 import { ANDROID_FONTS } from "../data/fonts";
 import type { StudioLabels } from "./labels";
@@ -52,7 +52,7 @@ export function SettingsPanel({ scenario, t }: { scenario: Scenario; t: StudioLa
   const sb = scenario.statusBar ?? DEFAULT_STATUS_BAR;
   const presenceLabel = { online: t.online, typing: t.typing, lastseen: t.lastSeen }[scenario.presence];
 
-  const sbRows: { key: keyof StatusBarConfig; label: string; icon: React.ReactNode }[] = [
+  const sbRows: { key: "wifi" | "cellular" | "batteryPct"; label: string; icon: React.ReactNode }[] = [
     { key: "wifi", label: t.sbWifi, icon: <Wifi /> },
     { key: "cellular", label: t.sbCellular, icon: <Signal /> },
     { key: "batteryPct", label: t.sbBatteryPct, icon: <BatteryFull /> },

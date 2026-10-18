@@ -3,6 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { DeliveryStatus, Message, Scenario } from "../types";
+import {
+  COMPOSE_HOLD_MS,
+  COMPOSE_STEP_MS,
+  composeMsFor,
+  composesMessage,
+  draftAt,
+  type ComposeDraft,
+} from "./compose";
 
 export type PlaybackPhase = "idle" | "playing" | "paused" | "done";
 
@@ -13,6 +21,12 @@ export interface PlaybackView {
   messages: Message[];
   /** typing indicator for the other party is showing */
   typing: boolean;
+  /**
+   * My message currently being typed into the composer (compose typing), or
+   * null. Templates show `draft.text` in their input field (instead of the
+   * placeholder) and swap the mic/like button for their send button.
+   */
+  draft: ComposeDraft | null;
   /**
    * Deterministic clock (ms since playback start) supplied by the video
    * exporter, where CSS animations do not run. When defined, looping animations
@@ -39,14 +53,17 @@ export function usePlayback(scenario: Scenario): PlaybackView {
   const [visibleIds, setVisibleIds] = useState<string[]>([]);
   const [statuses, setStatuses] = useState<Record<string, DeliveryStatus>>({});
   const [typing, setTyping] = useState(false);
+  const [draft, setDraft] = useState<ComposeDraft | null>(null);
 
   const indexRef = useRef(0);
   const pauseRef = useRef(false);
   const timersRef = useRef<number[]>([]);
   const messagesRef = useRef<Message[]>(scenario.messages);
+  const scenarioRef = useRef<Scenario>(scenario);
   useEffect(() => {
     messagesRef.current = scenario.messages;
-  }, [scenario.messages]);
+    scenarioRef.current = scenario;
+  }, [scenario]);
 
   const after = useCallback((ms: number, fn: () => void) => {
     const t = window.setTimeout(fn, ms);
@@ -98,7 +115,23 @@ export function usePlayback(scenario: Scenario): PlaybackView {
       indexRef.current = i;
       const msg = messages[i];
       after(Math.max(0, msg.delayMs), () => {
-        if (msg.sender === "them" && msg.typingMs > 0) {
+        if (composesMessage(scenarioRef.current, msg)) {
+          // type my message into the composer, hold, then send it
+          const dur = composeMsFor(msg);
+          const tick = (elapsed: number) => {
+            setDraft({ messageId: msg.id, text: draftAt(msg.text, elapsed / dur) });
+            if (elapsed >= dur) {
+              after(COMPOSE_HOLD_MS, () => {
+                setDraft(null);
+                reveal(msg);
+                after(70, () => runStepRef.current(i + 1));
+              });
+            } else {
+              after(COMPOSE_STEP_MS, () => tick(Math.min(dur, elapsed + COMPOSE_STEP_MS)));
+            }
+          };
+          tick(0);
+        } else if (msg.sender === "them" && msg.typingMs > 0) {
           setTyping(true);
           after(msg.typingMs, () => {
             setTyping(false);
@@ -125,6 +158,7 @@ export function usePlayback(scenario: Scenario): PlaybackView {
     setVisibleIds([]);
     setStatuses({});
     setTyping(false);
+    setDraft(null);
     setPhase("playing");
     // start on the next tick so the cleared state is committed first
     window.setTimeout(() => runStep(0), 30);
@@ -151,6 +185,7 @@ export function usePlayback(scenario: Scenario): PlaybackView {
     setVisibleIds([]);
     setStatuses({});
     setTyping(false);
+    setDraft(null);
     setPhase("idle");
   }, [clearTimers]);
 
@@ -173,6 +208,7 @@ export function usePlayback(scenario: Scenario): PlaybackView {
     isLive,
     messages,
     typing: isLive && typing,
+    draft: isLive ? draft : null,
     statusOf,
     play,
     pause,

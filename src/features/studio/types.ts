@@ -36,6 +36,10 @@ export interface StatusBarConfig {
   cellular: boolean;
   /** show the battery percentage number */
   batteryPct: boolean;
+  /** clock shown in the status bar, e.g. "9:41" (device default when unset) */
+  time?: string;
+  /** battery level 1–100 (device default when unset) */
+  battery?: number;
 }
 
 export const DEFAULT_STATUS_BAR: StatusBarConfig = {
@@ -62,6 +66,13 @@ export interface Message {
   voiceDuration?: string;
   /** data URL of an attached image */
   imageSrc?: string | null;
+  /**
+   * Emoji reaction attached to this message (e.g. "❤️"). On "me" messages it
+   * is the other party's reaction; on "them" messages it is mine.
+   */
+  reaction?: string | null;
+  /** id of an earlier message this one replies to (rendered as a quote) */
+  replyToId?: string | null;
 }
 
 export interface Scenario {
@@ -79,5 +90,12 @@ export interface Scenario {
   androidFont: string;
   /** which icons appear in the status bar */
   statusBar: StatusBarConfig;
+  /**
+   * During playback/export my text messages are typed into the composer
+   * before they are sent (undefined = on).
+   */
+  composeTyping?: boolean;
+  /** physical finish of the phone shell (DeviceFrame colour id; device default when unset) */
+  deviceColor?: string;
   messages: Message[];
 }

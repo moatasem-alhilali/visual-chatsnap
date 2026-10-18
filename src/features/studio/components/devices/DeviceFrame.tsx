@@ -6,7 +6,7 @@ import type { Device } from "../../types";
  * Physical phone shells drawn in plain CSS (snapdom-safe: gradients, inset /
  * drop box-shadows and inline SVG only — no images, no backdrop-filter).
  *
- * iPhone 15 Pro (Black Titanium) — 393×852 pt screen.
+ * iPhone 15 Pro — 393×852 pt screen (finishes: see `DEVICE_FINISHES` below).
  *  - Geometry from the flutter `device_frame` iPhone 15 Pro trace
  *    (github.com/aloisdeniel/flutter_device_preview, device_frame/lib/src/devices/ios/iphone_15_pro),
  *    2.024 trace-units per pt, cross-checked with Apple's spec sheet
@@ -95,6 +95,154 @@ export const DEVICE_SPEC: Record<Device, DeviceSpec> = {
     buttonRight: "linear-gradient(270deg, #3a3c40 0%, #8a8d93 40%, #5f6267 100%)",
   },
 };
+
+/* ------------------------------------------------------------------ */
+/* Finishes                                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Real retail finishes. Only the metal (rail, keys, antenna breaks) changes —
+ * the front cover glass and its black border are the same on every colour.
+ *
+ * iPhone 15 Pro (apple.com/iphone-15-pro, Arabic: apple.com/ae-ar): Black, White,
+ * Blue and Natural Titanium. Grade 5 titanium, brushed, PVD-coloured except
+ * Natural (bare metal): Black = deep neutral grey, White = bright silvery
+ * titanium, Blue = desaturated slate navy, Natural = warm greige.
+ *
+ * Galaxy S25 (samsung.com/…/galaxy-s25/specs, Arabic: samsung.com/ae_ar): Navy
+ * (كحلي), Icyblue (أزرق ثلجي), Silver Shadow (فضي داكن), Mint (أخضر فاتح). The
+ * Armor Aluminum frame is anodised to match the back glass, satin finish.
+ */
+export interface DeviceFinishOption {
+  id: string;
+  label: { en: string; ar: string };
+  /** flat colour for a UI colour chip */
+  swatch: string;
+}
+
+interface FinishSpec extends DeviceFinishOption {
+  rail: string;
+  railShade: string;
+  buttonLeft: string;
+  buttonRight: string;
+  /** antenna break: [edge colour, centre colour, opacity] */
+  antenna: [string, string, number];
+}
+
+/** Builds the rail's inset profile: silhouette, specular line on the curve, roll-off. */
+function railProfile(device: Device, silhouette: string, specular: string, rolloff?: string): string {
+  return device === "iphone"
+    ? [
+        `inset 0 0 0 0.6px ${silhouette}`,
+        `inset 0 0 0 1.8px ${specular}`,
+        `inset 0 0 0 3.4px ${rolloff ?? "rgba(255,255,255,0.07)"}`,
+      ].join(", ")
+    : [`inset 0 0 0 0.6px ${silhouette}`, `inset 0 0 0 1.3px ${specular}`].join(", ");
+}
+
+const FINISH_SPECS: Record<Device, FinishSpec[]> = {
+  iphone: [
+    {
+      id: "black-titanium",
+      label: { en: "Black Titanium", ar: "تيتانيوم أسود" },
+      swatch: "#3c3c3e",
+      rail: DEVICE_SPEC.iphone.rail,
+      railShade: DEVICE_SPEC.iphone.railShade,
+      buttonLeft: DEVICE_SPEC.iphone.buttonLeft,
+      buttonRight: DEVICE_SPEC.iphone.buttonRight,
+      antenna: ["rgba(0,0,0,0.5)", "rgba(40,40,44,0.75)", 0.55],
+    },
+    {
+      id: "white-titanium",
+      label: { en: "White Titanium", ar: "تيتانيوم أبيض" },
+      swatch: "#f2f1ec",
+      rail: "linear-gradient(152deg, #f6f5f2 0%, #dddcd8 9%, #c9c8c4 24%, #bdbcb8 50%, #c6c5c1 74%, #d8d7d3 90%, #efeeea 100%)",
+      railShade: railProfile("iphone", "rgba(0,0,0,0.42)", "rgba(255,255,255,0.62)", "rgba(255,255,255,0.14)"),
+      buttonLeft: "linear-gradient(90deg, #9c9b97 0%, #cbcac6 32%, #e8e7e3 58%, #b5b4b0 100%)",
+      buttonRight: "linear-gradient(270deg, #9c9b97 0%, #cbcac6 32%, #e8e7e3 58%, #b5b4b0 100%)",
+      antenna: ["rgba(120,118,112,0.55)", "rgba(214,212,206,0.95)", 0.7],
+    },
+    {
+      id: "blue-titanium",
+      label: { en: "Blue Titanium", ar: "تيتانيوم أزرق" },
+      swatch: "#3a4555",
+      rail: "linear-gradient(152deg, #8b97a7 0%, #5c697a 9%, #465364 24%, #3b4757 50%, #424e5e 74%, #576475 90%, #7d8a9b 100%)",
+      railShade: railProfile("iphone", "rgba(0,0,0,0.85)", "rgba(214,226,242,0.36)"),
+      buttonLeft: "linear-gradient(90deg, #263140 0%, #505d6e 32%, #6f7c8d 58%, #3f4b5b 100%)",
+      buttonRight: "linear-gradient(270deg, #263140 0%, #505d6e 32%, #6f7c8d 58%, #3f4b5b 100%)",
+      antenna: ["rgba(0,0,0,0.5)", "rgba(36,44,56,0.75)", 0.55],
+    },
+    {
+      id: "natural-titanium",
+      label: { en: "Natural Titanium", ar: "تيتانيوم طبيعي" },
+      swatch: "#bbb5aa",
+      rail: "linear-gradient(152deg, #d6d1c7 0%, #ada89f 9%, #969188 24%, #8a857d 50%, #928d85 74%, #a6a198 90%, #c9c4ba 100%)",
+      railShade: railProfile("iphone", "rgba(0,0,0,0.6)", "rgba(250,246,238,0.48)", "rgba(255,255,255,0.1)"),
+      buttonLeft: "linear-gradient(90deg, #6b6760 0%, #9b968d 32%, #bab5ab 58%, #87827a 100%)",
+      buttonRight: "linear-gradient(270deg, #6b6760 0%, #9b968d 32%, #bab5ab 58%, #87827a 100%)",
+      antenna: ["rgba(70,66,60,0.55)", "rgba(160,155,146,0.9)", 0.65],
+    },
+  ],
+  android: [
+    {
+      id: "navy",
+      label: { en: "Navy", ar: "كحلي" },
+      swatch: "#2d3850",
+      rail: "linear-gradient(160deg, #5e6b84 0%, #3e4a62 14%, #2c364b 45%, #313b51 72%, #505c75 100%)",
+      railShade: railProfile("android", "rgba(0,0,0,0.85)", "rgba(196,210,236,0.32)"),
+      buttonLeft: "linear-gradient(90deg, #1b2232 0%, #4a5670 45%, #333d52 100%)",
+      buttonRight: "linear-gradient(270deg, #1b2232 0%, #5b6781 40%, #39445a 100%)",
+      antenna: ["rgba(0,0,0,0.5)", "rgba(30,36,50,0.75)", 0.45],
+    },
+    {
+      id: "icyblue",
+      label: { en: "Icyblue", ar: "أزرق ثلجي" },
+      swatch: "#c4d6e7",
+      rail: "linear-gradient(160deg, #dde8f2 0%, #bfcfdf 14%, #a8bacc 45%, #b0c1d2 72%, #cddae7 100%)",
+      railShade: railProfile("android", "rgba(0,0,0,0.42)", "rgba(255,255,255,0.55)"),
+      buttonLeft: "linear-gradient(90deg, #7e8fa1 0%, #b9c9d9 45%, #9fb1c3 100%)",
+      buttonRight: "linear-gradient(270deg, #7e8fa1 0%, #cfdbe8 40%, #a8b9ca 100%)",
+      antenna: ["rgba(90,104,120,0.5)", "rgba(196,210,224,0.95)", 0.6],
+    },
+    {
+      id: "silver-shadow",
+      label: { en: "Silver Shadow", ar: "فضي داكن" },
+      swatch: "#9a9da2",
+      rail: DEVICE_SPEC.android.rail,
+      railShade: DEVICE_SPEC.android.railShade,
+      buttonLeft: DEVICE_SPEC.android.buttonLeft,
+      buttonRight: DEVICE_SPEC.android.buttonRight,
+      antenna: ["rgba(0,0,0,0.5)", "rgba(40,40,44,0.75)", 0.4],
+    },
+    {
+      id: "mint",
+      label: { en: "Mint", ar: "أخضر فاتح" },
+      swatch: "#cfe3d6",
+      rail: "linear-gradient(160deg, #dfede3 0%, #c1d8ca 14%, #aac4b4 45%, #b2cbbb 72%, #d0e2d6 100%)",
+      railShade: railProfile("android", "rgba(0,0,0,0.42)", "rgba(255,255,255,0.55)"),
+      buttonLeft: "linear-gradient(90deg, #7e9587 0%, #bcd2c4 45%, #a1baaa 100%)",
+      buttonRight: "linear-gradient(270deg, #7e9587 0%, #d0e3d7 40%, #a9c2b2 100%)",
+      antenna: ["rgba(86,108,94,0.5)", "rgba(196,216,203,0.95)", 0.6],
+    },
+  ],
+};
+
+/** The finish each device shows when none (or an unknown id) is given. */
+export const DEFAULT_DEVICE_FINISH: Record<Device, string> = {
+  iphone: "black-titanium",
+  android: "silver-shadow",
+};
+
+/** Real retail finishes per device, for a colour picker (chip + bilingual label). */
+export const DEVICE_FINISHES: Record<Device, DeviceFinishOption[]> = {
+  iphone: FINISH_SPECS.iphone.map(({ id, label, swatch }) => ({ id, label, swatch })),
+  android: FINISH_SPECS.android.map(({ id, label, swatch }) => ({ id, label, swatch })),
+};
+
+function resolveFinish(device: Device, finish: string | undefined): FinishSpec {
+  const list = FINISH_SPECS[device];
+  return list.find((f) => f.id === finish) ?? list.find((f) => f.id === DEFAULT_DEVICE_FINISH[device]) ?? list[0];
+}
 
 /** Back-compat alias: the logical SCREEN size templates are laid out against. */
 export const DEVICE_SIZE: Record<Device, { w: number; h: number }> = {
@@ -198,15 +346,19 @@ export function DeviceFrame({
   device,
   dir = "ltr",
   fontFamily,
+  finish,
   children,
 }: {
   device: Device;
   dir?: "ltr" | "rtl";
   fontFamily?: string;
+  /** finish id from `DEVICE_FINISHES[device]`; device default when unset or unknown */
+  finish?: string;
   children: React.ReactNode;
 }) {
   const isPhone = device === "iphone";
   const s = DEVICE_SPEC[device];
+  const f = resolveFinish(device, finish);
   const outer = deviceOuter(device);
   const bodyW = s.w + 2 * s.bezel;
   const bodyH = s.h + 2 * s.bezel;
@@ -235,7 +387,7 @@ export function DeviceFrame({
             height: len,
             width: s.buttonDepth + 3,
             [side]: 0,
-            background: side === "left" ? s.buttonLeft : s.buttonRight,
+            background: side === "left" ? f.buttonLeft : f.buttonRight,
             borderRadius: side === "left" ? "1.6px 0 0 1.6px / 3px 0 0 3px" : "0 1.6px 1.6px 0 / 0 3px 3px 0",
             boxShadow:
               side === "left"
@@ -255,9 +407,9 @@ export function DeviceFrame({
           width: bodyW,
           height: bodyH,
           borderRadius: s.outerRadius,
-          background: s.rail,
+          background: f.rail,
           boxShadow: [
-            s.railShade,
+            f.railShade,
             "0 0 0 0.5px rgba(0,0,0,0.35)",
             "0 2px 4px rgba(0,0,0,0.18)",
             "0 8px 16px -6px rgba(0,0,0,0.28)",
@@ -277,10 +429,8 @@ export function DeviceFrame({
                 ...(vertical
                   ? { top: b.at, height: b.len, width: s.railWidth - 0.6, [b.side]: 0.3 }
                   : { left: b.at, width: b.len, height: s.railWidth - 0.6, [b.side]: 0.3 }),
-                background: vertical
-                  ? `linear-gradient(${b.side === "left" ? 90 : 270}deg, rgba(0,0,0,0.5), rgba(40,40,44,0.75) 35%, rgba(0,0,0,0.55))`
-                  : `linear-gradient(${b.side === "top" ? 180 : 0}deg, rgba(0,0,0,0.5), rgba(40,40,44,0.75) 35%, rgba(0,0,0,0.55))`,
-                opacity: isPhone ? 0.55 : 0.4,
+                background: `linear-gradient(${vertical ? (b.side === "left" ? 90 : 270) : b.side === "top" ? 180 : 0}deg, ${f.antenna[0]}, ${f.antenna[1]} 35%, ${f.antenna[0]})`,
+                opacity: f.antenna[2],
               }}
             />
           );

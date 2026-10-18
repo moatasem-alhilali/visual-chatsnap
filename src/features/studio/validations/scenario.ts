@@ -28,6 +28,8 @@ const statusBarSchema = z
     wifi: z.boolean().catch(DEFAULT_STATUS_BAR.wifi),
     cellular: z.boolean().catch(DEFAULT_STATUS_BAR.cellular),
     batteryPct: z.boolean().catch(DEFAULT_STATUS_BAR.batteryPct),
+    time: z.string().max(8).optional().catch(undefined),
+    battery: z.coerce.number().int().min(1).max(100).optional().catch(undefined),
   })
   .catch(DEFAULT_STATUS_BAR);
 
@@ -47,6 +49,8 @@ const messageSchema = z.object({
   status: deliveryStatusSchema.catch("read"),
   voiceDuration: z.string().optional(),
   imageSrc: z.string().nullable().optional(),
+  reaction: z.string().max(16).nullable().optional().catch(null),
+  replyToId: z.string().nullable().optional().catch(null),
 });
 
 export const scenarioSchema = z.object({
@@ -60,6 +64,8 @@ export const scenarioSchema = z.object({
   lastSeenText: z.string().catch(""),
   androidFont: z.string().catch("roboto"),
   statusBar: statusBarSchema,
+  composeTyping: z.boolean().optional().catch(undefined),
+  deviceColor: z.string().max(32).optional().catch(undefined),
   messages: z.array(messageSchema).catch([]),
 });
 

@@ -29,7 +29,27 @@ function toArabicDigits(s: string): string {
   return s.replace(/[0-9]/g, (d) => map[Number(d)]);
 }
 
+const DEFAULT_TIME = "10:05";
 const BATTERY_LEVEL = 85;
+/**
+ * One UI paints the battery charge red at Android's low-battery warning level
+ * (config_lowBatteryWarningLevel = 15 %) and below.
+ */
+const LOW_BATTERY = 15;
+/** One UI low-battery red, tuned per glyph tint so it keeps contrast. */
+const LOW_RED = { onLight: "#E8322E", onDark: "#FF5A52" } as const;
+
+/** Clamp a user battery level to an integer 1–100, falling back to `fallback`. */
+export function batteryLevel(value: number | undefined, fallback: number): number {
+  if (value === undefined || !Number.isFinite(value)) return fallback;
+  return Math.min(100, Math.max(1, Math.round(value)));
+}
+
+/** Status-bar clock: explicit prop › user setting › device default; shown as typed. */
+export function statusTime(prop: string | undefined, setting: string | undefined, fallback: string): string {
+  const pick = (v: string | undefined) => (v && v.trim() ? v.trim() : undefined);
+  return pick(prop) ?? pick(setting) ?? fallback;
+}
 
 /** One UI cellular signal: four ascending rounded bars. Mirrors in RTL like the rest of the bar. */
 function Signal({ color }: { color: string }) {
@@ -94,12 +114,26 @@ function Wifi({ color }: { color: string }) {
 }
 
 /** One UI 7/8 horizontal battery; percentage (optional) drawn inside, knocked out of the charge. */
-function Battery({ color, pct, lang }: { color: string; pct: boolean; lang: Lang }) {
+function Battery({
+  color,
+  pct,
+  lang,
+  level,
+  lowColor,
+}: {
+  color: string;
+  pct: boolean;
+  lang: Lang;
+  /** 1–100 */
+  level: number;
+  lowColor: string;
+}) {
   const id = useId().replace(/:/g, "");
   const W = pct ? 25 : 22; // the pill widens a little to fit the number
   const H = 11.6;
-  const fillW = (W * BATTERY_LEVEL) / 100;
-  const num = lang === "ar" ? toArabicDigits(String(BATTERY_LEVEL)) : String(BATTERY_LEVEL);
+  const fillW = (W * level) / 100;
+  const charge = level <= LOW_BATTERY ? lowColor : color;
+  const num = lang === "ar" ? toArabicDigits(String(level)) : String(level);
   const total = W + 2.4;
   return (
     <svg width={total} height={H} viewBox={`0 0 ${total} ${H}`} fill="none" style={{ display: "block" }}>
@@ -123,7 +157,7 @@ function Battery({ color, pct, lang }: { color: string; pct: boolean; lang: Lang
       </defs>
       <g clipPath={`url(#${id}b)`}>
         <rect width={W} height={H} fill={color} fillOpacity="0.32" />
-        <rect width={fillW} height={H} fill={color} mask={pct ? `url(#${id}k)` : undefined} />
+        <rect width={fillW} height={H} fill={charge} mask={pct ? `url(#${id}k)` : undefined} />
       </g>
       {pct && (
         <text
@@ -173,7 +207,7 @@ export function SamsungStatusBar({
   const sb = useStudioStore((s) => s.scenario.statusBar) ?? DEFAULT_STATUS_BAR;
   const androidFont = useStudioStore((s) => s.scenario.androidFont);
   const color = tint === "light" ? "#ffffff" : "#000000";
-  const t = time ?? "10:05";
+  const t = statusTime(time, sb.time, DEFAULT_TIME);
   const clock = lang === "ar" ? toArabicDigits(t) : t;
 
   return (
@@ -205,7 +239,13 @@ export function SamsungStatusBar({
           </div>
         )}
         <span style={{ marginInlineStart: 1 }}>
-          <Battery color={color} pct={sb.batteryPct} lang={lang} />
+          <Battery
+            color={color}
+            pct={sb.batteryPct}
+            lang={lang}
+            level={batteryLevel(sb.battery, BATTERY_LEVEL)}
+            lowColor={tint === "light" ? LOW_RED.onDark : LOW_RED.onLight}
+          />
         </span>
       </div>
     </div>

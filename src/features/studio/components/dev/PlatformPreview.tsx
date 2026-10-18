@@ -21,6 +21,8 @@ import { PlatformView } from "../platforms";
  *   &presence=online|typing|lastseen  &typing=1 (force the typing indicator)
  *   &scroll=top|bottom  &play=1 (run the real cinematic playback)
  *   &clock=1234 (simulate the video exporter clock, i.e. PlaybackView.clockMs)
+ *   &draft=Hello (show a compose-typing draft in the composer, i.e. PlaybackView.draft)
+ *   The full fixture includes a reply (replyToId) and reactions on both sides.
  */
 
 const PHOTO =
@@ -65,6 +67,8 @@ function fullFixture(lang: "ar" | "en"): Message[] {
         : "Delivery is available everywhere ✅ and arrives in 2–3 business days",
       time: "10:02",
       status: "read",
+      // reply quoting their question (fx2)
+      replyToId: "fx2",
     }),
     msg({ sender: "them", type: "voice", text: "", voiceDuration: "0:14", time: "10:05" }),
     msg({ sender: "me", type: "image", text: "", imageSrc: PHOTO, time: "10:06", status: "read" }),
@@ -75,9 +79,12 @@ function fullFixture(lang: "ar" | "en"): Message[] {
       imageSrc: PHOTO,
       time: "10:06",
       status: "read",
+      // their reaction on my message
+      reaction: "❤️",
     }),
     msg({ sender: "them", text: "😍", time: "10:08" }),
-    msg({ sender: "them", text: ar ? "OK تمام، أبغى واحد" : "Perfect, I'll take one", time: "10:08" }),
+    // my reaction on their message
+    msg({ sender: "them", text: ar ? "OK تمام، أبغى واحد" : "Perfect, I'll take one", time: "10:08", reaction: "👍" }),
     msg({ sender: "me", type: "voice", text: "", voiceDuration: "0:07", time: "10:09", status: "read" }),
     msg({ sender: "me", text: ar ? "تم تسجيل طلبك 🎉" : "Order placed 🎉", time: "10:10", status: "delivered" }),
     msg({ sender: "me", text: ar ? "رقم الطلب #48213" : "Order #48213", time: "10:10", status: "sent" }),
@@ -103,6 +110,8 @@ export function PlatformPreview() {
   const scroll = sp.get("scroll") ?? "bottom";
   const play = sp.get("play") === "1";
   const clockParam = sp.get("clock");
+  // force a compose-typing draft in the composer (e.g. &draft=On%20my%20way)
+  const draftParam = sp.get("draft");
   const clockMs = clockParam === null ? undefined : Number(clockParam);
 
   const scenario = useMemo<Scenario>(() => {
@@ -127,6 +136,7 @@ export function PlatformPreview() {
       isLive: false,
       messages: scenario.messages,
       typing: forceTyping,
+      draft: draftParam ? { messageId: "preview-draft", text: draftParam } : null,
       clockMs,
       statusOf: (m) => m.status,
       play: () => {},
@@ -135,7 +145,7 @@ export function PlatformPreview() {
       restart: () => {},
       reset: () => {},
     }),
-    [scenario, forceTyping, clockMs],
+    [scenario, forceTyping, clockMs, draftParam],
   );
 
   const { play: startPlay } = live;

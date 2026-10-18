@@ -45,9 +45,28 @@
  *    incoming fades + rises 10pt growing 0.92 → 1 from the avatar corner.
  *  - Arabic build: whole layout mirrors (outgoing + receipts on the left),
  *    chevron mirrors, call/video/composer glyphs and the thumbs-up do not.
+ *  - Reactions: a 22pt pill (13pt emoji on white / #3A3B3C, 2pt canvas-colour
+ *    ring + soft shadow) hanging off the bubble's bottom corner on the side
+ *    that faces the middle of the thread (bottom-left of my bubbles,
+ *    bottom-right of theirs), overlapping the bubble by 6pt; the row gets
+ *    16pt of extra space below. ("reactions … at the bottom left corner" of
+ *    your own messages — https://mobilesyrup.com/2017/03/23/facebook-message-reactions-mentions-messenger/ ;
+ *    pill styling cross-checked with messenger.com's reaction CSS teardown,
+ *    https://ishadeed.com/article/facebook-messenger-chat-component/ )
+ *  - Replies: 12pt secondary label led by the reply arrow — "You replied to
+ *    Khalid" / "Khalid replied to you" (AR "قمت بالرد على خالد" / "قام خالد
+ *    بالرد عليك", same "قمت بـ…" phrasing as "قمت بإلغاء إرسال رسالة") — then
+ *    the quoted message as a faded (washed) bubble, max 3 lines, tucked
+ *    behind the top of the reply bubble (messenger.com uses the same overlap:
+ *    `.message--washed{margin-bottom:-17px}`, ishadeed). Photos quote as a
+ *    faded thumbnail, voice as "Voice message".
+ *  - Compose typing: the four leading glyphs collapse into one blue ">"
+ *    expander, the pill widens and grows up to 5 lines (22pt each), the caret
+ *    is a 2pt theme-blue bar, and the 👍 becomes the blue paper-plane send
+ *    glyph (mirrored in Arabic). The smiley stays inside the pill.
  */
 
-import { Fragment, type CSSProperties } from "react";
+import { Fragment, type CSSProperties, type ReactNode } from "react";
 
 import type { DeliveryStatus, Message, Person } from "../../types";
 import { Avatar, dirOf, SystemBottomBar, useChatScroll } from "../shared";
@@ -136,6 +155,11 @@ const STR: Record<
     viewProfile: string;
     e2ee: string;
     learnMore: string;
+    youRepliedTo: (name: string) => string;
+    repliedToYou: (name: string) => string;
+    youRepliedToYourself: string;
+    repliedToThemselves: (name: string) => string;
+    voiceMessage: string;
   }
 > = {
   en: {
@@ -145,6 +169,11 @@ const STR: Record<
     viewProfile: "View profile",
     e2ee: "Messages and calls are secured with end-to-end encryption. Only people in this chat can read, listen to or share them.",
     learnMore: "Learn more",
+    youRepliedTo: (n) => `You replied to ${n}`,
+    repliedToYou: (n) => `${n} replied to you`,
+    youRepliedToYourself: "You replied to yourself",
+    repliedToThemselves: (n) => `${n} replied to themselves`,
+    voiceMessage: "Voice message",
   },
   ar: {
     activeNow: "نشط الآن",
@@ -153,6 +182,11 @@ const STR: Record<
     viewProfile: "عرض الملف الشخصي",
     e2ee: "الرسائل والمكالمات مؤمّنة بالتشفير التام بين الطرفين. يمكن فقط للأشخاص الموجودين في هذه الدردشة قراءتها أو الاستماع إليها أو مشاركتها.",
     learnMore: "معرفة المزيد",
+    youRepliedTo: (n) => `قمت بالرد على ${n}`,
+    repliedToYou: (n) => `قام ${n} بالرد عليك`,
+    youRepliedToYourself: "قمت بالرد على نفسك",
+    repliedToThemselves: (n) => `قام ${n} بالرد على نفسه`,
+    voiceMessage: "رسالة صوتية",
   },
 };
 

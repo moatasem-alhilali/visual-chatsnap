@@ -175,6 +175,8 @@ interface IosPalette {
   button: string;
   dots: string;
   imgPlaceholder: string;
+  /** reply rail beside a quoted message */
+  rail: string;
 }
 
 /** Meta's current IG design tokens (same as InstagramAndroid; read from the
@@ -190,6 +192,7 @@ function iosPalette(dark: boolean): IosPalette {
         button: "#25292e",
         dots: "#a2aab4",
         imgPlaceholder: "#25292e",
+        rail: "#3d4249",
       }
     : {
         bg: "#ffffff",
@@ -200,6 +203,7 @@ function iosPalette(dark: boolean): IosPalette {
         button: "#efefef",
         dots: "#8e959e",
         imgPlaceholder: "#e9ecef",
+        rail: "#dbdfe4",
       };
 }
 
@@ -212,6 +216,12 @@ const IGI_STR: Record<Lang, {
   today: string;
   viewProfile: string;
   instagram: string;
+  send: string;
+  youRepliedTo: (name: string) => string;
+  youRepliedSelf: string;
+  repliedToYou: string;
+  repliedSelf: string;
+  voiceMessage: string;
 }> = {
   en: {
     activeNow: "Active now",
@@ -221,6 +231,12 @@ const IGI_STR: Record<Lang, {
     today: "Today",
     viewProfile: "View profile",
     instagram: "Instagram",
+    send: "Send",
+    youRepliedTo: (name) => `You replied to ${name}`,
+    youRepliedSelf: "You replied to yourself",
+    repliedToYou: "Replied to you",
+    repliedSelf: "Replied to themselves",
+    voiceMessage: "Voice message",
   },
   ar: {
     activeNow: "نشط الآن",
@@ -230,6 +246,12 @@ const IGI_STR: Record<Lang, {
     today: "اليوم",
     viewProfile: "عرض الملف الشخصي",
     instagram: "Instagram",
+    send: "إرسال",
+    youRepliedTo: (name) => `قمت بالرد على ${name}`,
+    youRepliedSelf: "قمت بالرد على نفسك",
+    repliedToYou: "قام بالرد عليك",
+    repliedSelf: "قام بالرد على نفسه",
+    voiceMessage: "رسالة صوتية",
   },
 };
 

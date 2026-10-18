@@ -7,7 +7,7 @@ import { deviceFontFamily } from "../../data/fonts";
 import { useStudioStore } from "../../store";
 import { DEFAULT_STATUS_BAR } from "../../types";
 import type { Device } from "../../types";
-import { SamsungStatusBar } from "./SamsungStatusBar";
+import { batteryLevel, SamsungStatusBar, statusTime } from "./SamsungStatusBar";
 
 type Tint = "light" | "dark";
 
@@ -31,7 +31,12 @@ type Tint = "light" | "dark";
 
 const IOS_FONT = deviceFontFamily("iphone", "roboto");
 /** Apple's canonical marketing state: 9:41, full bars, full battery. */
+const IOS_DEFAULT_TIME = "9:41";
 const IOS_BATTERY_LEVEL = 100;
+/** iOS paints the charge systemRed at this level and below (Low Power Mode off). */
+const IOS_LOW_BATTERY = 20;
+/** UIColor.systemRed — light / dark appearance (Apple HIG colour table). */
+const IOS_RED = { onLight: "#FF3B30", onDark: "#FF453A" } as const;
 
 /* ----------------------------- iOS glyphs ----------------------------- */
 
@@ -65,46 +70,72 @@ function IosWifi({ color }: { color: string }) {
   );
 }
 
-function IosBattery({ color, showPct }: { color: string; showPct: boolean }) {
+function IosBattery({
+  color,
+  showPct,
+  level,
+  lowColor,
+}: {
+  color: string;
+  showPct: boolean;
+  /** 1–100 */
+  level: number;
+  /** systemRed for the current appearance (used at ≤ 20 %) */
+  lowColor: string;
+}) {
   const id = useId().replace(/:/g, "");
-  const level = IOS_BATTERY_LEVEL / 100;
+  const frac = level / 100;
+  // iOS turns the charge red at 20 % and below (Low Power Mode off).
+  const charge = level <= IOS_LOW_BATTERY ? lowColor : color;
   if (!showPct) {
+    const chargeW = Math.max(21.4 * frac, 1.6);
     return (
       <svg width="27.4" height="13" viewBox="0 0 27.4 13" fill="none" style={{ display: "block" }}>
         <rect x="0.5" y="0.5" width="24.4" height="12" rx="3.8" stroke={color} strokeOpacity="0.35" />
-        <rect x="2" y="2" width={21.4 * level} height="9" rx="2.5" fill={color} />
+        {/* the charge keeps its rounded ends even when nearly empty */}
+        <rect x="2" y="2" width={chargeW} height="9" rx={Math.min(2.5, chargeW / 2)} fill={charge} />
         <path d="M26 4.5h.2a1.2 1.2 0 0 1 1.2 1.2v1.6a1.2 1.2 0 0 1-1.2 1.2H26Z" fill={color} fillOpacity="0.4" />
       </svg>
     );
   }
   // Percentage inside the battery: digits knocked out of the charge, solid over the empty part.
-  const fillW = 25.4 * level;
+  const fillW = 25.4 * frac;
+  const digits = (
+    <text
+      x="12.7"
+      y="9.95"
+      textAnchor="middle"
+      fontSize="10.4"
+      fontWeight="700"
+      letterSpacing="-0.45"
+      style={{ fontFamily: IOS_FONT }}
+    >
+      {level}
+    </text>
+  );
   return (
     <svg width="27.4" height="13" viewBox="0 0 27.4 13" fill="none" style={{ display: "block" }}>
       <defs>
         <mask id={`${id}k`} maskUnits="userSpaceOnUse" x="0" y="0" width="27.4" height="13">
           <rect width="27.4" height="13" fill="#fff" />
-          <text
-            x="12.7"
-            y="9.95"
-            textAnchor="middle"
-            fontSize="10.4"
-            fontWeight="700"
-            letterSpacing="-0.45"
-            fill="#000"
-            style={{ fontFamily: IOS_FONT }}
-          >
-            {IOS_BATTERY_LEVEL}
-          </text>
+          <g fill="#000">{digits}</g>
         </mask>
         <clipPath id={`${id}c`}>
           <rect width="25.4" height="13" rx="4.3" />
         </clipPath>
+        <clipPath id={`${id}e`}>
+          <rect x={fillW} width={Math.max(25.4 - fillW, 0)} height="13" />
+        </clipPath>
       </defs>
       <g clipPath={`url(#${id}c)`}>
         <rect width="25.4" height="13" fill={color} fillOpacity="0.4" />
-        <rect width={fillW} height="13" fill={color} mask={`url(#${id}k)`} />
+        <rect width={fillW} height="13" fill={charge} mask={`url(#${id}k)`} />
       </g>
+      {fillW < 25.4 && (
+        <g fill={color} clipPath={`url(#${id}e)`}>
+          {digits}
+        </g>
+      )}
       <path d="M26 4.5h.2a1.2 1.2 0 0 1 1.2 1.2v1.6a1.2 1.2 0 0 1-1.2 1.2H26Z" fill={color} fillOpacity="0.4" />
     </svg>
   );
@@ -159,7 +190,7 @@ export function StatusBar({
           whiteSpace: "nowrap",
         }}
       >
-        {time ?? "9:41"}
+        {statusTime(time, sb.time, IOS_DEFAULT_TIME)}
       </span>
 
       {/* Cellular · Wi-Fi · Battery — right edge 33.5 pt from the screen edge */}
@@ -174,7 +205,12 @@ export function StatusBar({
             <IosWifi color={color} />
           </span>
         )}
-        <IosBattery color={color} showPct={sb.batteryPct} />
+        <IosBattery
+          color={color}
+          showPct={sb.batteryPct}
+          level={batteryLevel(sb.battery, IOS_BATTERY_LEVEL)}
+          lowColor={tint === "light" ? IOS_RED.onDark : IOS_RED.onLight}
+        />
       </div>
     </div>
   );
