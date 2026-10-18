@@ -1,0 +1,1136 @@
+"use client";
+
+/**
+ * Signal for iOS — conversation screen as it ships in late 2026 (Signal-iOS
+ * main @ d13b9da, Oct 14 2026, iOS 26 "Liquid Glass" code paths).
+ *
+ * Every value below was read from the open-source app
+ * (github.com/signalapp/Signal-iOS), file paths relative to the repo root:
+ *  [CS]  SignalUI/Appearance/ConversationStyle.swift
+ *        gutters 16/16, text insets 12 h + top/bottom round(11 − SF metrics) = 7/7,
+ *        max bubble width = 393 − 32 − (24 + 8) − 12 = 317pt, max audio width 244,
+ *        message spacing 12 (new cluster) / 2 (inside a cluster), content margin
+ *        top 24 / bottom 8 (iOS 26). Incoming bubble #E9E9E9 / dark #2C2C2E.
+ *        Outgoing text white / dark #E9E9E9 (ows_gray05). Secondary text in
+ *        outgoing bubbles white 80% / dark white 60%.
+ *  [CM]  Signal/ConversationView/Components/CVComponentMessage.swift
+ *        bubble radius 18, "sharp" radius 4 on the outer corners that touch a
+ *        neighbour of the same cluster; min bubble width 36. Footer overlaps
+ *        the last text line when it fits (min gap 6, footer centre on the
+ *        last baseline) and the line and footer don't collide; otherwise it
+ *        goes below with 3pt spacing.
+ *  [IVS] Signal/ConversationView/Loading/CVItemViewState.swift
+ *        clusters break after 3 minutes; a footer is hidden when the next
+ *        message of the cluster has the same time (and receipt state).
+ *  [FT]  Components/CVComponentFooter.swift — caption1 (12pt) time, 4pt gap,
+ *        18×12 status slot; Symbols.xcassets/message_status/*.pdf converted
+ *        verbatim to SVG (sent = check in ring, delivered = two rings, read =
+ *        two filled discs).
+ *  [CC]  SignalServiceKit/UISupport/Models/PaletteChatColor+Constants.swift —
+ *        default chat colour "Ultramarine" is a GRADIENT #0552F0 (top) →
+ *        #2C6BED (bottom), drawn relative to the whole conversation view
+ *        (CVColorOrGradientView referenceView), i.e. fixed to the screen.
+ *  [DH]  Components/CVComponentDateHeader.swift + ConversationViewLayout.swift —
+ *        "Today" (relative date formatter) footnote 13 medium, secondary label,
+ *        12/3 insets, no fill in-thread; when scrolled past it sticks 12pt
+ *        under the nav bar as a glass capsule with label-coloured text.
+ *  [TD]  Components/CVComponentThreadDetails.swift — conversation header card:
+ *        74pt avatar, title3 semibold name, "No groups in common" (subheadline),
+ *        2pt tertiaryFill outline r40 that starts 16pt below the avatar top.
+ *  [TI]  Signal/src/views/TypingIndicatorView.swift + CVComponentTypingIndicator
+ *        — 3 dots (6→8pt, alpha 0.4→1 of secondary label), 3pt apart, in a
+ *        36pt capsule with text insets; 8-key loop of 1.5s.
+ *  [AU]  CellViews/AudioMessageView.swift, AudioMessagePresenter.swift,
+ *        AudioWaveformProgressView.swift — 40pt play disc, 12 gap, 32pt
+ *        waveform of 2pt bars (≥2pt gaps), 6 trailing; duration caption1 +
+ *        6pt "unplayed" dot underneath; footer at the bottom trailing corner.
+ *  [MD]  Components/CVComponentBodyMedia.swift + CVMediaAlbumView.swift — a
+ *        single image is sized from its aspect inside the 317pt square; time
+ *        overlaid in white on a 40pt black 0→40% gradient; inner hairline.
+ *  [HD]  ConversationHeaderView.swift + ConversationViewController+UI.swift —
+ *        iOS 26: 40pt avatar, 12pt gap, 17 semibold title, no presence
+ *        subtitle (Signal never shows online / last seen / typing in the bar);
+ *        bar buttons [voice call, video call] grouped in one glass platter.
+ *  [IT]  ConversationInputToolbar.swift — iOS 26: forced LTR, 40pt glass "+"
+ *        16pt from the edge, 12pt gap, 40pt glass field to 16pt from the other
+ *        edge, "Message" placeholder (17pt, secondary label) with sticker,
+ *        camera and mic buttons (40pt each, 4pt from the field end) inside;
+ *        56pt bar on the keyboard guide (safe-area bottom).
+ *  [AV]  SignalServiceKit/Avatars/AvatarModel.swift + AvatarBuilder.swift —
+ *        default avatars: pastel theme fill + dark initials (Inter Medium,
+ *        0.45 × diameter); names without a short abbreviation (Arabic) get the
+ *        person glyph at 60% of the diameter.
+ *  [UC]  SignalUI/Appearance/UIColor+Signal.swift — label, secondaryLabel
+ *        (#3C3C43 72% / #EBEBF5 70%), quaternaryLabel, tertiaryFill, glass tint.
+ *  [L10N] Signal/translations/{en,ar}.lproj/Localizable.strings —
+ *        INPUT_TOOLBAR_MESSAGE_PLACEHOLDER "Message" / "رسالة",
+ *        THREAD_DETAILS_ZERO_MUTUAL_GROUPS "No groups in common" /
+ *        "لا توجد مجموعات مُشتركة".
+ *  iOS 26 nav bar: 44pt bar under the 59pt safe area, 44pt glass items, 16pt
+ *  side margins (thoughtbot.com/blog/migrating-to-native-stack-navigation-with-a-surprise-from-ios-26).
+ *
+ * Motion: messages are inserted with UICollectionView batch updates and the
+ * stock layout (no custom initialLayoutAttributes) → the new cell cross-fades
+ * in place over the default 0.3s ease-in-out while the list slides. Same for
+ * the typing indicator. `signalIosMotion.enterStyle` uses the same curve.
+ */
+
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+
+import type { DeliveryStatus, Message, Person } from "../../types";
+import { Avatar, dirOf, SystemBottomBar, useChatScroll } from "../shared";
+import { StatusBar } from "../devices/StatusBar";
+import type { Lang } from "./chrome";
+import type { PlatformMotion, PlatformProps } from "./types";
+
+/* ------------------------------- tokens ------------------------------- */
+
+const IOS_FONT =
+  '-apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "SF Pro", var(--font-inter), system-ui, var(--font-tajawal), sans-serif';
+const AVATAR_FONT = 'var(--font-inter), "Inter", -apple-system, system-ui, var(--font-tajawal), sans-serif';
+
+interface Palette {
+  bg: string;
+  bgA: (a: number) => string;
+  label: string;
+  secondary: string;
+  quaternary: string;
+  tertiaryFill: string;
+  inBubble: string;
+  inText: string;
+  outText: string;
+  outSecondary: string;
+  playIn: string;
+  dotRgb: string;
+  mediaFill: string;
+  mediaHairline: string;
+}
+
+const LIGHT: Palette = {
+  bg: "#ffffff",
+  bgA: (a) => `rgba(255,255,255,${a})`,
+  label: "#000000",
+  secondary: "rgba(60,60,67,0.72)",
+  quaternary: "rgba(60,60,67,0.18)",
+  tertiaryFill: "rgba(118,118,128,0.12)",
+  inBubble: "#e9e9e9",
+  inText: "#000000",
+  outText: "#ffffff",
+  outSecondary: "rgba(255,255,255,0.8)",
+  playIn: "rgba(255,255,255,0.8)",
+  dotRgb: "60,60,67",
+  mediaFill: "#efeff0",
+  mediaHairline: "rgba(0,0,0,0.15)",
+};
+
+const DARK: Palette = {
+  bg: "#000000",
+  bgA: (a) => `rgba(0,0,0,${a})`,
+  label: "#ffffff",
+  secondary: "rgba(235,235,245,0.7)",
+  quaternary: "rgba(235,235,245,0.16)",
+  tertiaryFill: "rgba(118,118,128,0.24)",
+  inBubble: "#2c2c2e",
+  inText: "#ffffff",
+  outText: "#e9e9e9",
+  outSecondary: "rgba(255,255,255,0.6)",
+  playIn: "rgba(255,255,255,0.2)",
+  dotRgb: "235,235,245",
+  mediaFill: "#1c1c1e",
+  mediaHairline: "rgba(255,255,255,0.15)",
+};
+
+/** Ultramarine [CC]: screen-fixed vertical gradient. */
+const ULTRA_TOP = "#0552f0";
+const ULTRA_BOTTOM = "#2c6bed";
+const ULTRA_GRADIENT = `linear-gradient(180deg, ${ULTRA_TOP} 0%, ${ULTRA_BOTTOM} 100%)`;
+const ULTRA_FALLBACK = "#2263ee";
+
+/** Liquid Glass control, drawn without backdrop-filter. */
+function glass(dark: boolean): CSSProperties {
+  return dark
+    ? {
+        background: "rgba(38,38,40,0.96)",
+        boxShadow:
+          "inset 0 0.5px 0 rgba(255,255,255,0.2), inset 0 0 0 0.5px rgba(255,255,255,0.09), 0 4px 16px rgba(0,0,0,0.5)",
+      }
+    : {
+        background: "#ffffff",
+        boxShadow: "0 0 0 0.5px rgba(0,0,0,0.035), 0 2px 5px rgba(0,0,0,0.035), 0 6px 18px rgba(0,0,0,0.07)",
+      };
+}
+
+const LOCAL: Record<Lang, { today: string; placeholder: string; noGroups: string }> = {
+  en: { today: "Today", placeholder: "Message", noGroups: "No groups in common" },
+  ar: { today: "اليوم", placeholder: "رسالة", noGroups: "لا توجد مجموعات مُشتركة" },
+};
+
+/* metrics (pt) — see header */
+const GUTTER = 16;
+const MAX_BUBBLE = 317;
+const TEXT_INSET_X = 12;
+const TEXT_INSET_Y = 7;
+const MAX_TEXT = MAX_BUBBLE - TEXT_INSET_X * 2; // 293
+const AUDIO_W = 244;
+const R_WIDE = 18;
+const R_SHARP = 4;
+const GAP_CLUSTER = 2;
+const GAP_DEFAULT = 12;
+const BODY = 17;
+/** SF Pro metrics as UIFont reports them (per pt of size). */
+const SF_LINE = 1.1934;
+const SF_CAP = 0.7053;
+const SF_DESC = 0.2412;
+const CAPTION_LINE = 12 * SF_LINE; // 14.32
+const NAV_TOP = 59;
+const NAV_H = 44;
+const CONTENT_TOP = NAV_TOP + NAV_H + 24;
+const STICKY_TOP = NAV_TOP + NAV_H + 12;
+const SAFE_BOTTOM = 34;
+const TOOLBAR_H = 56;
+const FIELD_H = 40;
+const BODY_BOTTOM = SAFE_BOTTOM + TOOLBAR_H + 8;
+
+/* ------------------------------ motion ------------------------------ */
+
+/** cubic-bezier(x1, y1, x2, y2) evaluated at x (UIKit easeInOut = .42,0,.58,1). */
+function bezier(x1: number, y1: number, x2: number, y2: number, x: number): number {
+  if (x <= 0) return 0;
+  if (x >= 1) return 1;
+  const cx = 3 * x1;
+  const bx = 3 * (x2 - x1) - cx;
+  const ax = 1 - cx - bx;
+  const cy = 3 * y1;
+  const by = 3 * (y2 - y1) - cy;
+  const ay = 1 - cy - by;
+  let t = x;
+  for (let i = 0; i < 8; i++) {
+    const fx = ((ax * t + bx) * t + cx) * t - x;
+    const d = (3 * ax * t + 2 * bx) * t + cx;
+    if (Math.abs(fx) < 1e-6 || d === 0) break;
+    t -= fx / d;
+  }
+  return ((ay * t + by) * t + cy) * t;
+}
+const easeInOut = (p: number) => bezier(0.42, 0, 0.58, 1, p);
+
+const ENTER_MS = 300;
+
+export const signalIosMotion: PlatformMotion = {
+  enterMs: ENTER_MS,
+  enterStyle: (p) => ({ opacity: Number(easeInOut(Math.min(1, Math.max(0, p))).toFixed(4)) }),
+};
+
+/* typing dots [TI]: 8 key values per dot, spread evenly over 1.5s */
+const DOT_PERIOD = 1500;
+const DOT_KEYS: number[][] = [
+  [0, 0.5, 1, 0.5, 0, 0, 0, 0],
+  [0, 0, 0.5, 1, 0.5, 0, 0, 0],
+  [0, 0, 0, 0.5, 1, 0.5, 0, 0],
+];
+function dotValue(dot: number, phase: number): number {
+  const keys = DOT_KEYS[dot];
+  const x = (((phase % 1) + 1) % 1) * 7;
+  const i = Math.min(6, Math.floor(x));
+  const f = x - i;
+  return keys[i] + (keys[i + 1] - keys[i]) * f;
+}
+
+function buildStyle(): string {
+  let css = "";
+  let fade = "@keyframes sig-ios-fade{";
+  for (let i = 0; i <= 20; i++) fade += `${i * 5}%{opacity:${easeInOut(i / 20).toFixed(4)}}`;
+  css += fade + "}";
+  css += `.sig-ios-anim{animation:sig-ios-fade ${ENTER_MS}ms linear both}`;
+  DOT_KEYS.forEach((keys, d) => {
+    css += `@keyframes sig-ios-dot${d}{`;
+    keys.forEach((v, i) => {
+      css += `${((i / 7) * 100).toFixed(3)}%{opacity:${(0.4 + 0.6 * v).toFixed(3)};transform:scale(${((6 + 2 * v) / 8).toFixed(4)})}`;
+    });
+    css += "}";
+  });
+  css += `.sig-ios-out{background-color:${ULTRA_FALLBACK};background-image:${ULTRA_GRADIENT};background-size:100% var(--sig-h,852px);background-repeat:no-repeat}`;
+  return css;
+}
+const STYLE = buildStyle();
+
+/* ------------------------------ glyphs [FT][IT] ------------------------------ */
+
+const P_SENT = [
+  "M8.462 4.299C8.627 4.044 8.554 3.703 8.299 3.538C8.044 3.373 7.703 3.446 7.538 3.701L5.217 7.289L4.19 5.92C4.008 5.677 3.663 5.628 3.42 5.81C3.177 5.992 3.128 6.337 3.31 6.58L4.81 8.58C4.918 8.724 5.089 8.806 5.269 8.8C5.449 8.794 5.614 8.7 5.712 8.549L8.462 4.299Z",
+  "M6 0C2.686 0 0 2.686 0 6C0 9.314 2.686 12 6 12C9.314 12 12 9.314 12 6C12 2.686 9.314 0 6 0ZM1.1 6C1.1 3.294 3.294 1.1 6 1.1C8.706 1.1 10.9 3.294 10.9 6C10.9 8.706 8.706 10.9 6 10.9C3.294 10.9 1.1 8.706 1.1 6Z",
+];
+const P_DELIVERED = [
+  "M6 0C6.671 0 7.316 0.11 7.918 0.313C7.557 0.572 7.223 0.865 6.918 1.186C6.621 1.13 6.314 1.1 6 1.1C3.294 1.1 1.1 3.294 1.1 6C1.1 8.706 3.294 10.9 6 10.9C6.314 10.9 6.621 10.87 6.918 10.814C7.223 11.135 7.557 11.428 7.918 11.687C7.316 11.89 6.671 12 6 12C2.686 12 0 9.314 0 6C0 2.686 2.686 0 6 0Z",
+  "M4.19 5.92L5.089 7.119C5.178 7.675 5.333 8.209 5.545 8.714C5.464 8.766 5.369 8.796 5.269 8.8C5.089 8.806 4.918 8.724 4.81 8.58L3.31 6.58C3.128 6.337 3.177 5.992 3.42 5.81C3.663 5.628 4.008 5.677 4.19 5.92Z",
+  "M14.299 3.538C14.554 3.703 14.627 4.044 14.462 4.299L11.712 8.549C11.614 8.7 11.449 8.793 11.269 8.8C11.089 8.806 10.918 8.724 10.81 8.58L9.31 6.58C9.128 6.337 9.177 5.992 9.42 5.81C9.663 5.628 10.008 5.677 10.19 5.92L11.217 7.289L13.538 3.701C13.703 3.446 14.044 3.373 14.299 3.538Z",
+  "M6 6C6 2.686 8.686 0 12 0C15.314 0 18 2.686 18 6C18 9.314 15.314 12 12 12C8.686 12 6 9.314 6 6ZM12 1.1C9.294 1.1 7.1 3.294 7.1 6C7.1 8.706 9.294 10.9 12 10.9C14.706 10.9 16.9 8.706 16.9 6C16.9 3.294 14.706 1.1 12 1.1Z",
+];
+const P_READ = [
+  "M6 0.25C6.688 0.25 7.348 0.371 7.959 0.592C6.315 1.824 5.25 3.787 5.25 6C5.25 6.375 5.28 6.742 5.339 7.1L5.217 7.289L4.19 5.92C4.008 5.677 3.663 5.628 3.42 5.81C3.177 5.992 3.128 6.337 3.31 6.58L4.81 8.58C4.918 8.724 5.089 8.806 5.269 8.8C5.449 8.793 5.614 8.7 5.712 8.549L5.734 8.515C6.199 9.672 6.975 10.671 7.959 11.408C7.348 11.629 6.688 11.75 6 11.75C2.824 11.75 0.25 9.176 0.25 6C0.25 2.824 2.824 0.25 6 0.25Z",
+  "M12 0.25C8.824 0.25 6.25 2.824 6.25 6C6.25 9.176 8.824 11.75 12 11.75C15.176 11.75 17.75 9.176 17.75 6C17.75 2.824 15.176 0.25 12 0.25ZM14.299 3.538C14.554 3.703 14.627 4.044 14.462 4.299L11.712 8.549C11.614 8.7 11.449 8.793 11.269 8.8C11.089 8.806 10.918 8.724 10.81 8.58L9.31 6.58C9.128 6.337 9.177 5.992 9.42 5.81C9.663 5.628 10.008 5.677 10.19 5.92L11.217 7.289L13.538 3.701C13.703 3.446 14.044 3.373 14.299 3.538Z",
+];
+
+function StatusIcon({ status, color }: { status: DeliveryStatus; color: string }) {
+  const w = status === "sent" ? 12 : 18;
+  const paths = status === "sent" ? P_SENT : status === "delivered" ? P_DELIVERED : P_READ;
+  return (
+    <svg width={w} height="12" viewBox={`0 0 ${w} 12`} fill={color} style={{ display: "block", flexShrink: 0 }}>
+      {paths.map((d, i) => (
+        <path key={i} d={d} fillRule="evenodd" />
+      ))}
+    </svg>
+  );
+}
+
+function Icon24({ d, color, size = 24, evenOdd = true }: { d: string[]; color: string; size?: number; evenOdd?: boolean }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={color} style={{ display: "block", flexShrink: 0 }}>
+      {d.map((p, i) => (
+        <path key={i} d={p} fillRule={evenOdd ? "evenodd" : "nonzero"} />
+      ))}
+    </svg>
+  );
+}
+
+const I_PHONE = [
+  "M4.255 2.726C5.499 1.481 7.555 1.621 8.62 3.022L10.789 5.875C11.667 7.031 11.557 8.659 10.53 9.686L9.48 10.736C9.513 10.83 9.57 10.96 9.662 11.127C9.937 11.622 10.429 12.266 11.081 12.919C11.734 13.571 12.378 14.063 12.873 14.338C13.04 14.43 13.17 14.487 13.264 14.52L14.314 13.47C15.341 12.443 16.969 12.333 18.125 13.211L20.978 15.38C22.379 16.445 22.519 18.501 21.274 19.745L20.839 20.181C19.27 21.75 16.929 22.611 14.675 21.839C11.861 20.874 9.218 19.269 6.974 17.026C4.731 14.782 3.126 12.139 2.161 9.325C1.389 7.071 2.25 4.73 3.819 3.161L4.255 2.726ZM7.227 4.081C6.804 3.524 5.987 3.469 5.492 3.963L5.057 4.399C3.839 5.616 3.311 7.283 3.817 8.757C4.697 11.325 6.161 13.737 8.212 15.788C10.263 17.839 12.675 19.303 15.243 20.183C16.717 20.688 18.384 20.161 19.601 18.943L20.037 18.508C20.531 18.013 20.476 17.196 19.919 16.773L17.066 14.605C16.606 14.255 15.96 14.299 15.552 14.707L14.309 15.949C13.896 16.363 13.352 16.331 13.048 16.272C12.707 16.206 12.354 16.052 12.023 15.867C11.35 15.493 10.578 14.89 9.844 14.156C9.11 13.422 8.507 12.65 8.132 11.977C7.948 11.645 7.794 11.293 7.728 10.952C7.669 10.648 7.637 10.103 8.05 9.69L9.293 8.448C9.701 8.04 9.745 7.393 9.395 6.934L7.227 4.081Z",
+];
+const I_VIDEO = [
+  "M6.763 3.625C5.954 3.625 5.294 3.625 4.758 3.669C4.204 3.714 3.706 3.811 3.241 4.047C2.512 4.419 1.919 5.012 1.547 5.741C1.311 6.206 1.214 6.704 1.169 7.258C1.125 7.794 1.125 8.454 1.125 9.263L1.125 14.737C1.125 15.546 1.125 16.206 1.169 16.742C1.214 17.296 1.311 17.794 1.547 18.259C1.919 18.988 2.512 19.581 3.241 19.953C3.706 20.189 4.204 20.286 4.758 20.331C5.294 20.375 5.954 20.375 6.763 20.375L11.737 20.375C12.546 20.375 13.206 20.375 13.742 20.331C14.296 20.286 14.794 20.189 15.259 19.953C15.988 19.581 16.581 18.988 16.953 18.259C17.189 17.794 17.286 17.296 17.331 16.742C17.368 16.291 17.374 15.753 17.375 15.112L20.174 17.912C21.355 19.093 23.375 18.256 23.375 16.586L23.375 7.414C23.375 5.744 21.355 4.907 20.174 6.088L17.375 8.888C17.374 8.247 17.368 7.709 17.331 7.258C17.286 6.704 17.189 6.206 16.953 5.741C16.581 5.012 15.988 4.419 15.259 4.047C14.794 3.811 14.296 3.714 13.742 3.669C13.206 3.625 12.546 3.625 11.737 3.625L6.763 3.625ZM15.625 9.3C15.625 8.445 15.624 7.857 15.587 7.401C15.551 6.955 15.484 6.712 15.393 6.535C15.19 6.135 14.865 5.81 14.465 5.607C14.288 5.516 14.045 5.449 13.599 5.413C13.143 5.376 12.555 5.375 11.7 5.375L6.8 5.375C5.945 5.375 5.357 5.376 4.901 5.413C4.455 5.449 4.212 5.516 4.035 5.607C3.635 5.81 3.31 6.135 3.107 6.535C3.016 6.712 2.949 6.955 2.913 7.401C2.876 7.857 2.875 8.445 2.875 9.3L2.875 14.7C2.875 15.555 2.876 16.143 2.913 16.599C2.949 17.045 3.016 17.288 3.107 17.465C3.31 17.865 3.635 18.19 4.035 18.393C4.212 18.484 4.455 18.551 4.901 18.587C5.357 18.624 5.945 18.625 6.8 18.625L11.7 18.625C12.555 18.625 13.143 18.624 13.599 18.587C14.045 18.551 14.288 18.484 14.465 18.393C14.865 18.19 15.19 17.865 15.393 17.465C15.484 17.288 15.551 17.045 15.587 16.599C15.624 16.143 15.625 15.555 15.625 14.7L15.625 9.3ZM17.375 12C17.375 12.408 17.537 12.8 17.826 13.088L21.412 16.674C21.44 16.703 21.461 16.709 21.475 16.711C21.493 16.715 21.519 16.713 21.548 16.701C21.576 16.69 21.596 16.672 21.607 16.657C21.615 16.645 21.625 16.626 21.625 16.586L21.625 7.414C21.625 7.374 21.615 7.355 21.607 7.343C21.596 7.328 21.576 7.31 21.548 7.299C21.519 7.287 21.493 7.285 21.475 7.289C21.461 7.291 21.44 7.297 21.412 7.326L17.826 10.912C17.537 11.2 17.375 11.592 17.375 12Z",
+];
+const I_PLUS = [
+  "M12.875 4.5C12.875 4.017 12.483 3.625 12 3.625C11.517 3.625 11.125 4.017 11.125 4.5L11.125 11.125L4.5 11.125C4.017 11.125 3.625 11.517 3.625 12C3.625 12.483 4.017 12.875 4.5 12.875L11.125 12.875L11.125 19.5C11.125 19.983 11.517 20.375 12 20.375C12.483 20.375 12.875 19.983 12.875 19.5L12.875 12.875L19.5 12.875C19.983 12.875 20.375 12.483 20.375 12C20.375 11.517 19.983 11.125 19.5 11.125L12.875 11.125L12.875 4.5Z",
+];
+const I_STICKER = [
+  "M6.359 21.776C6.863 21.875 7.455 21.875 8.48 21.875L8.571 21.875C8.715 21.875 8.814 21.875 8.913 21.867C9.313 21.836 9.699 21.708 10.039 21.496C10.123 21.444 10.203 21.384 10.319 21.299L20.431 13.82C20.853 13.508 21.144 13.293 21.359 13.012C21.549 12.764 21.691 12.483 21.778 12.183C21.875 11.843 21.875 11.48 21.875 10.956L21.875 10.202C21.875 8.891 21.875 7.877 21.809 7.064C21.741 6.242 21.604 5.582 21.303 4.992C20.799 4.004 19.996 3.201 19.008 2.697C18.418 2.396 17.759 2.259 16.936 2.191C16.123 2.125 15.109 2.125 13.798 2.125L10.202 2.125C8.891 2.125 7.877 2.125 7.065 2.191C6.242 2.259 5.582 2.396 4.992 2.697C4.004 3.201 3.201 4.004 2.697 4.992C2.396 5.582 2.259 6.242 2.191 7.064C2.125 7.877 2.125 8.891 2.125 10.202L2.125 15.52C2.125 16.545 2.125 17.137 2.224 17.641C2.636 19.73 4.27 21.364 6.359 21.776ZM11.661 18.383L10.875 19.108C10.875 18.301 10.877 17.707 10.907 17.23C10.939 16.731 11.001 16.395 11.11 16.115C11.465 15.194 12.194 14.465 13.115 14.11C13.395 14.001 13.731 13.939 14.23 13.907C14.734 13.875 15.37 13.875 16.25 13.875L18.244 13.755L17.254 14.315C17.237 14.324 17.221 14.334 17.206 14.346L11.706 18.346C11.69 18.357 11.675 18.369 11.661 18.383ZM8.487 20.117C8.441 20.124 8.376 20.125 8.137 20.125C7.411 20.125 7.103 20.124 6.853 20.086C5.335 19.857 4.143 18.665 3.914 17.147C3.876 16.897 3.875 16.589 3.875 15.863L3.875 9.775C3.875 8.647 3.875 7.83 3.928 7.189C3.98 6.552 4.08 6.132 4.256 5.786C4.592 5.127 5.127 4.592 5.786 4.256C6.132 4.08 6.552 3.98 7.189 3.928C7.83 3.875 8.647 3.875 9.775 3.875L14.225 3.875C15.353 3.875 16.17 3.875 16.811 3.928C17.448 3.98 17.868 4.08 18.214 4.256C18.873 4.592 19.408 5.127 19.744 5.786C19.92 6.132 20.02 6.552 20.072 7.189C20.125 7.83 20.125 8.647 20.125 9.775L20.125 10.625C20.125 10.983 20.125 11.222 20.11 11.405C20.095 11.583 20.069 11.664 20.043 11.715C19.971 11.857 19.857 11.971 19.715 12.043C19.664 12.069 19.583 12.095 19.405 12.11C19.222 12.125 18.983 12.125 18.625 12.125L15.862 12.125C14.481 12.125 13.684 12.125 13.016 12.304C11.204 12.789 9.789 14.204 9.304 16.016C9.125 16.684 9.125 17.481 9.125 18.862L9.125 19.137C9.125 19.376 9.124 19.441 9.117 19.487C9.068 19.812 8.812 20.068 8.487 20.117Z",
+];
+const I_CAMERA = [
+  "M12 6.375C8.755 6.375 6.125 9.005 6.125 12.25C6.125 15.495 8.755 18.125 12 18.125C15.245 18.125 17.875 15.495 17.875 12.25C17.875 9.005 15.245 6.375 12 6.375ZM7.875 12.25C7.875 9.972 9.722 8.125 12 8.125C14.278 8.125 16.125 9.972 16.125 12.25C16.125 14.528 14.278 16.375 12 16.375C9.722 16.375 7.875 14.528 7.875 12.25Z",
+  "M10.13 1.625C9.324 1.625 8.555 1.963 8.01 2.557L6.803 3.875L5.5 3.875C3.084 3.875 1.125 5.834 1.125 8.25L1.125 17.5C1.125 19.916 3.084 21.875 5.5 21.875L18.5 21.875C20.916 21.875 22.875 19.916 22.875 17.5L22.875 8.25C22.875 5.834 20.916 3.875 18.5 3.875L17.197 3.875L15.99 2.557C15.445 1.963 14.676 1.625 13.87 1.625L10.13 1.625ZM9.301 3.74C9.514 3.507 9.814 3.375 10.13 3.375L13.87 3.375C14.186 3.375 14.486 3.507 14.699 3.74L16.167 5.341C16.333 5.522 16.567 5.625 16.813 5.625L18.5 5.625C19.95 5.625 21.125 6.8 21.125 8.25L21.125 17.5C21.125 18.95 19.95 20.125 18.5 20.125L5.5 20.125C4.05 20.125 2.875 18.95 2.875 17.5L2.875 8.25C2.875 6.8 4.05 5.625 5.5 5.625L7.188 5.625C7.433 5.625 7.667 5.522 7.833 5.341L9.301 3.74Z",
+];
+const I_MIC = [
+  "M12 1.125C9.308 1.125 7.125 3.308 7.125 6L7.125 11.5C7.125 14.192 9.308 16.375 12 16.375C14.692 16.375 16.875 14.192 16.875 11.5L16.875 6C16.875 3.308 14.692 1.125 12 1.125ZM8.875 6C8.875 4.274 10.274 2.875 12 2.875C13.726 2.875 15.125 4.274 15.125 6L15.125 11.5C15.125 13.226 13.726 14.625 12 14.625C10.274 14.625 8.875 13.226 8.875 11.5L8.875 6Z",
+  "M7.75 21.125C7.267 21.125 6.875 21.517 6.875 22C6.875 22.483 7.267 22.875 7.75 22.875L16.25 22.875C16.733 22.875 17.125 22.483 17.125 22C17.125 21.517 16.733 21.125 16.25 21.125L12.875 21.125L12.875 19.83C17.089 19.392 20.375 15.83 20.375 11.5L20.375 10.5C20.375 10.017 19.983 9.625 19.5 9.625C19.017 9.625 18.625 10.017 18.625 10.5L18.625 11.5C18.625 15.159 15.659 18.125 12 18.125C8.341 18.125 5.375 15.159 5.375 11.5L5.375 10.5C5.375 10.017 4.983 9.625 4.5 9.625C4.017 9.625 3.625 10.017 3.625 10.5L3.625 11.5C3.625 15.83 6.911 19.392 11.125 19.83L11.125 21.125L7.75 21.125Z",
+];
+const I_PERSON = [
+  "M12 1.125C9.38 1.125 7.5 3.538 7.5 6.359C7.5 7.786 7.964 9.136 8.744 10.146C9.524 11.156 10.666 11.875 12 11.875C13.334 11.875 14.476 11.156 15.256 10.146C16.036 9.136 16.5 7.786 16.5 6.359C16.5 3.538 14.62 1.125 12 1.125ZM9.25 6.359C9.25 4.21 10.616 2.875 12 2.875C13.384 2.875 14.75 4.21 14.75 6.359C14.75 7.418 14.403 8.388 13.871 9.077C13.338 9.766 12.668 10.125 12 10.125C11.332 10.125 10.662 9.766 10.129 9.077C9.597 8.388 9.25 7.418 9.25 6.359Z",
+  "M12 13.125C7.411 13.125 3.401 15.933 2.723 19.855C2.519 21.037 3.514 21.875 4.5 21.875L19.5 21.875C20.486 21.875 21.481 21.037 21.277 19.855C20.599 15.933 16.59 13.125 12 13.125ZM4.454 20.116C4.97 17.266 8.039 14.875 12 14.875C15.961 14.875 19.03 17.266 19.546 20.116C19.534 20.121 19.519 20.125 19.5 20.125L4.5 20.125C4.481 20.125 4.466 20.121 4.454 20.116Z",
+];
+const I_GROUP = [
+  "M13 7.148C13 5.015 14.434 3.125 16.5 3.125C18.566 3.125 20 5.015 20 7.148C20 8.23 19.647 9.259 19.048 10.033C18.449 10.807 17.557 11.375 16.5 11.375C15.443 11.375 14.551 10.807 13.952 10.033C13.353 9.259 13 8.23 13 7.148ZM16.5 4.875C15.667 4.875 14.75 5.692 14.75 7.148C14.75 7.861 14.985 8.509 15.336 8.962C15.687 9.415 16.107 9.625 16.5 9.625C16.893 9.625 17.313 9.415 17.664 8.962C18.015 8.509 18.25 7.861 18.25 7.148C18.25 5.692 17.333 4.875 16.5 4.875Z",
+  "M7.5 12.625C8.615 12.625 9.686 12.867 10.636 13.301C10.169 13.712 9.752 14.175 9.399 14.683C8.818 14.485 8.179 14.375 7.5 14.375C4.825 14.375 2.779 16.08 2.428 18.125L8.151 18.125C8.134 18.33 8.125 18.539 8.125 18.75C8.125 19.135 8.155 19.511 8.212 19.875L1.757 19.875C1.164 19.875 0.625 19.404 0.625 18.75C0.625 15.261 3.816 12.625 7.5 12.625Z",
+  "M16.5 12.625C12.816 12.625 9.625 15.261 9.625 18.75C9.625 19.404 10.164 19.875 10.757 19.875L22.243 19.875C22.836 19.875 23.375 19.404 23.375 18.75C23.375 15.261 20.184 12.625 16.5 12.625ZM16.5 14.375C19.175 14.375 21.221 16.08 21.572 18.125L11.428 18.125C11.779 16.08 13.825 14.375 16.5 14.375Z",
+  "M7.5 3.125C5.434 3.125 4 5.015 4 7.148C4 8.23 4.353 9.259 4.952 10.033C5.551 10.807 6.443 11.375 7.5 11.375C8.557 11.375 9.449 10.807 10.048 10.033C10.647 9.259 11 8.23 11 7.148C11 5.015 9.566 3.125 7.5 3.125ZM5.75 7.148C5.75 5.692 6.667 4.875 7.5 4.875C8.333 4.875 9.25 5.692 9.25 7.148C9.25 7.861 9.015 8.509 8.664 8.962C8.313 9.415 7.893 9.625 7.5 9.625C7.107 9.625 6.687 9.415 6.336 8.962C5.985 8.509 5.75 7.861 5.75 7.148Z",
+];
+const I_PLAY = [
+  "M20.93 13.507C22.077 12.83 22.077 11.17 20.93 10.493L7.764 2.723C6.598 2.034 5.125 2.875 5.125 4.23L5.125 19.77C5.125 21.125 6.598 21.966 7.764 21.277L20.93 13.507Z",
+];
+
+/** SF "chevron.backward" for the system back button (mirrors in RTL). */
+function ChevronBack({ color }: { color: string }) {
+  return (
+    <svg width="12" height="20" viewBox="0 0 12 20" fill="none" className="rtl:-scale-x-100" style={{ display: "block" }}>
+      <path d="M10.2 1.3 1.6 10l8.6 8.7" stroke={color} strokeWidth="2.55" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/* ------------------------------- avatar [AV] ------------------------------- */
+
+const AVATAR_THEMES: [string, string][] = [
+  ["#e3e3fe", "#3838f5"],
+  ["#dde7fc", "#1251d3"],
+  ["#d8e8f0", "#086da0"],
+  ["#cde4cd", "#067906"],
+  ["#eae0fd", "#661aff"],
+  ["#f5e3fe", "#9f00f0"],
+  ["#f6d8ec", "#b8057c"],
+  ["#f5d7d7", "#be0404"],
+  ["#fef5d0", "#836b01"],
+  ["#eae6d5", "#7d6f40"],
+  ["#d2d2dc", "#4f4f6d"],
+  ["#d7d7d9", "#5c5c5c"],
+];
+
+function themeFor(name: string): [string, string] {
+  let h = 2166136261;
+  for (let i = 0; i < name.length; i++) h = Math.imul(h ^ name.charCodeAt(i), 16777619);
+  return AVATAR_THEMES[(h >>> 0) % AVATAR_THEMES.length];
+}
+
+const ARABIC = /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/;
+
+/** PersonNameComponentsFormatter(.abbreviated) as Signal uses it: initials, or nil when ≥ 4 chars. */
+function abbreviation(name: string): string | null {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return null;
+  let abbr: string;
+  if (ARABIC.test(name)) {
+    // No native abbreviation for Arabic script: the formatter returns the name itself.
+    abbr = parts[0];
+  } else {
+    const first = Array.from(parts[0])[0] ?? "";
+    const last = parts.length > 1 ? (Array.from(parts[parts.length - 1])[0] ?? "") : "";
+    abbr = (first + last).toUpperCase();
+  }
+  return Array.from(abbr).length < 4 ? abbr : null;
+}
+
+function SignalAvatar({ person, size }: { person: Person; size: number }) {
+  if (person.avatar) return <Avatar person={person} size={size} />;
+  const [bg, fg] = themeFor(person.name);
+  const abbr = abbreviation(person.name);
+  return (
+    <div
+      className="flex shrink-0 items-center justify-center rounded-full"
+      style={{ width: size, height: size, background: bg, color: fg }}
+    >
+      {abbr ? (
+        <span
+          style={{
+            fontFamily: AVATAR_FONT,
+            fontWeight: 500,
+            fontSize: size * 0.45 * (Array.from(abbr).length > 2 ? 0.8 : 1),
+            lineHeight: 1,
+            letterSpacing: "-0.01em",
+          }}
+        >
+          {abbr}
+        </span>
+      ) : (
+        <Icon24 d={I_PERSON} color={fg} size={size * 0.6} />
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------ helpers ------------------------------ */
+
+function minutesOf(t: string): number | null {
+  const mt = /^\s*(\d{1,2})[:.](\d{2})\s*([AaPp])?/.exec(t);
+  if (!mt) return null;
+  let h = Number(mt[1]) % 24;
+  const mins = Number(mt[2]);
+  const ap = mt[3]?.toLowerCase();
+  if (ap === "p" && h < 12) h += 12;
+  if (ap === "a" && h === 12) h = 0;
+  return h * 60 + mins;
+}
+
+/** iOS sets the AM/PM marker off with a narrow no-break space. */
+function clock(t: string): string {
+  return t.trim().replace(/\s+(AM|PM|am|pm|ص|م)$/u, " $1");
+}
+
+/** [IVS] messages cluster when they are less than 3 minutes apart. */
+function canCluster(a: Message, b: Message): boolean {
+  if (a.sender !== b.sender) return false;
+  const x = minutesOf(a.time);
+  const y = minutesOf(b.time);
+  if (x === null || y === null) return true;
+  return Math.abs(y - x) < 3;
+}
+
+/** DisplayableText jumbomoji: 1–5 emoji and nothing else. */
+const EMOJI_ONLY = new RegExp("^(?:\\p{Extended_Pictographic}|\\p{Emoji_Component}|\\u200d|\\ufe0f|\\s)+$", "u");
+function emojiCount(text: string): number {
+  const t = text.trim();
+  if (!t || !EMOJI_ONLY.test(t) || /^[\d#*\s]+$/.test(t)) return 0;
+  const s = t.replace(/\s/g, "");
+  const n =
+    typeof Intl !== "undefined" && "Segmenter" in Intl
+      ? [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(s)].length
+      : Array.from(s).length;
+  return n <= 5 ? n : 0;
+}
+const JUMBO_FACTOR = [1, 3.5, 3, 2.75, 2.5, 2.25];
+
+/** Deterministic speech-like levels in [0,1]. */
+function levels(seed: string, n: number): number[] {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) h = Math.imul(h ^ seed.charCodeAt(i), 16777619);
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) {
+    h = Math.imul(h ^ (h >>> 15), 2246822507) >>> 0;
+    const r = (h % 1000) / 1000;
+    const k = i / (n - 1);
+    const env = 0.35 + 0.65 * Math.sin(Math.PI * Math.min(1, k * 1.15));
+    out.push(Math.min(1, Math.max(0.06, (0.12 + r * 0.88) * env)));
+  }
+  return out;
+}
+
+function cornerRadii(mine: boolean, rtl: boolean, first: boolean, last: boolean): string {
+  const outerRight = mine ? !rtl : rtl;
+  const top = first ? R_WIDE : R_SHARP;
+  const bottom = last ? R_WIDE : R_SHARP;
+  // tl tr br bl
+  return outerRight
+    ? `${R_WIDE}px ${top}px ${bottom}px ${R_WIDE}px`
+    : `${top}px ${R_WIDE}px ${R_WIDE}px ${bottom}px`;
+}
+
+/* ------------------------------- footer [FT] ------------------------------- */
+
+interface FooterSpec {
+  time: string;
+  status?: DeliveryStatus;
+  color: string;
+}
+
+function Footer({
+  spec,
+  rtl,
+  borderless,
+  innerRef,
+}: {
+  spec: FooterSpec;
+  rtl: boolean;
+  borderless?: boolean;
+  innerRef?: React.Ref<HTMLDivElement>;
+}) {
+  return (
+    <div
+      ref={innerRef}
+      dir={rtl ? "rtl" : "ltr"}
+      className="flex items-center"
+      style={{
+        gap: 4,
+        color: spec.color,
+        fontSize: 12,
+        lineHeight: `${CAPTION_LINE}px`,
+        height: CAPTION_LINE + (borderless ? 6 : 0),
+        padding: borderless ? "3px 12px" : 0,
+        whiteSpace: "nowrap",
+        boxSizing: "border-box",
+      }}
+    >
+      <span>{clock(spec.time)}</span>
+      {spec.status && (
+        <span key={spec.status} className="sig-ios-anim flex" style={{ width: 18, height: 12, justifyContent: "flex-start" }}>
+          <StatusIcon status={spec.status} color={spec.color} />
+        </span>
+      )}
+    </div>
+  );
+}
+
+/* ----------------------- text block with footer overlap [CM] ----------------------- */
+
+interface TextLayout {
+  w: number;
+  overlap: boolean;
+}
+
+/**
+ * Body text sized like UILabel (bounding box of the laid-out lines, not the
+ * available width) with Signal's footer placement: overlapping the last line
+ * when there is room and no collision, else on its own row 3pt below.
+ */
+function TextBlock({
+  text,
+  size,
+  color,
+  footer,
+  uiRtl,
+  borderless,
+  fontsTick,
+}: {
+  text: string;
+  size: number;
+  color: string;
+  footer: FooterSpec | null;
+  uiRtl: boolean;
+  borderless?: boolean;
+  fontsTick: number;
+}) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const textRef = useRef<HTMLSpanElement>(null);
+  const footRef = useRef<HTMLDivElement>(null);
+  const [lay, setLay] = useState<TextLayout | null>(null);
+  const dir = dirOf(text);
+  const lineH = size * SF_LINE;
+  const footerH = CAPTION_LINE + (borderless ? 6 : 0);
+  const footerKey = footer ? `${footer.time}|${footer.status ?? ""}` : "";
+
+  useLayoutEffect(() => {
+    const wrap = wrapRef.current;
+    const span = textRef.current;
+    if (!wrap || !span) return;
+    const prev = wrap.style.width;
+    wrap.style.width = `${MAX_TEXT}px`;
+    const box = wrap.getBoundingClientRect();
+    const k = box.width / MAX_TEXT || 1;
+    const range = document.createRange();
+    range.selectNodeContents(span);
+    const rects = Array.from(range.getClientRects()).filter((r) => r.width > 0 && r.height > 0);
+    wrap.style.width = prev;
+    // group fragments into visual lines
+    const lines: { top: number; l: number; r: number }[] = [];
+    for (const r of rects) {
+      const mid = (r.top + r.bottom) / 2;
+      const line = lines.find((x) => Math.abs(x.top - mid) < (lineH * k) / 2);
+      if (line) {
+        line.l = Math.min(line.l, r.left);
+        line.r = Math.max(line.r, r.right);
+      } else lines.push({ top: mid, l: r.left, r: r.right });
+    }
+    lines.sort((a, b) => a.top - b.top);
+    const widths = lines.map((x) => (x.r - x.l) / k);
+    const textW = Math.ceil(Math.max(0, ...widths));
+    const lastW = Math.ceil(widths[widths.length - 1] ?? 0);
+    let next: TextLayout = { w: textW, overlap: false };
+    if (footer && footRef.current) {
+      const fw = footRef.current.offsetWidth;
+      const minGap = 6 * Math.max(1, lineH / 20);
+      const overlapW = Math.max(textW, lastW + minGap + fw);
+      const textRight = dir === "rtl";
+      const footerRight = !uiRtl;
+      const collide = textRight === footerRight;
+      if (overlapW <= MAX_TEXT && !collide) next = { w: Math.ceil(overlapW), overlap: true };
+      else next = { w: Math.max(textW, fw), overlap: false };
+    }
+    setLay((old) => (old && old.w === next.w && old.overlap === next.overlap ? old : next));
+  }, [text, size, footerKey, uiRtl, dir, lineH, footer, fontsTick]);
+
+  // Footer geometry from CVComponentMessage.tryToOverlapBodyTextAndFooter.
+  const fontOuter = Math.max(0, lineH - size * (SF_CAP + SF_DESC)) * 0.5;
+  const overlapH = footerH * 0.5 + fontOuter + size * SF_DESC;
+  const extra = !footer ? 0 : lay?.overlap ? footerH - overlapH : 3 + footerH;
+
+  return (
+    <div ref={wrapRef} className="relative" style={{ display: "flow-root", width: lay ? lay.w : MAX_TEXT, maxWidth: MAX_TEXT, minWidth: 0 }}>
+      <div
+        dir={dir}
+        style={{
+          fontSize: size,
+          lineHeight: `${lineH}px`,
+          letterSpacing: size === BODY ? "-0.43px" : 0,
+          color,
+          whiteSpace: "pre-wrap",
+          overflowWrap: "break-word",
+          marginBottom: extra,
+        }}
+      >
+        <span ref={textRef}>{text}</span>
+      </div>
+      {footer && (
+        <div className="absolute bottom-0" style={uiRtl ? { left: 0 } : { right: 0 }}>
+          <Footer spec={footer} rtl={uiRtl} borderless={borderless} innerRef={footRef} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------- bubbles ------------------------------- */
+
+interface BubbleCtx {
+  p: Palette;
+  rtl: boolean;
+  mine: boolean;
+  radii: string;
+  footer: FooterSpec | null;
+  fontsTick: number;
+}
+
+function bubbleFill(ctx: BubbleCtx): { className: string; style: CSSProperties } {
+  return ctx.mine
+    ? { className: "sig-ios-out", style: {} }
+    : { className: "", style: { background: ctx.p.inBubble } };
+}
+
+function TextBubble({ text, ctx }: { text: string; ctx: BubbleCtx }) {
+  const fill = bubbleFill(ctx);
+  return (
+    <div
+      className={`relative ${fill.className}`}
+      style={{
+        ...fill.style,
+        borderRadius: ctx.radii,
+        padding: `${TEXT_INSET_Y}px ${TEXT_INSET_X}px`,
+        minWidth: R_WIDE * 2,
+        maxWidth: MAX_BUBBLE,
+      }}
+    >
+      <TextBlock
+        text={text}
+        size={BODY}
+        color={ctx.mine ? ctx.p.outText : ctx.p.inText}
+        footer={ctx.footer}
+        uiRtl={ctx.rtl}
+        fontsTick={ctx.fontsTick}
+      />
+    </div>
+  );
+}
+
+function JumboBubble({ text, count, ctx }: { text: string; count: number; ctx: BubbleCtx }) {
+  const size = BODY * JUMBO_FACTOR[count];
+  const footer = ctx.footer ? { ...ctx.footer, color: ctx.p.secondary } : null;
+  return (
+    <div style={{ padding: `${TEXT_INSET_Y}px ${TEXT_INSET_X}px` }}>
+      <TextBlock text={text.trim()} size={size} color={ctx.p.label} footer={footer} uiRtl={ctx.rtl} borderless fontsTick={ctx.fontsTick} />
+    </div>
+  );
+}
+
+function VoiceBubble({ m, ctx }: { m: Message; ctx: BubbleCtx }) {
+  const { p, mine } = ctx;
+  const fill = bubbleFill(ctx);
+  const waveW = AUDIO_W - TEXT_INSET_X * 2 - 40 - 12 - 6;
+  const n = Math.floor((waveW + 2) / 4);
+  const gap = (waveW - n * 2) / (n - 1);
+  const lv = levels(m.id, n);
+  const unplayed = mine ? "rgba(255,255,255,0.4)" : p.quaternary;
+  const thumb = mine ? "#ffffff" : p.label;
+  const glyph = mine ? "#ffffff" : p.label;
+  const timeColor = mine ? "rgba(255,255,255,0.8)" : p.secondary;
+  const dotColor = mine ? p.outSecondary : p.secondary;
+  return (
+    <div
+      className={`relative ${fill.className}`}
+      style={{ ...fill.style, borderRadius: ctx.radii, width: AUDIO_W, padding: `${TEXT_INSET_Y}px ${TEXT_INSET_X}px` }}
+    >
+      <div dir="ltr" className="flex items-center" style={{ height: 48, padding: "4px 0" }}>
+        <span
+          className="flex shrink-0 items-center justify-center rounded-full"
+          style={{ width: 40, height: 40, background: mine ? "rgba(255,255,255,0.2)" : p.playIn }}
+        >
+          <Icon24 d={I_PLAY} color={glyph} size={17} evenOdd={false} />
+        </span>
+        <span style={{ width: 12 }} />
+        <span className="relative block" style={{ width: waveW, height: 32 }}>
+          {lv.map((v, i) => {
+            const h = Math.max(2, Math.round(32 * v * 2) / 2);
+            return (
+              <span
+                key={i}
+                className="absolute block"
+                style={{ left: i * (2 + gap), top: (32 - h) / 2, width: 2, height: h, borderRadius: 1, background: unplayed }}
+              />
+            );
+          })}
+          <span className="absolute block" style={{ left: 0, top: 0, width: 2, height: 32, borderRadius: 1, background: thumb }} />
+        </span>
+        <span style={{ width: 6 }} />
+      </div>
+      <div style={{ height: 2 }} />
+      <div className="relative flex items-center" style={{ height: Math.ceil(CAPTION_LINE), gap: 8 }}>
+        <span style={{ color: timeColor, fontSize: 12, lineHeight: `${CAPTION_LINE}px`, fontVariantNumeric: "tabular-nums" }}>
+          {(m.voiceDuration || "0:09").trim()}
+        </span>
+        <span className="block rounded-full" style={{ width: 6, height: 6, background: dotColor }} />
+        {ctx.footer && (
+          <div className="absolute bottom-0" style={ctx.rtl ? { left: 0 } : { right: 0 }}>
+            <Footer spec={ctx.footer} rtl={ctx.rtl} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MediaBubble({ m, ctx }: { m: Message; ctx: BubbleCtx }) {
+  const { p, mine } = ctx;
+  const [ratio, setRatio] = useState<number | null>(null);
+  const hasCaption = m.text.trim().length > 0;
+  // CVMediaAlbumView single-item sizing inside the 317pt square.
+  let mw = MAX_BUBBLE;
+  let mh = MAX_BUBBLE;
+  if (m.imageSrc && ratio) {
+    const r = Math.min(1 / 0.35, Math.max(0.35, ratio));
+    mw = MAX_BUBBLE * r;
+    mh = MAX_BUBBLE;
+    if (mw > MAX_BUBBLE) {
+      mw = MAX_BUBBLE;
+      mh = MAX_BUBBLE / r;
+    }
+    mw = Math.round(mw);
+    mh = Math.round(mh);
+  } else if (m.imageSrc) {
+    mw = Math.round(MAX_BUBBLE * 0.75);
+  }
+  const fill = bubbleFill(ctx);
+  const overlay = !hasCaption && ctx.footer ? { ...ctx.footer, color: "#ffffff" } : null;
+  return (
+    <div
+      className={`relative overflow-hidden ${hasCaption ? fill.className : ""}`}
+      style={{ ...(hasCaption ? fill.style : {}), borderRadius: ctx.radii, display: "flex", flexDirection: "column", minWidth: mw, maxWidth: MAX_BUBBLE }}
+    >
+      <div className="relative" style={{ width: "100%", height: mh, background: p.mediaFill }}>
+        {m.imageSrc ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={m.imageSrc}
+            alt=""
+            draggable={false}
+            onLoad={(e) => {
+              const im = e.currentTarget;
+              if (im.naturalWidth && im.naturalHeight) setRatio(im.naturalWidth / im.naturalHeight);
+            }}
+            className="block"
+            style={{ width: "100%", height: mh, objectFit: "cover" }}
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center">
+            <svg width="40" height="32" viewBox="0 0 34 28" fill="none">
+              <rect x="1.5" y="1.5" width="31" height="25" rx="5" stroke={p.secondary} strokeWidth="2" />
+              <circle cx="11" cy="10" r="3" fill={p.secondary} />
+              <path d="M3 23l9-8 6 5 5-4 9 7" stroke={p.secondary} strokeWidth="2" strokeLinejoin="round" />
+            </svg>
+          </div>
+        )}
+        {/* inner hairline (OWSBubbleShapeView .innerShadow, r 0.5, 15%) */}
+        {!hasCaption && (
+          <div
+            className="pointer-events-none absolute inset-0"
+            style={{ borderRadius: ctx.radii, boxShadow: `inset 0 0 0.5px 0.5px ${p.mediaHairline}` }}
+          />
+        )}
+        {overlay && (
+          <>
+            <div
+              className="pointer-events-none absolute inset-x-0 bottom-0"
+              style={{ height: 40, background: "linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.4) 100%)" }}
+            />
+            <div
+              className="absolute flex"
+              style={{ left: TEXT_INSET_X, right: TEXT_INSET_X, bottom: TEXT_INSET_Y, justifyContent: "flex-end" }}
+              dir={ctx.rtl ? "rtl" : "ltr"}
+            >
+              <Footer spec={overlay} rtl={ctx.rtl} />
+            </div>
+          </>
+        )}
+      </div>
+      {hasCaption && (
+        <div style={{ padding: `7px ${TEXT_INSET_X}px ${TEXT_INSET_Y}px` }}>
+          <TextBlock
+            text={m.text}
+            size={BODY}
+            color={mine ? p.outText : p.inText}
+            footer={ctx.footer}
+            uiRtl={ctx.rtl}
+            fontsTick={ctx.fontsTick}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------ typing [TI] ------------------------------ */
+
+function TypingBubble({ p, live, clockMs }: { p: Palette; live: boolean; clockMs?: number }) {
+  return (
+    <div className={`flex ${live ? "sig-ios-anim" : ""}`} style={{ paddingInlineStart: GUTTER }}>
+      <div
+        dir="ltr"
+        className="flex items-center"
+        style={{ height: 36, borderRadius: 18, background: p.inBubble, padding: `0 ${TEXT_INSET_X}px`, gap: 3 }}
+      >
+        {[0, 1, 2].map((i) => {
+          const base: CSSProperties = { width: 8, height: 8, borderRadius: 4, background: `rgb(${p.dotRgb})` };
+          if (clockMs !== undefined) {
+            const v = dotValue(i, clockMs / DOT_PERIOD);
+            return (
+              <span
+                key={i}
+                className="block"
+                style={{ ...base, opacity: 0.4 + 0.6 * v, transform: `scale(${(6 + 2 * v) / 8})` }}
+              />
+            );
+          }
+          return (
+            <span
+              key={i}
+              className="block"
+              style={{
+                ...base,
+                opacity: 0.4,
+                transform: "scale(0.75)",
+                animation: `sig-ios-dot${i} ${DOT_PERIOD}ms linear infinite`,
+              }}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* --------------------------- thread details [TD] --------------------------- */
+
+function ThreadDetails({ person, p, text }: { person: Person; p: Palette; text: string }) {
+  return (
+    <div className="flex justify-center" style={{ padding: "8px 0 16px" }}>
+      <div className="relative flex flex-col items-center" style={{ padding: "0 25px 24px" }}>
+        <div
+          className="absolute inset-x-0 bottom-0"
+          style={{ top: 16, borderRadius: 40, border: `2px solid ${p.tertiaryFill}`, boxSizing: "border-box" }}
+        />
+        <div className="relative">
+          <SignalAvatar person={person} size={74} />
+        </div>
+        <div style={{ height: 8 }} />
+        <div
+          dir={dirOf(person.name)}
+          className="relative truncate"
+          style={{
+            color: p.label,
+            fontSize: 20,
+            lineHeight: "24px",
+            fontWeight: 600,
+            letterSpacing: "-0.45px",
+            maxWidth: 226,
+            padding: "0 4px",
+          }}
+        >
+          {person.name}
+        </div>
+        <div style={{ height: 8 }} />
+        <div className="relative flex items-center" style={{ color: p.label, fontSize: 15, lineHeight: "18px", letterSpacing: "-0.23px", gap: 6 }}>
+          <Icon24 d={I_GROUP} color={p.label} size={17} />
+          <span>{text}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------ component ------------------------------ */
+
+/** Positions each outgoing fill's slice of the screen-fixed gradient, and the sticky date header. */
+function syncScreen(root: HTMLElement) {
+  const box = root.getBoundingClientRect();
+  const k = box.height / root.clientHeight || 1;
+  root.style.setProperty("--sig-h", `${root.clientHeight}px`);
+  root.querySelectorAll<HTMLElement>(".sig-ios-out").forEach((f) => {
+    const y = (f.getBoundingClientRect().top - box.top) / k;
+    f.style.backgroundPosition = `0 ${(-y).toFixed(1)}px`;
+  });
+  const anchor = root.querySelector<HTMLElement>("[data-sig-date]");
+  const sticky = root.querySelector<HTMLElement>("[data-sig-sticky]");
+  if (anchor && sticky) {
+    const top = (anchor.getBoundingClientRect().top - box.top) / k;
+    const stuck = top < STICKY_TOP;
+    sticky.style.visibility = stuck ? "visible" : "hidden";
+    anchor.style.visibility = stuck ? "hidden" : "visible";
+  }
+}
+
+export function Signal({ scenario, playback, lang, rtl }: PlatformProps) {
+  const dark = scenario.theme === "dark";
+  const p = dark ? DARK : LIGHT;
+  const l = LOCAL[lang];
+  const { messages, clockMs } = playback;
+  const live = playback.isLive;
+  const typing = playback.typing || (!live && scenario.presence === "typing");
+  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}`);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [fontsTick, setFontsTick] = useState(0);
+
+  // Re-measure text once web fonts have settled.
+  useEffect(() => {
+    let alive = true;
+    if (typeof document !== "undefined" && document.fonts) {
+      document.fonts.ready.then(() => alive && setFontsTick((t) => t + 1));
+    }
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    if (rootRef.current) syncScreen(rootRef.current);
+  });
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    const sc = scrollRef.current;
+    if (!root || !sc) return;
+    const on = () => syncScreen(root);
+    sc.addEventListener("scroll", on, { passive: true });
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(on) : null;
+    ro?.observe(sc.firstElementChild ?? sc);
+    return () => {
+      sc.removeEventListener("scroll", on);
+      ro?.disconnect();
+    };
+  }, [scrollRef]);
+
+  const rows: ReactNode[] = [];
+  messages.forEach((m, i) => {
+    const mine = m.sender === "me";
+    const prev = messages[i - 1];
+    const next = messages[i + 1];
+    const first = !prev || !canCluster(prev, m);
+    const last = !next || !canCluster(m, next);
+    const status = mine ? playback.statusOf(m) : undefined;
+    const hideFooter =
+      !last && !!next && clock(next.time) === clock(m.time) && (!mine || playback.statusOf(next) === status);
+    const footer: FooterSpec | null = hideFooter
+      ? null
+      : { time: m.time, status, color: mine ? p.outSecondary : p.secondary };
+    const ctx: BubbleCtx = { p, rtl, mine, radii: cornerRadii(mine, rtl, first, last), footer, fontsTick };
+    const jumbo = m.type === "text" ? emojiCount(m.text) : 0;
+
+    let content: ReactNode;
+    if (m.type === "voice") content = <VoiceBubble m={m} ctx={ctx} />;
+    else if (m.type === "image") content = <MediaBubble m={m} ctx={ctx} />;
+    else if (jumbo) content = <JumboBubble text={m.text} count={jumbo} ctx={ctx} />;
+    else content = <TextBubble text={m.text} ctx={ctx} />;
+
+    rows.push(
+      <div
+        key={m.id}
+        data-mid={m.id}
+        data-sender={m.sender}
+        className={`flex ${live ? "sig-ios-anim" : ""}`}
+        style={{
+          justifyContent: mine ? "flex-end" : "flex-start",
+          paddingInline: GUTTER,
+          marginTop: i === 0 ? GAP_DEFAULT : first ? GAP_DEFAULT : GAP_CLUSTER,
+        }}
+      >
+        {content}
+      </div>,
+    );
+  });
+
+  const dateText = (
+    <span style={{ fontSize: 13, lineHeight: "15.5px", fontWeight: 500, letterSpacing: "-0.08px" }}>{l.today}</span>
+  );
+
+  return (
+    <div
+      ref={rootRef}
+      className="relative h-full w-full overflow-hidden"
+      style={{ background: p.bg, fontFamily: IOS_FONT, WebkitFontSmoothing: "antialiased" }}
+    >
+      <style>{STYLE}</style>
+
+      {/* ------------------------------ thread ------------------------------ */}
+      <div ref={scrollRef} className="rcss-scroll absolute inset-0 overflow-y-auto">
+        <div style={{ paddingTop: CONTENT_TOP, paddingBottom: BODY_BOTTOM }}>
+          <ThreadDetails person={scenario.them} p={p} text={l.noGroups} />
+          <div className="flex justify-center" style={{ marginTop: GAP_DEFAULT }}>
+            <div data-sig-date style={{ padding: "3px 12px", color: p.secondary }}>
+              {dateText}
+            </div>
+          </div>
+          <div className="flex flex-col">
+            {rows}
+            {typing && (
+              <div style={{ marginTop: GAP_DEFAULT }}>
+                <TypingBubble p={p} live={live} clockMs={clockMs} />
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* --------------------- top scroll-edge effect --------------------- */}
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 z-10"
+        style={{
+          height: NAV_TOP + NAV_H + 10,
+          background: `linear-gradient(to bottom, ${p.bg} 0px, ${p.bgA(0.96)} ${NAV_TOP}px, ${p.bgA(0.7)} ${NAV_TOP + 26}px, ${p.bgA(0.25)} ${NAV_TOP + NAV_H}px, ${p.bgA(0)} ${NAV_TOP + NAV_H + 10}px)`,
+        }}
+      />
+
+      {/* sticky date header (glass capsule) [DH] */}
+      <div
+        data-sig-sticky
+        className="pointer-events-none absolute inset-x-0 z-20 flex justify-center"
+        style={{ top: STICKY_TOP, visibility: "hidden" }}
+      >
+        <div className="rounded-full" style={{ ...glass(dark), padding: "3px 12px", color: p.label }}>
+          {dateText}
+        </div>
+      </div>
+
+      {/* ------------------------------ nav bar [HD] ------------------------------ */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-30">
+        <StatusBar device={scenario.device} tint={dark ? "light" : "dark"} background="transparent" />
+        <div className="absolute flex items-center" style={{ top: NAV_TOP, height: NAV_H, insetInline: GUTTER }}>
+          <div className="flex shrink-0 items-center justify-center rounded-full" style={{ ...glass(dark), width: 44, height: 44 }}>
+            <span style={{ marginInlineEnd: 2.5, display: "flex" }}>
+              <ChevronBack color={p.label} />
+            </span>
+          </div>
+          <div className="flex min-w-0 flex-1 items-center" style={{ paddingInlineStart: 12, gap: 12 }}>
+            <SignalAvatar person={scenario.them} size={40} />
+            <span
+              className="truncate"
+              dir={dirOf(scenario.them.name)}
+              style={{ color: p.label, fontSize: 17, lineHeight: "21px", fontWeight: 600, letterSpacing: "-0.43px" }}
+            >
+              {scenario.them.name}
+            </span>
+          </div>
+          <div
+            className="flex shrink-0 items-center rounded-full"
+            style={{ ...glass(dark), height: 44, width: 88, marginInlineStart: 8 }}
+          >
+            <span className="flex flex-1 items-center justify-center">
+              <Icon24 d={I_VIDEO} color={p.label} />
+            </span>
+            <span className="flex flex-1 items-center justify-center">
+              <Icon24 d={I_PHONE} color={p.label} />
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* --------------------- bottom scroll-edge effect --------------------- */}
+      <div
+        className="pointer-events-none absolute inset-x-0 bottom-0 z-10"
+        style={{
+          height: BODY_BOTTOM,
+          background: `linear-gradient(to top, ${p.bg} 0px, ${p.bgA(0.9)} ${SAFE_BOTTOM - 8}px, ${p.bgA(0.55)} ${SAFE_BOTTOM + 22}px, ${p.bgA(0.18)} ${SAFE_BOTTOM + 48}px, ${p.bgA(0)} ${BODY_BOTTOM}px)`,
+        }}
+      />
+
+      {/* ------------------------------ composer [IT] ------------------------------ */}
+      <div
+        dir="ltr"
+        className="pointer-events-none absolute z-20 flex items-center"
+        style={{ left: GUTTER, right: GUTTER, bottom: SAFE_BOTTOM + 8, height: FIELD_H, gap: 12 }}
+      >
+        <div className="flex shrink-0 items-center justify-center rounded-full" style={{ ...glass(dark), width: FIELD_H, height: FIELD_H }}>
+          <Icon24 d={I_PLUS} color={p.label} evenOdd={false} />
+        </div>
+        <div className="relative flex h-full min-w-0 flex-1 items-center rounded-full" style={glass(dark)}>
+          <span
+            className="min-w-0 flex-1 truncate"
+            dir={rtl ? "rtl" : "ltr"}
+            style={{
+              color: p.secondary,
+              fontSize: 17,
+              lineHeight: "21px",
+              letterSpacing: "-0.43px",
+              paddingLeft: 12,
+              paddingRight: 12,
+              textAlign: rtl ? "right" : "left",
+            }}
+          >
+            {l.placeholder}
+          </span>
+          <div className="flex shrink-0" style={{ marginRight: 4 }}>
+            {[I_STICKER, I_CAMERA, I_MIC].map((d, i) => (
+              <span key={i} className="flex items-center justify-center" style={{ width: FIELD_H, height: FIELD_H }}>
+                <Icon24 d={d} color={p.label} />
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20">
+        <SystemBottomBar device={scenario.device} bg="transparent" fg={p.label} />
+      </div>
+    </div>
+  );
+}

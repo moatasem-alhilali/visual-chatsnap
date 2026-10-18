@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- **Six more apps, each with separate iPhone and Samsung templates (22 templates in total):**
+  - **Messenger.**
+  - **TikTok DMs:** measured from TikTok's 2025 product shots, and set in the official TikTok Sans font.
+  - **X Chat:** measured from X's October 2026 App Store screenshot and its own Chat client bundles.
+  - **Signal:** built from the Signal-iOS and Signal-Android source code.
+  - **Discord DMs:** follows the August 2026 mobile refresh and the live client's colour tokens. It stays English and LTR, because Discord has no Arabic UI.
+  - **Viber:** measured from App Store and Google Play captures.
+  - **Studio:** each app has its own brand mark in the platform picker.
 - **Ten app × OS templates**, each a separate implementation: WhatsApp, Telegram, Instagram and Snapchat for iPhone and for Samsung, plus iMessage (iPhone) and Samsung Messages (iMessage on Samsung). Each is rebuilt from the app's current 2026 design: Telegram from its open-source clients, WhatsApp and Instagram from their web design tokens, and iMessage from Apple's iOS 26 images.
 - **Per-template entrance motion** (`PlatformMotion`) shared by live playback and video export, and a deterministic export clock (`clockMs`) for looping animations such as typing dots.
 - **Auto-zoom camera:** a spring-driven camera that frames each new message and pans between both sides. It works in exported videos and live in the studio, with a toolbar toggle and Subtle / Medium / Strong intensity.
