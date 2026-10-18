@@ -36,6 +36,16 @@ export function createPageMetadata({
     description,
     metadataBase: new URL(siteConfig.url),
     applicationName: siteConfig.name,
+    authors: [{ name: siteConfig.name, url: siteConfig.repositoryUrl }],
+    creator: siteConfig.name,
+    publisher: siteConfig.name,
+    category: "technology",
+    formatDetection: { telephone: false, email: false, address: false },
+    verification: {
+      google: siteConfig.verification.google,
+      yandex: siteConfig.verification.yandex,
+      other: siteConfig.verification.bing ? { "msvalidate.01": siteConfig.verification.bing } : undefined,
+    },
     icons: {
       icon: [
         { url: "/favicon/favicon-32x32.png", sizes: "32x32", type: "image/png" },
@@ -57,7 +67,7 @@ export function createPageMetadata({
       description,
       url,
       siteName: siteConfig.name,
-      images: [{ url: imageUrl, width: 720, height: 480, alt: title }],
+      images: [{ url: imageUrl, ...siteConfig.socialImageSize, alt: title }],
       type: "website",
       locale: ogLocale,
       alternateLocale: altLocale,
@@ -66,7 +76,7 @@ export function createPageMetadata({
       card: "summary_large_image",
       title,
       description,
-      images: [imageUrl.toString()],
+      images: [{ url: imageUrl.toString(), alt: title }],
     },
     robots: noIndex
       ? { index: false, follow: false }

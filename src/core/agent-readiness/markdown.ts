@@ -71,7 +71,11 @@ export function createLlmsText(): string {
     "",
     "## Public Pages",
     "",
-    ...siteConfig.locales.map((locale) => `- ${locale}: ${absoluteUrl(`/${locale}`)}`),
+    ...siteConfig.locales.map((locale) => `- ${locale} studio: ${absoluteUrl(`/${locale}`)}`),
+    ...siteConfig.locales.map(
+      (locale) =>
+        `- ${locale} chat generators (one page per app, e.g. ${absoluteUrl(`/${locale}/chat/whatsapp`)}): ${absoluteUrl(`/${locale}/chat`)}`,
+    ),
     "",
     "## Markdown Alternatives",
     "",

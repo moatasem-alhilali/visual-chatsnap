@@ -14,7 +14,8 @@ import { downloadScenarioJson, readScenarioFile } from "../services/scenario-fil
 import { hasShareHash, readShareHash } from "../services/share-link";
 import { migrateLegacySlot, updateProject } from "../services/project-storage";
 import { buildFromTemplate, type ScenarioTemplate, type TemplateLang } from "../data/templates";
-import type { Scenario } from "../types";
+import type { Platform, Scenario } from "../types";
+import { PLATFORMS } from "./platforms";
 import { useStudioLayout } from "../hooks/useMediaQuery";
 import { useElementSize } from "../hooks/useElementSize";
 import { useStudioUi, type PanelTab, type StudioDialog } from "../hooks/useStudioUi";
@@ -157,14 +158,18 @@ function PanelTabs({
   );
 }
 
-function StudioSkeleton() {
+function StudioSkeleton({ title }: { title: string }) {
   return (
-    <div className="flex h-dvh flex-col bg-background" aria-hidden>
-      <div className="h-14 border-b border-border" />
-      <div className="studio-canvas flex flex-1 items-center justify-center">
-        <div className="h-[70%] max-h-[640px] w-[min(300px,60vw)] animate-pulse rounded-[44px] bg-foreground/5" />
+    <>
+      {/* server-rendered heading, so the page has an h1 before the studio mounts */}
+      <h1 className="sr-only">{title}</h1>
+      <div className="flex h-dvh flex-col bg-background" aria-hidden>
+        <div className="h-14 border-b border-border" />
+        <div className="studio-canvas flex flex-1 items-center justify-center">
+          <div className="h-[70%] max-h-[640px] w-[min(300px,60vw)] animate-pulse rounded-[44px] bg-foreground/5" />
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -225,6 +230,15 @@ export function StudioApp() {
   useEffect(() => {
     if (!mounted) return;
     migrateLegacySlot(legacyProjectName);
+    // "?app=whatsapp" from the public chat-generator pages: switch the app once
+    const params = new URLSearchParams(window.location.search);
+    const app = params.get("app");
+    if (app && !hasShareHash(window.location.hash)) {
+      if (PLATFORMS.some((p) => p.id === app)) useStudioStore.getState().setPlatform(app as Platform);
+      params.delete("app");
+      const qs = params.toString();
+      window.history.replaceState(null, "", window.location.pathname + (qs ? `?${qs}` : ""));
+    }
     const openShared = async () => {
       const hash = window.location.hash;
       if (!hasShareHash(hash)) return;
@@ -326,7 +340,7 @@ export function StudioApp() {
     onMove: actions.move,
   });
 
-  if (!mounted) return <StudioSkeleton />;
+  if (!mounted) return <StudioSkeleton title={t.appTitle} />;
 
   const toaster = <Toaster closeLabel={t.close} className="bottom-[104px] max-md:top-16 max-md:bottom-auto" />;
 

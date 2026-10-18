@@ -31,6 +31,7 @@ export const privateRobotDisallows = [
   "/*/profile",
   "/*/register",
   "/*/dashboard",
+  "/*/preview",
 ] as const;
 
 export const agentSkills: AgentSkill[] = [

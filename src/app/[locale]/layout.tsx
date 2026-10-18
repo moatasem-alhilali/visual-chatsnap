@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { NextIntlClientProvider, hasLocale } from "next-intl";
@@ -34,10 +34,13 @@ const tajawal = Tajawal({
 // alternative the user can switch the Samsung font to.
 // No metric-adjusted Arial fallback on the device fonts: Arabic glyphs must fall
 // through to the device Arabic face (see --font-inter / --font-roboto in globals.css).
-const inter = Inter({ variable: "--font-inter-base", subsets: ["latin"], adjustFontFallback: false });
+// The phone-mockup faces below are not preloaded: the UI text uses Geist/Tajawal,
+// and the device fonts are fetched when a phone renders (keeps LCP lean).
+const inter = Inter({ variable: "--font-inter-base", subsets: ["latin"], adjustFontFallback: false, preload: false });
 const roboto = Roboto({
   variable: "--font-roboto-base",
   adjustFontFallback: false,
+  preload: false,
   subsets: ["latin"],
   weight: ["400", "500", "700"],
 });
@@ -47,6 +50,7 @@ const deviceArabic = Noto_Sans_Arabic({
   subsets: ["arabic"],
   weight: ["400", "500", "600", "700"],
   adjustFontFallback: false,
+  preload: false,
 });
 // TikTok's own typeface (OFL) for the TikTok templates; only loaded when used.
 const tiktokSans = TikTok_Sans({
@@ -55,7 +59,15 @@ const tiktokSans = TikTok_Sans({
   preload: false,
   adjustFontFallback: false,
 });
-const cairo = Cairo({ variable: "--font-cairo", subsets: ["arabic", "latin"] });
+const cairo = Cairo({ variable: "--font-cairo", subsets: ["arabic", "latin"], preload: false });
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#0b1118" },
+  ],
+  colorScheme: "light dark",
+};
 
 export default async function RootLayout({
   children,

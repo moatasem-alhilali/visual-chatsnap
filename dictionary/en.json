@@ -1,8 +1,8 @@
 {
   "metadata": {
-    "title": "Scenora | Realistic Chat Simulator & Conversation Storytelling Platform",
-    "description": "Create realistic WhatsApp, Telegram, Instagram, Snapchat, and iMessage conversations. Customize messages, participants, timing, and interactions to build engaging marketing content with Scenora.",
-    "keywords": "chat simulator, whatsapp simulator, telegram simulator, instagram dm simulator, snapchat simulator, imessage simulator, conversation creator, message simulator, fake chat generator, marketing content creator, storytelling platform, chat scenario builder, screen recording tool"
+    "title": "Scenora: Chat Generator & Video Ad Maker for 11 Apps",
+    "description": "Make realistic WhatsApp, iMessage, Instagram, Telegram, TikTok and Snapchat chats on iPhone or Samsung, then export them as MP4 video ads. Free, open source, in your browser.",
+    "keywords": "chat generator, fake chat generator, chat mockup, whatsapp chat generator, fake whatsapp chat, imessage generator, fake text message generator, instagram dm generator, telegram chat generator, snapchat chat generator, tiktok dm generator, chat video maker, chat ad video, text message video, conversation video maker"
   },
   "home": {
     "eyebrow": "Production-ready foundation",
@@ -50,6 +50,7 @@
     "appTitle": "Chat Scenario Studio",
     "appSubtitle": "Build a realistic chat, play it, and export a video",
     "studioBadge": "Studio",
+    "appsLink": "All chat apps",
     "autosaved": "Draft saved",
     "autosaving": "Saving…",
     "autosavedHint": "Your draft is saved automatically in this browser",
@@ -504,5 +505,185 @@
       }
     },
     "projectSave": "Save"
+  },
+  "seo": {
+    "hub": {
+      "metaTitle": "Chat Generator for 11 Apps on iPhone & Android",
+      "metaDescription": "Free chat mockup and video ad maker for WhatsApp, iMessage, Instagram, Telegram, Snapchat, Messenger, TikTok, X, Signal, Discord and Viber. Export MP4 in your browser.",
+      "h1": "Chat generator for every app people text on",
+      "intro": "Pick an app, write the conversation, and Scenora renders it on a realistic iPhone or Samsung phone, then exports it as an MP4 video, GIF or image. Every app has its own iPhone and Android template rebuilt from the real 2026 design: bubbles, ticks, reactions, keyboards and all.",
+      "appsHeading": "Pick an app",
+      "cardCta": "Open the {app} generator"
+    },
+    "common": {
+      "openStudio": "Create a {app} chat",
+      "free": "Free · No sign-up · Nothing uploaded",
+      "breadcrumbHome": "Studio",
+      "breadcrumbApps": "Chat generators",
+      "featuresHeading": "What you can make with the {app} template",
+      "howHeading": "How to make a {app} chat video",
+      "how": [
+        "Open the studio with {app} selected, then choose iPhone or Samsung and light or dark mode.",
+        "Write the messages, or paste a chat transcript, or let ChatGPT, Claude or Gemini write the whole scenario with “Create with AI”.",
+        "Press play to watch it type out with the keyboard, then export an MP4 (9:16, 4:5, 1:1 or 16:9), a GIF or a still image."
+      ],
+      "faqHeading": "Frequently asked questions",
+      "faq": [
+        {
+          "q": "Is the {app} chat generator free?",
+          "a": "Yes. Scenora is free and open source. There is no sign-up and no watermark unless you add your own logo."
+        },
+        {
+          "q": "Can I export the {app} chat as a video?",
+          "a": "Yes. Messages appear one by one with typing indicators, the on-screen keyboard and an optional auto-zoom camera, and you can export MP4, GIF or PNG/JPEG straight from your browser."
+        },
+        {
+          "q": "Are my chats uploaded anywhere?",
+          "a": "No. Editing, rendering and video encoding all happen in your browser, so your messages and images never leave your device."
+        },
+        {
+          "q": "Can I use it to deceive people?",
+          "a": "Please don't. Scenora is for ads, tutorials, storytelling and design mockups. Never present a generated chat as a real conversation, and never impersonate a real person or brand."
+        }
+      ],
+      "otherApps": "Other chat generators",
+      "screenshotAlt": "{app} chat mockup on iPhone made with Scenora",
+      "devicesLabel": "iPhone (iOS 26) and Samsung Galaxy (One UI 8)",
+      "trademark": "{app} is a trademark of its owner. Scenora is an independent tool and is not affiliated with or endorsed by it."
+    },
+    "apps": {
+      "whatsapp": {
+        "metaTitle": "WhatsApp Chat Generator for iPhone & Android",
+        "metaDescription": "Make realistic WhatsApp chats and turn them into video ads. Blue ticks, voice notes, groups, reactions and the real keyboard on iPhone or Samsung. Free, in your browser.",
+        "h1": "WhatsApp chat generator",
+        "intro": "Build a WhatsApp conversation that looks exactly like the real app, from the iOS 26 Liquid Glass header on iPhone to the Material 3 composer on Samsung, and export it as a video for Reels, TikTok or Shorts.",
+        "features": [
+          "Grey, double and blue ticks, “online” and “typing…”, and the encryption notice",
+          "Voice notes, photos with captions, stickers, locations, PDF files and call bubbles",
+          "Group chats with member names in colour, avatars and “Sara is typing…”",
+          "Reactions, quoted replies, “Edited” labels, link previews and deleted messages"
+        ]
+      },
+      "telegram": {
+        "metaTitle": "Telegram Chat Generator for iPhone & Android",
+        "metaDescription": "Create realistic Telegram chats with the real doodle wallpaper, reactions, replies and groups, then export them as MP4 videos or images. Free and private.",
+        "h1": "Telegram chat generator",
+        "intro": "Scenora's Telegram templates are rebuilt from Telegram's open-source iOS and Android apps, so the bubbles, wallpaper, ticks and input bar match what your audience sees every day.",
+        "features": [
+          "The real Telegram doodle wallpaper in light and dark themes",
+          "Group chats with member colours, “4 members” and who is typing",
+          "Reaction chips, reply blocks, “edited” timestamps and link previews",
+          "Voice messages, photos, stickers, live locations, files and call bubbles"
+        ]
+      },
+      "instagram": {
+        "metaTitle": "Instagram DM Generator for iPhone & Android",
+        "metaDescription": "Make realistic Instagram Direct messages with the purple-to-blue gradient, “Seen” and reactions, then export a video for Reels and Stories. Free in your browser.",
+        "h1": "Instagram DM generator",
+        "intro": "Recreate an Instagram Direct conversation with the screen-anchored gradient bubbles, grouped corners and “Seen” receipts, then export it straight to a 9:16 video with Reels safe zones.",
+        "features": [
+          "The gradient that shifts as messages scroll, exactly like Instagram",
+          "“Seen”, typing dots, heart reactions and quoted replies",
+          "Group threads, “unsent a message”, edited messages and link cards",
+          "Safe-zone guides so captions never sit under the Reels buttons"
+        ]
+      },
+      "snapchat": {
+        "metaTitle": "Snapchat Chat Generator for iPhone & Android",
+        "metaDescription": "Create Snapchat chats with sender labels, coloured bars, group members and the real chat bar, and export them as videos or images. Free, no sign-up.",
+        "h1": "Snapchat chat generator",
+        "intro": "Snapchat chats don't use bubbles: they use sender names and coloured side bars. Scenora reproduces that layout on iPhone and Android, including group colours and the presence row.",
+        "features": [
+          "“ME” and contact labels with Snapchat's coloured side bars",
+          "Group chats where every member has their own colour and Bitmoji-style presence",
+          "Missed calls, link cards, map cards, files and large stickers",
+          "“(Edited)” labels and “deleted a chat” status lines"
+        ]
+      },
+      "imessage": {
+        "metaTitle": "iMessage & Samsung Messages Chat Generator",
+        "metaDescription": "Make realistic iMessage conversations with iOS 26 bubbles, Delivered/Read and tapbacks, or Samsung Messages on Android. Export MP4, GIF or PNG for free.",
+        "h1": "iMessage text message generator",
+        "intro": "Create a blue-bubble iMessage thread with the iOS 26 tail shape, gradient and tapbacks. On Android, the same chat becomes Samsung Messages, because iMessage doesn't exist there.",
+        "features": [
+          "iOS 26 bubbles, “Delivered” and “Read” labels and tapback reactions",
+          "Group conversations with stacked avatars and sender names",
+          "Rich links, locations, documents, FaceTime rows and “unsent a message”",
+          "The real iOS keyboard sliding up while your message is typed"
+        ]
+      },
+      "messenger": {
+        "metaTitle": "Messenger Chat Generator for iPhone & Android",
+        "metaDescription": "Create realistic Facebook Messenger chats with seen heads, reactions and the thumbs-up composer, then export them as video ads. Free, in your browser.",
+        "h1": "Messenger chat generator",
+        "intro": "Recreate a Facebook Messenger conversation with Messenger blue bubbles, the small seen avatars and reactions, ready to export as a video for Facebook and Instagram ads.",
+        "features": [
+          "Seen heads, delivery states and the thumbs-up button",
+          "Reactions, replies, “unsent a message” and edited messages",
+          "Group chats with names and avatars",
+          "Photos, voice clips, locations, files and video-chat bubbles"
+        ]
+      },
+      "tiktok": {
+        "metaTitle": "TikTok DM Generator for iPhone & Android",
+        "metaDescription": "Make realistic TikTok direct messages with cyan bubbles, quick-reply chips and TikTok Sans, then export a vertical video with TikTok safe zones. Free.",
+        "h1": "TikTok DM generator",
+        "intro": "Build a TikTok direct-message conversation measured from TikTok's own product shots, with cyan bubbles, quick replies and the official TikTok Sans typeface, and export it as a 9:16 video.",
+        "features": [
+          "Cyan bubbles, quick-reply chips and the TikTok Sans font",
+          "Group chats with “4 members” and sender names",
+          "Stickers, locations, files, calls and “deleted a message” lines",
+          "TikTok safe-zone guides for the exported video"
+        ]
+      },
+      "x": {
+        "metaTitle": "X (Twitter) DM Generator for iPhone & Android",
+        "metaDescription": "Create realistic X Chat direct messages with full-pill bubbles, “Seen” and Lights out dark mode, then export a video or image. Free and private.",
+        "h1": "X (Twitter) DM generator",
+        "intro": "Scenora's X Chat templates follow X's 2026 chat design: full-pill bubbles, “Seen” receipts and the Lights out dark theme, built from X's own client strings and icons.",
+        "features": [
+          "Full-pill bubbles and “Seen” / “Sent” receipts",
+          "Lights out dark mode and X Chat's own icons",
+          "Group chats with facepile headers and names",
+          "Call rows with “Call Back”, link cards, files and edited messages"
+        ]
+      },
+      "signal": {
+        "metaTitle": "Signal Chat Generator for iPhone & Android",
+        "metaDescription": "Make realistic Signal conversations built from Signal's open-source apps: Ultramarine bubbles, groups and reactions. Export MP4, GIF or PNG for free.",
+        "h1": "Signal chat generator",
+        "intro": "The Signal templates are built from the open-source Signal-iOS and Signal-Android code, so the Ultramarine bubbles, spacing and group layout match the real app.",
+        "features": [
+          "Ultramarine bubbles and Signal's delivery indicators",
+          "Group chats with member name colours and avatars",
+          "Stickers, maps, documents, call events and deleted messages",
+          "Link previews, edited messages and reactions"
+        ]
+      },
+      "discord": {
+        "metaTitle": "Discord DM Generator for iPhone & Android",
+        "metaDescription": "Create realistic Discord direct messages and group DMs with embeds, reactions and the floating chat bar, then export them as videos. Free in your browser.",
+        "h1": "Discord DM generator",
+        "intro": "Recreate Discord DMs and group DMs as they look after the 2026 mobile refresh, with message groups, link embeds and reaction counters, ready for gaming and community content.",
+        "features": [
+          "Message groups with avatars, names and timestamps",
+          "Link embeds with a coloured edge, file cards and stickers",
+          "Group DMs with “Welcome to the beginning” intros",
+          "Call system messages, replies, reactions and “(edited)”"
+        ]
+      },
+      "viber": {
+        "metaTitle": "Viber Chat Generator for iPhone & Android",
+        "metaDescription": "Make realistic Viber chats with light-blue bubbles, heart reactions and purple ticks, then export a video or image. Free, private and in your browser.",
+        "h1": "Viber chat generator",
+        "intro": "Build a Viber conversation measured from the App Store and Google Play screenshots, with Viber's light-blue bubbles, heart likes and purple seen ticks.",
+        "features": [
+          "Light-blue bubbles, heart likes and purple seen ticks",
+          "Group chats listing members and who is typing",
+          "Call bubbles with a call-back button, maps, files and stickers",
+          "Edited and deleted messages and link previews"
+        ]
+      }
+    }
   }
 }

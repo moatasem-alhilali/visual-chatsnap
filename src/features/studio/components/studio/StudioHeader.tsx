@@ -13,6 +13,7 @@ import {
   FolderOpen,
   Keyboard,
   Languages,
+  LayoutGrid,
   LayoutTemplate,
   Link2,
   LoaderCircle,
@@ -174,6 +175,11 @@ export function StudioHeader({
             <span className="hidden text-[13px] md:inline">{t.aiCreate}</span>
           </Button>
         </Tooltip>
+
+        <Link href="/chat" className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "hidden gap-1.5 px-2 xl:inline-flex")}>
+          <LayoutGrid />
+          <span className="text-[13px]">{t.appsLink}</span>
+        </Link>
 
         <Tooltip content={t.templatesHint}>
           <Button variant="ghost" size="sm" onClick={() => openDialog("templates")} className="hidden gap-1.5 px-2 lg:inline-flex">
