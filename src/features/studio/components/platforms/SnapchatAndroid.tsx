@@ -56,18 +56,35 @@
  *    collapse so the field spans the row. Mobile placeholder casing: "Send a Chat"
  *    (Play Store chat screenshot).
  *
+ * Round 5 (groups, new kinds, keyboard), from the same web client bundle:
+ *  - Groups: label/bar colour is the member's server-assigned `participant.color`
+ *    (not in the client) → stable stand-in palette by member index (GROUP_COLORS);
+ *    header = group name + members' Bitmoji cluster, "{n} Members" /
+ *    "{n} من الأعضاء"; presence row shows each present member's Bitmoji + pill.
+ *  - Deleted chat → centred status message (`.ijyxU`: uppercase 9.5px/500,
+ *    letter-spacing 1px, --sigTextSecondary): "{USER} DELETED A CHAT" /
+ *    "YOU DELETED A CHAT" (ar "تم حذف رسالة دردشة من قِبل {user}" / "لقد حذفت رسالة دردشة").
+ *  - Edited → "(Edited)" / "(تم التعديل)" in the message header (`.GUB_w`, gap 5px), grey.
+ *  - Link: URL underlined in the text colour (`.CFuC2`); preview card after the
+ *    text (`.Zxfed`: 1px --sigDisabled border, --sigSurface, radius 10; 50×50 tile
+ *    radius 10 margin 10; title 15/600 2 lines; site 12/500 grey at .67). Files and
+ *    calls reuse that card. Calls: "Missed Audio Call" / "Missed Video Chat".
+ *  - Keyboard: the screen pads its bottom by the keyboard inset (composer sits on
+ *    the keyboard, the thread shrinks and stays pinned to the newest chat).
+ *
  * RTL: the whole screen mirrors (bar and label on the right, back chevron
  * points right, the send/receipt arrow flips). Phone, camcorder, camera, mic,
  * sticker, memories and rocket glyphs and the voice-note play triangle do NOT mirror.
  */
 
-import type { CSSProperties, ReactNode } from "react";
+import { useEffect, type CSSProperties, type ReactNode, type RefObject } from "react";
 
-import type { DeliveryStatus, Message, Person } from "../../types";
+import type { DeliveryStatus, Message, Person, Scenario } from "../../types";
 import { Avatar, dirOf, SystemBottomBar, useChatScroll } from "../shared";
 import { SamsungStatusBar } from "../devices/SamsungStatusBar";
+import { useKeyboardInset } from "../devices/keyboard-context";
 import { CHROME, type Lang } from "./chrome";
-import { groupInfo, type PlatformMotion, type PlatformProps } from "./types";
+import type { PlatformMotion, PlatformProps } from "./types";
 
 /* --------------------------------- tokens --------------------------------- */
 
@@ -88,6 +105,13 @@ interface Pal {
   nav: string;
   quoteBg: string;
   quoteBorder: string;
+  /** --sigPlaceholder tile behind link / file / call cards */
+  thumb: string;
+  mapLand: string;
+  mapBlock: string;
+  mapRoad: string;
+  mapPark: string;
+  mapWater: string;
 }
 
 function palette(dark: boolean): Pal {
@@ -105,6 +129,12 @@ function palette(dark: boolean): Pal {
         nav: "#ffffff",
         quoteBg: "#1e1e1e",
         quoteBorder: "rgba(255,255,255,0.1)",
+        thumb: "#2b2b2b",
+        mapLand: "#232a33",
+        mapBlock: "#2b333d",
+        mapRoad: "#3b4552",
+        mapPark: "#1f3a2c",
+        mapWater: "#16304a",
       }
     : {
         bg: "#ffffff",
@@ -119,8 +149,18 @@ function palette(dark: boolean): Pal {
         nav: "#000000",
         quoteBg: "#ffffff",
         quoteBorder: "#e3e6e9",
+        thumb: "#f1f2f4",
+        mapLand: "#eef0eb",
+        mapBlock: "#e2e5dd",
+        mapRoad: "#ffffff",
+        mapPark: "#cdebc4",
+        mapWater: "#a9dcf5",
       };
 }
+
+/** Group member colours (stand-in for Snapchat's server-assigned participant colours), by member index. */
+const GROUP_COLORS = ["#A05DCD", "#11A866", "#F7861C", "#0EADFF", "#E5458F", "#00A3A6", "#6F6CF2", "#C99A00"];
+const MISSED_RED = "#f23c57";
 
 /** Same stacks the device-font setting maps to (data/fonts), copied to stay self-contained. */
 const DEVICE_FONTS: Record<string, string> = {

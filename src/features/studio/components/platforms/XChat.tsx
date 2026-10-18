@@ -739,7 +739,7 @@ function LocationCard({ loc, p, dark }: { loc: LocationShare; p: Palette; dark: 
 }
 
 /** Document card [RC]: gray-100, px-6 py-3, icon-document, name (ext kept) + meta line. */
-function FileCard({ file, p, l }: { file: FileShare; p: Palette; l: Strings }) {
+function FileCard({ file, p, l, rtl }: { file: FileShare; p: Palette; l: Strings; rtl: boolean }) {
   const dot = file.name.lastIndexOf(".");
   const base = dot > 0 ? file.name.slice(0, dot) : file.name;
   const ext = dot > 0 ? file.name.slice(dot) : "";
@@ -751,7 +751,7 @@ function FileCard({ file, p, l }: { file: FileShare; p: Palette; l: Strings }) {
     >
       <PathGlyph d={DOC_D} size={22.5} color={p.docIcon} />
       <div className="flex min-w-0 flex-col">
-        <div dir="ltr" className="flex min-w-0" style={{ fontSize: 17, lineHeight: `${LINE}px`, fontWeight: 500, color: p.fg }}>
+        <div dir="ltr" className="flex min-w-0" style={{ fontSize: 17, lineHeight: `${LINE}px`, fontWeight: 500, color: p.fg, justifyContent: rtl ? "flex-end" : "flex-start" }}>
           <span className="truncate">{base}</span>
           <span className="shrink-0">{ext}</span>
         </div>
@@ -1261,7 +1261,7 @@ export function XChat({ scenario, playback, lang, rtl }: PlatformProps) {
     } else if (m.type === "location") {
       content = <LocationCard loc={m.location ?? { title: m.text || "Location" }} p={p} dark={dark} />;
     } else if (m.type === "file") {
-      content = <FileCard file={m.file ?? { name: m.text || "Document.pdf" }} p={p} l={l} />;
+      content = <FileCard file={m.file ?? { name: m.text || "Document.pdf" }} p={p} l={l} rtl={rtl} />;
     } else if (emojis) {
       const fs = JUMBO_SIZE[emojis];
       content = (
@@ -1368,12 +1368,13 @@ export function XChat({ scenario, playback, lang, rtl }: PlatformProps) {
   const last = vis[vis.length - 1];
   const shown = new Set(messages.map((m) => m.id));
   const nextThem = scenario.messages.find((m) => !shown.has(m.id) && m.sender === "them");
-  const typist = group ? memberAt((nextThem ?? (last?.sender === "them" ? last : undefined))?.authorIndex) : scenario.them;
+  const typistIndex = Math.max(0, (nextThem ?? (last?.sender === "them" ? last : undefined))?.authorIndex ?? 0);
+  const typist = group ? memberAt(typistIndex) : scenario.them;
   const typingGap = !last
     ? 0
     : prevHadReceipt
       ? GAP_AFTER_RECEIPT
-      : last.sender === "them" && !isInfo(last) && keyOf(last) === (group ? `t${Math.max(0, nextThem?.authorIndex ?? last.authorIndex ?? 0)}` : "t")
+      : last.sender === "them" && !isInfo(last) && (!group || Math.max(0, last.authorIndex ?? 0) === typistIndex)
         ? GAP_GROUP + 4
         : GAP_SENDER;
 

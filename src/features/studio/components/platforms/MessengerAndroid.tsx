@@ -70,6 +70,17 @@
  * Compose typing: + camera gallery mic collapse into one theme-blue ">"
  * expander, the pill widens and grows up to 5 lines, theme-blue 2dp caret, and
  * the 👍 becomes the filled paper-plane send glyph (mirrored in Arabic).
+ *
+ * Groups: stacked two-head default group picture, group name + "Active now",
+ * 12sp grey first name above each run from another member, that member's head
+ * beside the run's last bubble, a row of 14dp seen-heads under the newest
+ * message the members have seen. New kinds: 120dp bubble-less stickers; grey
+ * link-preview card (image, bold title, domain) under the text bubble with the
+ * URL underlined; grey map card for locations ("Live location" with the
+ * sharer's head); file bubble in the sender's colour with doc chip + meta;
+ * grey call card (red glyph when missed) with "Call back" / "Call again";
+ * outlined "You unsent a message" bubble; "Edited" label above the bubble.
+ * Keyboard: bottom padding = keyboard inset, thread bottom stays anchored.
  */
 
 import { Fragment, useEffect, type CSSProperties, type ReactNode, type RefObject } from "react";

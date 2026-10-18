@@ -479,6 +479,22 @@
       "flashSale": {
         "title": "Flash sale",
         "body": "A viral video, a ticking deal and an order placed in under five minutes."
+      },
+      "familyGroup": {
+        "title": "Family gift plan",
+        "body": "A family group picks Dad's birthday phone from a shared store link and splits the bill."
+      },
+      "teamOrder": {
+        "title": "Team order run",
+        "body": "Sales, warehouse and delivery coordinate a bulk order with a PDF invoice and live location."
+      },
+      "supportCall": {
+        "title": "Missed call, fixed fast",
+        "body": "A customer's missed call gets a quick call back, a fix and a care guide PDF."
+      },
+      "deliveryLive": {
+        "title": "Live delivery",
+        "body": "A food order leaves the kitchen with a photo, a live driver location and a happy ending."
       }
     },
     "projectSave": "Save"

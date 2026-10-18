@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { LayoutTemplate, MessagesSquare, Timer } from "lucide-react";
+import { LayoutTemplate, MessagesSquare, Timer, Users } from "lucide-react";
 
 import { Button } from "@/shared/components/ui/button";
 import { Dialog } from "@/shared/components/ui/dialog";
@@ -44,11 +44,17 @@ function TemplateCard({
       <div className="flex items-start gap-2.5">
         <PlatformMark platform={tpl.platform} device={device} size={30} />
         <div className="min-w-0 flex-1">
-          <h3 id={titleId} className="truncate text-[13.5px] font-semibold leading-5">
-            {meta.title}
+          <h3 id={titleId} className="flex min-w-0 items-center gap-1.5 text-[13.5px] font-semibold leading-5">
+            <span className="truncate">{meta.title}</span>
+            {content.group && (
+              <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-primary/10 px-1.5 text-[10.5px] font-medium leading-4 text-primary">
+                <Users aria-hidden className="size-3" />
+                {t.groupBadge}
+              </span>
+            )}
           </h3>
           <p className="truncate text-[11.5px] text-muted-foreground">
-            {platformName(tpl.platform, device, t)} · <bdi>{content.me}</bdi>
+            {platformName(tpl.platform, device, t)} · <bdi>{content.group?.name ?? content.me}</bdi>
           </p>
         </div>
       </div>

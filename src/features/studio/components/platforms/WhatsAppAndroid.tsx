@@ -84,15 +84,34 @@
  *  - Entrance: new rows rise ~14dp and fade in over 240ms with a decelerate
  *    curve while the list scrolls (RecyclerView-style add). The CSS keyframes
  *    are generated from `whatsappAndroidMotion.enterStyle`, so preview == export.
+ *
+ * Round 5 (groups, new kinds, keyboard)
+ *  [GR] Group chat capture, Android (WABetaInfo 2.23.15.9, 1080 px @ 2.625):
+ *      https://wabetainfo.com/whatsapp-beta-for-android-2-23-15-9-whats-new/
+ *      (WA_NEW_PROFILE_ICONS_GROUP_CHATS_ANDROID.png): the member photo (28dp,
+ *      9dp from the edge) is aligned with the TOP of the first bubble of a run
+ *      (next to the flag tail); a member without a photo gets their initials on
+ *      a disc in their name colour; bubble body at 47dp; the coloured name
+ *      (~14sp/500) opens the first bubble, 11dp in. Header subtitle = member
+ *      names then "You"; typing = "Khalid is typing…" / «خالد يكتب…».
+ *  - Link preview: darker block 4dp in at the top of the bubble (image, title,
+ *    description, domain); URLs in the text are underlined in the link blue.
+ *  - Calls: icon disc + "Missed voice call" / "Tap to call back"; deleted:
+ *    ⃠ glyph + italic "This message was deleted" / "You deleted this message";
+ *    "Edited" before the time. Location: Google-style static map + red pin.
+ *  - Keyboard: the IME pushes the whole window up (adjustResize): the
+ *    composer sits on the keyboard, the list shrinks, the nav bar belongs to
+ *    the keyboard while it is up.
  */
 
 import { useEffect, type CSSProperties, type ReactNode } from "react";
 
-import type { DeliveryStatus, Message, Person } from "../../types";
+import type { DeliveryStatus, LinkPreview, Message, Person } from "../../types";
 import { Avatar, dirOf, SystemBottomBar, useChatScroll } from "../shared";
+import { useKeyboardInset } from "../devices/keyboard-context";
 import { SamsungStatusBar } from "../devices/SamsungStatusBar";
 import { CHROME, type Lang } from "./chrome";
-import { groupInfo, type PlatformMotion, type PlatformProps } from "./types";
+import type { PlatformMotion, PlatformProps } from "./types";
 
 /* ======================================================================
    Palette
@@ -170,7 +189,30 @@ const META_FS = 11.5;
    Localised strings the shared CHROME map does not carry
    ====================================================================== */
 
-const STR: Record<Lang, { e2e: string; more: string; placeholder: string; you: string; photo: string; voice: string }> = {
+interface AndroidStrings {
+  e2e: string;
+  more: string;
+  placeholder: string;
+  you: string;
+  photo: string;
+  voice: string;
+  edited: string;
+  deleted: string;
+  deletedMine: string;
+  missedVoice: string;
+  missedVideo: string;
+  voiceCall: string;
+  videoCall: string;
+  tapToCallBack: string;
+  noAnswer: string;
+  isTyping: (name: string) => string;
+  location: string;
+  liveLocation: string;
+  sticker: string;
+  listSep: string;
+}
+
+const STR: Record<Lang, AndroidStrings> = {
   en: {
     e2e: "Messages and calls are end-to-end encrypted. Only people in this chat can read, listen to, or share them.",
     more: "Learn more",
@@ -178,6 +220,20 @@ const STR: Record<Lang, { e2e: string; more: string; placeholder: string; you: s
     you: "You",
     photo: "Photo",
     voice: "Voice message",
+    edited: "Edited",
+    deleted: "This message was deleted",
+    deletedMine: "You deleted this message",
+    missedVoice: "Missed voice call",
+    missedVideo: "Missed video call",
+    voiceCall: "Voice call",
+    videoCall: "Video call",
+    tapToCallBack: "Tap to call back",
+    noAnswer: "No answer",
+    isTyping: (n) => `${n} is typing…`,
+    location: "Location",
+    liveLocation: "Live location",
+    sticker: "Sticker",
+    listSep: ", ",
   },
   ar: {
     e2e: "الرسائل والمكالمات مشفرة تمامًا بين الطرفين. يمكن فقط للأشخاص في هذه الدردشة قراءتها أو الاستماع إليها أو مشاركتها.",
@@ -186,8 +242,268 @@ const STR: Record<Lang, { e2e: string; more: string; placeholder: string; you: s
     you: "أنت",
     photo: "صورة",
     voice: "رسالة صوتية",
+    edited: "تم التعديل",
+    deleted: "تم حذف هذه الرسالة",
+    deletedMine: "لقد حذفت هذه الرسالة",
+    missedVoice: "مكالمة صوتية فائتة",
+    missedVideo: "مكالمة فيديو فائتة",
+    voiceCall: "مكالمة صوتية",
+    videoCall: "مكالمة فيديو",
+    tapToCallBack: "اضغط لمعاودة الاتصال",
+    noAnswer: "لا يوجد رد",
+    isTyping: (n) => `${n} يكتب…`,
+    location: "الموقع",
+    liveLocation: "الموقع المباشر",
+    sticker: "ملصق",
+    listSep: "، ",
   },
 };
+
+/* Group participant name colours (darker on light, lighter on dark), stable
+   per member index; the same colour fills the member's initials disc. */
+const MEMBER_COLORS: { light: string; dark: string }[] = [
+  { light: "#d42a66", dark: "#ff72a1" },
+  { light: "#7f66ff", dark: "#a791ff" },
+  { light: "#c4532d", dark: "#fc9775" },
+  { light: "#027eb5", dark: "#53bdeb" },
+  { light: "#1d8b5d", dark: "#3ed38b" },
+  { light: "#a63aa3", dark: "#e48ce0" },
+  { light: "#00838f", dark: "#53bda5" },
+  { light: "#8a6d00", dark: "#ffd279" },
+];
+
+function memberColor(i: number, dark: boolean): string {
+  const c = MEMBER_COLORS[((i % MEMBER_COLORS.length) + MEMBER_COLORS.length) % MEMBER_COLORS.length];
+  return dark ? c.dark : c.light;
+}
+
+interface Author {
+  index: number;
+  person: Person;
+  color: string;
+}
+
+/* Groups: 28dp member photo 9dp from the edge, bubble body at 47dp [GR]. */
+const AV = 28;
+const AV_START = 9;
+const GROUP_EDGE = 47;
+const CARD_W = 262;
+const STICKER = 150;
+
+const URL_RE = /(https?:\/\/[^\s]+|www\.[^\s]+)/g;
+
+function linkify(text: string, color: string): ReactNode {
+  const parts = text.split(URL_RE);
+  if (parts.length === 1) return text;
+  return parts.map((part, i) =>
+    i % 2 === 1 ? (
+      <span key={i} style={{ color, textDecoration: "underline", textUnderlineOffset: 2 }}>
+        {part}
+      </span>
+    ) : (
+      part
+    ),
+  );
+}
+
+function siteOf(link: LinkPreview): string {
+  if (link.siteName) return link.siteName;
+  return link.url.replace(/^https?:\/\//, "").replace(/^www\./, "").split(/[/?#]/)[0];
+}
+
+/** WhatsApp Android's default group photo: grey disc with the Material "group" people. */
+function GroupAvatar({ src, size, dark }: { src: string | null; size: number; dark: boolean }) {
+  if (src) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={src} alt="" width={size} height={size} draggable={false} className="shrink-0 rounded-full object-cover" style={{ width: size, height: size }} />
+    );
+  }
+  const bg = dark ? "#2a3237" : "#dfe5e7";
+  const fg = dark ? "#8696a0" : "#ffffff";
+  return (
+    <svg width={size} height={size} viewBox="0 0 40 40" className="shrink-0" style={{ display: "block" }}>
+      <circle cx="20" cy="20" r="20" fill={bg} />
+      <circle cx="16" cy="15.5" r="4.6" fill={fg} />
+      <path d="M7 29.5c0-4.4 4-6.8 9-6.8s9 2.4 9 6.8V31H7z" fill={fg} />
+      <circle cx="25.6" cy="16.6" r="3.8" fill={fg} />
+      <path d="M26.8 23.1c3.9.3 6.7 2.4 6.7 6.1V31h-6.5v-1.5c0-2.6-1-4.8-2.9-6.2.8-.2 1.7-.3 2.7-.2z" fill={fg} />
+    </svg>
+  );
+}
+
+/** A member's photo, or their initials on a disc in their name colour [GR]. */
+function MemberAvatar({ author, size }: { author: Author; size: number }) {
+  if (author.person.avatar) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={author.person.avatar} alt="" width={size} height={size} draggable={false} className="shrink-0 rounded-full object-cover" style={{ width: size, height: size, display: "block" }} />
+    );
+  }
+  const first = Array.from(author.person.name.trim())[0] ?? "?";
+  return (
+    <div
+      className="flex shrink-0 items-center justify-center rounded-full"
+      style={{ width: size, height: size, background: author.color, color: "#ffffff", fontSize: size * 0.5, lineHeight: 1, fontWeight: 400 }}
+    >
+      {first.toUpperCase()}
+    </div>
+  );
+}
+
+/** Static Google-Maps-style snapshot (what WhatsApp Android shows) with a red pin. */
+function MapArt({ w, h, dark, live }: { w: number; h: number; dark: boolean; live?: boolean }) {
+  const c = dark
+    ? { land: "#1f2124", block: "#26282b", park: "#1d3527", water: "#1b2d4c", edge: "#1a1b1e", road: "#3b3e43", major: "#5e5640", majorEdge: "#4a4433" }
+    : { land: "#eef0f3", block: "#e4e7eb", park: "#c4ebd0", water: "#9ec1f7", edge: "#dadce0", road: "#ffffff", major: "#fde293", majorEdge: "#f3c95c" };
+  const cx = w / 2;
+  const cy = h / 2;
+  const hs: number[] = [];
+  const vs: number[] = [];
+  for (let k = -5; k <= 5; k++) {
+    hs.push(cy + k * 32 + 7);
+    vs.push(cx + k * 42 - 12);
+  }
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ display: "block" }}>
+      <rect width={w} height={h} fill={c.land} />
+      <g transform={`rotate(-17 ${cx} ${cy})`}>
+        {hs.slice(0, -1).map((y, i) =>
+          vs.slice(0, -1).map((x, j) =>
+            (i * 3 + j) % 4 === 1 ? null : <rect key={`${i}-${j}`} x={x + 5} y={y + 5} width={32} height={22} rx={1.5} fill={c.block} />,
+          ),
+        )}
+        <rect x={vs[6] + 4} y={hs[3] + 4} width={76} height={56} rx={3} fill={c.park} />
+        <ellipse cx={vs[6] + 50} cy={hs[3] + 38} rx={13} ry={8} fill={c.water} />
+        <path d={`M${vs[0] - 60} ${hs[8] + 20} C ${vs[3]} ${hs[6]}, ${vs[5]} ${hs[6] + 10}, ${vs[10] + 60} ${hs[3]}`} fill="none" stroke={c.water} strokeWidth={13} />
+        {hs.map((y) => (
+          <line key={`h${y}`} x1={-w} x2={2 * w} y1={y} y2={y} stroke={c.edge} strokeWidth={6} />
+        ))}
+        {vs.map((x) => (
+          <line key={`v${x}`} x1={x} x2={x} y1={-h} y2={2 * h} stroke={c.edge} strokeWidth={6} />
+        ))}
+        {hs.map((y) => (
+          <line key={`hr${y}`} x1={-w} x2={2 * w} y1={y} y2={y} stroke={c.road} strokeWidth={4.2} />
+        ))}
+        {vs.map((x) => (
+          <line key={`vr${x}`} x1={x} x2={x} y1={-h} y2={2 * h} stroke={c.road} strokeWidth={4.2} />
+        ))}
+        <line x1={-w} x2={2 * w} y1={hs[5]} y2={hs[5]} stroke={c.majorEdge} strokeWidth={8.5} />
+        <line x1={-w} x2={2 * w} y1={hs[5]} y2={hs[5]} stroke={c.major} strokeWidth={6.5} />
+        <line x1={vs[4]} x2={vs[4]} y1={-h} y2={2 * h} stroke={c.majorEdge} strokeWidth={8.5} />
+        <line x1={vs[4]} x2={vs[4]} y1={-h} y2={2 * h} stroke={c.major} strokeWidth={6.5} />
+      </g>
+      {!live && (
+        <g transform={`translate(${cx} ${cy + 14})`}>
+          <path d="M0 0C-1.6-6.4-10-11.4-10-19.6A10 10 0 1 1 10-19.6C10-11.4 1.6-6.4 0 0z" fill="#ea4335" stroke="#b31412" strokeWidth={0.9} />
+          <circle cy={-19.6} r={3.6} fill="#b31412" />
+        </g>
+      )}
+    </svg>
+  );
+}
+
+function docKind(name: string): { ext: string; color: string } {
+  const ext = (name.split(".").pop() || "").toLowerCase();
+  const color =
+    ext === "pdf"
+      ? "#e5252a"
+      : ext === "doc" || ext === "docx"
+        ? "#2b579a"
+        : ext === "xls" || ext === "xlsx" || ext === "csv"
+          ? "#1d7044"
+          : ext === "ppt" || ext === "pptx"
+            ? "#d24625"
+            : "#7c8b96";
+  return { ext: ext.toUpperCase() || "FILE", color };
+}
+
+function DocIcon({ name }: { name: string }) {
+  const { ext, color } = docKind(name);
+  return (
+    <svg width="26" height="32" viewBox="0 0 26 32" className="shrink-0" style={{ display: "block" }}>
+      <path d="M3 0H17l9 9v20a3 3 0 0 1-3 3H3a3 3 0 0 1-3-3V3a3 3 0 0 1 3-3z" fill={color} />
+      <path d="M17 0l9 9h-6a3 3 0 0 1-3-3z" fill="#ffffff" fillOpacity={0.45} />
+      <text x="13" y="25" textAnchor="middle" fontSize={ext.length > 3 ? 6 : 7.2} fontWeight={700} fill="#ffffff" fontFamily="Roboto, system-ui, sans-serif">
+        {ext.slice(0, 4)}
+      </text>
+    </svg>
+  );
+}
+
+function PdfPage({ w, h }: { w: number; h: number }) {
+  const lines = [0.62, 0.88, 0.8, 0.92, 0.55, 0.85, 0.74, 0.9];
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ display: "block" }}>
+      <rect width={w} height={h} fill="#ffffff" />
+      <rect x={20} y={16} width={56} height={9} rx={1.5} fill="#e5252a" fillOpacity={0.75} />
+      <rect x={w - 86} y={16} width={66} height={5} rx={1} fill="#c9ccd0" />
+      <rect x={w - 70} y={24} width={50} height={4} rx={1} fill="#dfe1e4" />
+      {lines.map((f, i) => (
+        <rect key={i} x={20} y={38 + i * 9} width={(w - 40) * f} height={4} rx={1} fill={i === 3 ? "#b9bdc2" : "#dfe1e4"} />
+      ))}
+    </svg>
+  );
+}
+
+/** Material call glyphs (call / videocam) with the call-direction arrow. */
+function CallIcon({ video, missed, mine, color }: { video: boolean; missed: boolean; mine: boolean; color: string }) {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" style={{ display: "block", direction: "ltr" }}>
+      {video ? (
+        <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z" fill={color} />
+      ) : (
+        <path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-1.57 1.97c-2.83-1.35-5.48-3.9-6.89-6.83l1.95-1.66c.27-.28.35-.67.24-1.02-.37-1.11-.56-2.3-.56-3.53 0-.54-.45-.99-.99-.99H4.19C3.65 3 3 3.24 3 3.99 3 13.28 10.73 21 20.01 21c.71 0 .99-.63.99-1.18v-3.45c0-.54-.45-.99-.99-.99z" fill={color} />
+      )}
+      {!video && (
+        <path
+          d={missed ? "M14.2 3.4l3.6 3.6 4-4M14.2 3.4v2.6M14.2 3.4h2.6" : mine ? "M15 9l5.4-5.4M17 3.6h3.4V7" : "M20.4 3.6 15 9M15 5.6V9h3.4"}
+          stroke={color}
+          strokeWidth="1.8"
+          fill="none"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      )}
+    </svg>
+  );
+}
+
+function BlockGlyph({ color }: { color: string }) {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" style={{ display: "inline-block", verticalAlign: "-2.5px", flexShrink: 0 }}>
+      <circle cx="8" cy="8" r="6.4" fill="none" stroke={color} strokeWidth="1.5" />
+      <path d="M3.6 12.4 12.4 3.6" stroke={color} strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+function StickerArt({ m, size }: { m: Message; size: number }) {
+  if (m.imageSrc) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={m.imageSrc} alt="" width={size} height={size} draggable={false} style={{ width: size, height: size, objectFit: "contain", display: "block" }} />
+    );
+  }
+  const glyphs = m.text.trim() || "🙂";
+  const n = Math.max(1, Math.min(3, Array.from(glyphs).filter((g) => /\p{Extended_Pictographic}/u.test(g)).length));
+  return (
+    <div
+      className="flex items-center justify-center"
+      style={{
+        width: size,
+        height: size,
+        fontSize: Math.round(size * (n === 1 ? 0.72 : n === 2 ? 0.44 : 0.31)),
+        lineHeight: 1,
+        whiteSpace: "nowrap",
+        filter:
+          "drop-shadow(2.5px 0 0 #fff) drop-shadow(-2.5px 0 0 #fff) drop-shadow(0 2.5px 0 #fff) drop-shadow(0 -2.5px 0 #fff) drop-shadow(0 1.5px 2px rgba(0,0,0,0.22))",
+      }}
+    >
+      {glyphs}
+    </div>
+  );
+}
 
 /* ======================================================================
    Entrance motion (shared by the live CSS and the video exporter)

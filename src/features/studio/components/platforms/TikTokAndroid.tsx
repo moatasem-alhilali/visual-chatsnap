@@ -92,6 +92,19 @@ interface Pal {
   quoteText: string;
   /** reaction badge fill */
   react: string;
+  /** shared-card surface (link / location cards) — neutral on both sides */
+  card: string;
+  map: MapPal;
+}
+
+interface MapPal {
+  land: string;
+  block: string;
+  park: string;
+  water: string;
+  road: string;
+  major: string;
+  edge: string;
 }
 
 function palette(dark: boolean): Pal {
@@ -111,6 +124,8 @@ function palette(dark: boolean): Pal {
         quote: "#282828",
         quoteText: "#8a8a8a",
         react: "#333333",
+        card: "#262626",
+        map: { land: "#2b2d30", block: "#34373b", park: "#2a3b30", water: "#1e3346", road: "#45484d", major: "#5a5d63", edge: "#2b2d30" },
       }
     : {
         bg: "#f5f5f5",
@@ -127,8 +142,13 @@ function palette(dark: boolean): Pal {
         quote: "#e8e8e9",
         quoteText: "#86878b",
         react: "#ffffff",
+        card: "#ffffff",
+        map: { land: "#eef0ec", block: "#e3e6e0", park: "#cfe8c8", water: "#b9dcf2", road: "#ffffff", major: "#fde9a8", edge: "#d6d9d2" },
       };
 }
+
+/** TikTok brand red (TUX Primary) — map pin, missed-call glyph */
+const RED = "#fe2c55";
 
 interface Str {
   activeNow: string;
@@ -143,6 +163,29 @@ interface Str {
   repliedToThemselves: string;
   voice: string;
   photo: string;
+  /** quoted sticker (im_quote_sticker) */
+  sticker: string;
+  /** group subtitle: "{n} members" (group_chat_number_of_members) */
+  members: (n: number) => string;
+  isTyping: (name: string) => string;
+  /** recalled message tips (dm_deleteMsg_chatpage_inline_youDel / creatorChatRoom_creators_inline_deletedMessage) */
+  youDeleted: string;
+  theyDeleted: (name: string) => string;
+  edited: string;
+  voiceCall: string;
+  videoCall: string;
+  missedVoice: string;
+  missedVideo: string;
+  callBack: string;
+  noAnswer: string;
+  liveLocation: string;
+}
+
+/** TikTok's Arabic plural forms for group_chat_number_of_members (zero/one/two/few/many/other). */
+function arMembers(n: number): string {
+  const r = n % 100;
+  const word = n === 0 ? "من الأعضاء" : n === 1 ? "عضو" : n === 2 ? "عضوان" : r >= 3 && r <= 10 ? "أعضاء" : "عضو";
+  return `${n} ${word}`;
 }
 
 /** TikTok's own wording (en / ar builds of the app). */
@@ -159,6 +202,19 @@ const STR: Record<Lang, Str> = {
     repliedToThemselves: "Replied to themselves",
     voice: "Voice message",
     photo: "Photo",
+    sticker: "[sticker]",
+    members: (n) => `${n} ${n === 1 ? "member" : "members"}`,
+    isTyping: (name) => `${name} is typing...`,
+    youDeleted: "You deleted a message",
+    theyDeleted: (name) => `${name} deleted a message`,
+    edited: "Edited",
+    voiceCall: "Voice call",
+    videoCall: "Video call",
+    missedVoice: "Missed voice call",
+    missedVideo: "Missed video call",
+    callBack: "Tap to call back",
+    noAnswer: "No answer",
+    liveLocation: "Live location",
   },
   ar: {
     activeNow: "نشط الآن",
@@ -172,6 +228,19 @@ const STR: Record<Lang, Str> = {
     repliedToThemselves: "ردّ على نفسه",
     voice: "رسالة صوتية",
     photo: "صورة",
+    sticker: "‏[الملصق]",
+    members: arMembers,
+    isTyping: (name) => `${name} يكتب...`,
+    youDeleted: "لقد حذفت رسالة",
+    theyDeleted: (name) => `‏${name} حذف رسالة`,
+    edited: "تم التعديل",
+    voiceCall: "مكالمة صوتية",
+    videoCall: "مكالمة فيديو",
+    missedVoice: "مكالمة صوتية فائتة",
+    missedVideo: "مكالمة فيديو فائتة",
+    callBack: "انقر لمعاودة الاتصال",
+    noAnswer: "لا يوجد رد",
+    liveLocation: "الموقع المباشر",
   },
 };
 

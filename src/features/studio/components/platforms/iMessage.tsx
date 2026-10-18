@@ -1065,9 +1065,9 @@ function GroupCluster({ members, dark, p }: { members: Person[]; dark: boolean; 
           { x: 30, y: 4, s: 48 },
         ]
       : [
-          { x: 0, y: 16, s: 38 },
-          { x: 56, y: 16, s: 38 },
-          { x: 23, y: 3, s: 48 },
+          { x: 0, y: 11, s: 38 },
+          { x: 70, y: 11, s: 38 },
+          { x: 30, y: 2, s: 48 },
         ];
   const order = shown.length === 2 ? [0, 1] : [1, 2, 0];
   const w = Math.max(...spots.map((s) => s.x + s.s));

@@ -52,6 +52,28 @@
  *    up to 5 lines), the voice glyph becomes a 34 dp #1D9BF0 disc with a white
  *    icon-arrow-up, 5 dp from the capsule's end and bottom; 80 ms scale-0.9 fade.
  *
+ * Round 5 — groups, new kinds, keyboard (X Chat client, pin-page-rweb chunk; web px × 16/15):
+ *  - Groups: sender display name above the first bubble of a burst (subtext3, gray-700,
+ *    aligned with the bubble text), 32 dp avatar beside the LAST bubble of the burst
+ *    (Shown / AsPadding), gap 8. Toolbar = group avatar or the inline facepile (two
+ *    overlapping heads, the front one ringed in the page colour) + group title; X
+ *    shows no member subtitle.
+ *  - Calls are centred informational rows (zU/RU/LU): 20 px phone / camera glyph +
+ *    "<Audio|Video|Group> call missed|ended · <time>" (subtext2 medium), red-500
+ *    #F4212E when missed, gray-700 when ended, never a duration; missed incoming calls
+ *    add the "Call Back" pill (h-8, px-4, fg-alpha-10).
+ *  - "Edited" (V1): subtext3 secondary under the bubble, mx-1 mt-1, sender's side.
+ *  - Link preview (uE/lE): its own card ABOVE the text bubble (gap-1): rounded-chat,
+ *    gray-50 fill, 1 dp gray-100 border, 16:9 banner (max-h-40), p-4 title (body medium)
+ *    + hostname (subtext2). URLs in text: accent on theirs, white underlined on mine.
+ *  - File (RC): gray-100 card, px-6 py-3, icon-document gray-500, name (extension kept)
+ *    + "Tap to download · 245 KB".
+ *  - No stickers / locations / deleted tombstones exist in X Chat. Closest real
+ *    behaviour: supersize emoji or a borderless image; the link card of a Google Maps
+ *    link (map banner + place + host); a message deleted for everyone disappears.
+ *  - Keyboard: composer rides 8 dp above the keyboard; the thread shrinks, pinned to
+ *    its newest row.
+ *
  * Motion: outgoing pills rise from the composer and settle on a lightly damped
  * spring while scaling 0.94 → 1; incoming pills fade up 10 dp (same functions as
  * iOS). Keyframes are generated from the same frame functions used by
@@ -59,13 +81,14 @@
  */
 
 import type { CSSProperties, ReactNode } from "react";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import type { Message, Person } from "../../types";
+import type { CallEntry, FileShare, LinkPreview, LocationShare, Message, Person } from "../../types";
 import { Avatar, dirOf, SystemBottomBar, useChatScroll } from "../shared";
 import { SamsungStatusBar } from "../devices/SamsungStatusBar";
+import { useKeyboardInset } from "../devices/keyboard-context";
 import type { Lang } from "./chrome";
-import { groupInfo, type PlatformMotion, type PlatformProps } from "./types";
+import type { PlatformMotion, PlatformProps } from "./types";
 
 /* ------------------------------- tokens ------------------------------- */
 
@@ -83,9 +106,17 @@ interface Pal {
   avatarFg: string;
   playDisc: string;
   playGlyph: string;
-  /** gray-200 hairline around reply thumbnails */
+  /** gray-200 hairline around reply thumbnails; also the gray-100 card border */
   hairline: string;
+  /** gray-100: file card fill, favicon tile */
+  tile: string;
+  /** gray-500: document glyph */
+  docIcon: string;
+  /** fg-alpha-10: "Call Back" pill */
+  pill: string;
 }
+
+const RED = "#f4212e"; // red-500
 
 const LIGHT: Pal = {
   bg: "#ffffff",
@@ -100,6 +131,9 @@ const LIGHT: Pal = {
   playDisc: "#000000",
   playGlyph: "#ffffff",
   hairline: "#e5e5e5",
+  tile: "#ebebeb",
+  docIcon: "#8c8c8c",
+  pill: "rgba(0,0,0,0.1)",
 };
 
 const DARK: Pal = {
@@ -115,6 +149,9 @@ const DARK: Pal = {
   playDisc: "#ffffff",
   playGlyph: "#000000",
   hairline: "#2e2e2e",
+  tile: "#1f1f1f",
+  docIcon: "#5e5e5e",
+  pill: "rgba(255,255,255,0.1)",
 };
 
 interface Strings {
@@ -125,12 +162,60 @@ interface Strings {
   typing: (n: string) => string;
   voice: string;
   photo: string;
+  edited: string;
+  callBack: string;
+  call: (c: CallEntry, group: boolean) => string;
+  download: string;
+  /** "245 KB" → the localised unit ("{filesize} KB" table) */
+  size: (s: string) => string;
 }
 
-/* X Chat bundle strings; "Voice message" / "Photo" are the reply-preview labels. */
+/* X Chat bundle strings (en / ar tables); "Voice message" / "Photo" are the reply-preview labels. */
 const STR: Record<Lang, Strings> = {
-  en: { today: "Today", message: "Message", seen: "Seen", sent: "Sent", typing: (n) => `${n} is typing …`, voice: "Voice message", photo: "Photo" },
-  ar: { today: "اليوم", message: "رسالة", seen: "تمت المشاهدة", sent: "تم الإرسال", typing: (n) => `${n} يكتب …`, voice: "رسالة صوتية", photo: "الصورة" },
+  en: {
+    today: "Today",
+    message: "Message",
+    seen: "Seen",
+    sent: "Sent",
+    typing: (n) => `${n} is typing …`,
+    voice: "Voice message",
+    photo: "Photo",
+    edited: "Edited",
+    callBack: "Call Back",
+    call: (c, g) =>
+      g ? (c.missed ? "Group call missed" : "Group call ended") : `${c.video ? "Video" : "Audio"} call ${c.missed ? "missed" : "ended"}`,
+    download: "Tap to download",
+    size: (s) => s,
+  },
+  ar: {
+    today: "اليوم",
+    message: "رسالة",
+    seen: "تمت المشاهدة",
+    sent: "تم الإرسال",
+    typing: (n) => `${n} يكتب …`,
+    voice: "رسالة صوتية",
+    photo: "الصورة",
+    edited: "تم التحرير",
+    callBack: "معاودة الاتصال",
+    call: (c, g) =>
+      g
+        ? c.missed
+          ? "مكالمة جماعية فائتة"
+          : "انتهت المكالمة الجماعية"
+        : c.missed
+          ? c.video
+            ? "مكالمة فيديو فائتة"
+            : "مكالمة صوتية فائتة"
+          : c.video
+            ? "انتهت مكالمة الفيديو"
+            : "انتهت المكالمة الصوتية",
+    download: "اضغط للتنزيل",
+    size: (s) =>
+      s.replace(/^\s*([\d.,٠-٩]+)\s*(GB|MB|KB|B)\s*$/i, (_, n: string, u: string) => {
+        const unit: Record<string, string> = { GB: "جيجابايت", MB: "ميجابايت", KB: "كيلوبايت", B: "بايت" };
+        return `${n} ${unit[u.toUpperCase()]}`;
+      }),
+  },
 };
 
 /* metrics (dp) */
@@ -167,6 +252,27 @@ const CHIP_EMOJI = 16; // 18px × 0.84
 const CHIP_OVERLAP = 10.5; // -mt-2.5
 const CHIP_INSET = 13; // mx-3
 const CHIP_AFTER = 4; // pb-1
+
+/* Round 5: group rows, cards, calls — X Chat client metrics (web px) × 16/15. */
+const GROUP_AVATAR = 32; // size-8
+const GROUP_GAP = 8; // gap-x-2
+const NAME_TEXT = 12; // subtext3 11px
+const NAME_LINE = 14; // 12px + leading
+const NAME_AFTER = 4; // burst pt-1
+const CARD_RADIUS = 17; // rounded-chat 16px
+const CARD_PAD = 17; // p-4
+const CARD_BANNER_MAX = 170; // max-h-40
+const META_TEXT = 14; // subtext2 13px
+const META_LINE = 17; // 16px
+const CALL_ICON = 21; // h-5 w-5
+const CALL_PILL_H = 34; // h-8
+const CALL_PILL_PAD = 17; // px-4
+const EDITED_GAP = 4; // mt-1 / mx-1
+const STICKER_EMOJI = 68; // supersize 64px
+const STICKER_IMG = 150;
+const KB_GAP = 8; // composer → keyboard
+const NAV_BAND = 48; // SystemBottomBar's Samsung nav bar
+const COMPOSER_BOTTOM = 10;
 
 /* Compose typing: capsule grows with fixed 22 dp corners, send disc bottom-aligned. */
 const SEND_D = 34;
@@ -340,8 +446,258 @@ function TextBubble({ text, mine, p }: { text: string; mine: boolean; p: Pal }) 
         className="whitespace-pre-wrap break-words"
         style={{ margin: 0, padding: `${PAD_Y}px ${PAD_X}px`, fontSize: TEXT, lineHeight: `${LINE}px`, textAlign: "start" }}
       >
-        {text}
+        {linkify(text, mine)}
       </p>
+    </div>
+  );
+}
+
+const URL_RE = /((?:https?:\/\/|www\.)[^\s]+[^\s!),.:;?\]}*_~])/gi;
+
+/** URL entities [uH]: accent blue on theirs, white + underline on mine. */
+function linkify(text: string, mine: boolean): ReactNode {
+  if (!URL_RE.test(text)) return text;
+  URL_RE.lastIndex = 0;
+  return text.split(URL_RE).map((part, i) =>
+    i % 2 === 1 ? (
+      <span key={i} dir="ltr" style={mine ? { textDecoration: "underline", textUnderlineOffset: 2 } : { color: BLUE }}>
+        {part}
+      </span>
+    ) : (
+      part
+    ),
+  );
+}
+
+function hostOf(link: LinkPreview): string {
+  if (link.siteName?.trim()) return link.siteName.trim();
+  try {
+    return new URL(/^https?:/i.test(link.url) ? link.url : `https://${link.url}`).hostname.replace(/^www\./, "");
+  } catch {
+    return link.url;
+  }
+}
+
+/* X icon-document / icon-link (24×24) [C]. */
+const DOC_D = [
+  "M8 11h8v2H8zm0-4h5v2H8z",
+  "M17.5 2h-11C5.12 2 4 3.12 4 4.5v15C4 20.88 5.12 22 6.5 22h6c4.14 0 7.5-3.36 7.5-7.5v-10C20 3.12 18.88 2 17.5 2zm-2.52 17.41c.01-.1.02-.21.02-.32v-1.27c0-.48.32-.82.84-.82h1.28c.09 0 .19 0 .29-.01-.53 1.04-1.39 1.89-2.43 2.42zM18 14c0 .58-.46 1-.88 1h-1.28C14.26 15 13 16.19 13 17.82v1.27c0 .46-.43.91-.97.91H6.5c-.28 0-.5-.22-.5-.5v-15c0-.28.22-.5.5-.5h11c.27 0 .5.22.5.5V14z",
+];
+const LINK_D =
+  "M18.36 5.64c-1.95-1.96-5.11-1.96-7.07 0L9.88 7.05 8.46 5.64l1.42-1.42c2.73-2.73 7.16-2.73 9.9 0 2.73 2.74 2.73 7.17 0 9.9l-1.42 1.42-1.41-1.42 1.41-1.41c1.96-1.96 1.96-5.12 0-7.07zm-2.12 3.53l-7.07 7.07-1.41-1.41 7.07-7.07 1.41 1.41zm-12.02.71l1.42-1.42 1.41 1.42-1.41 1.41c-1.96 1.96-1.96 5.12 0 7.07 1.95 1.96 5.11 1.96 7.07 0l1.41-1.41 1.42 1.41-1.42 1.42c-2.73 2.73-7.16 2.73-9.9 0-2.73-2.74-2.73-7.17 0-9.9z";
+
+function PathGlyph({ d, size, color }: { d: string | string[]; size: number; color: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={color} style={{ display: "block", flexShrink: 0 }}>
+      {(Array.isArray(d) ? d : [d]).map((x, i) => (
+        <path key={i} d={x} />
+      ))}
+    </svg>
+  );
+}
+
+/** Card shell shared by link / location previews: rounded-chat, gray-50, 1px gray-100 [uE]. */
+function CardShell({ p, children, width }: { p: Pal; children: ReactNode; width?: number }) {
+  return (
+    <div
+      className="flex flex-col overflow-hidden"
+      style={{ width, maxWidth: MAX_W, background: p.inBubble, border: `1px solid ${p.hairline}`, borderRadius: CARD_RADIUS }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function CardText({ title, host, p }: { title: string; host: string; p: Pal }) {
+  return (
+    <div className="flex flex-col" style={{ padding: CARD_PAD, gap: 1 }}>
+      {title && (
+        <span dir={dirOf(title)} className="break-words" style={{ fontSize: TEXT, lineHeight: `${LINE}px`, fontWeight: 500, color: p.fg, textAlign: "start" }}>
+          {title}
+        </span>
+      )}
+      <span dir="ltr" className="truncate" style={{ fontSize: META_TEXT, lineHeight: `${META_LINE}px`, color: p.secondary, textAlign: "start" }}>
+        {host}
+      </span>
+    </div>
+  );
+}
+
+/** Link preview [uE / lE]: banner card when the page has an image, favicon row otherwise. */
+function LinkCard({ link, p }: { link: LinkPreview; p: Pal }) {
+  const host = hostOf(link);
+  if (link.image) {
+    return (
+      <CardShell p={p} width={MAX_W}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={link.image} alt="" draggable={false} className="block w-full object-cover" style={{ aspectRatio: "16 / 9", maxHeight: CARD_BANNER_MAX }} />
+        <CardText title={link.title} host={host} p={p} />
+      </CardShell>
+    );
+  }
+  return (
+    <div className="flex items-center" style={{ maxWidth: MAX_W, background: p.inBubble, borderRadius: CARD_RADIUS, border: `1px solid ${p.hairline}`, padding: "13px 21px 13px 13px", gap: 13 }}>
+      <span className="flex shrink-0 items-center justify-center" style={{ width: 43, height: 43, borderRadius: 8.5, background: p.tile }}>
+        <PathGlyph d={LINK_D} size={21} color={p.secondary} />
+      </span>
+      <span className="flex min-w-0 flex-col" style={{ gap: 1 }}>
+        <span dir={dirOf(link.title || host)} className="truncate" style={{ fontSize: TEXT, lineHeight: `${LINE}px`, fontWeight: 500, color: p.fg }}>
+          {link.title || host}
+        </span>
+        {link.title && (
+          <span dir="ltr" className="truncate" style={{ fontSize: 15, lineHeight: "17px", color: p.secondary }}>
+            {host}
+          </span>
+        )}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Google Maps static snapshot used as the banner of a Google Maps link card: grey land,
+ * blocks, a park, water, white streets with yellow arterials and the red Maps pin.
+ */
+function GoogleMapArt({ dark, live }: { dark: boolean; live?: boolean }) {
+  const c = dark
+    ? { land: "#242f3e", block: "#2c3848", park: "#263c3f", water: "#17263c", road: "#38414e", major: "#746855" }
+    : { land: "#f1f3f4", block: "#e8eaed", park: "#c8e6c9", water: "#aadaff", road: "#ffffff", major: "#fde293" };
+  return (
+    <svg viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice" className="block h-full w-full" aria-hidden>
+      <rect width="320" height="180" fill={c.land} />
+      <path d="M-10 146 C70 130 120 166 190 150 S300 124 340 138 V200 H-10Z" fill={c.water} />
+      <rect x="216" y="16" width="66" height="44" rx="4" fill={c.park} />
+      {[
+        [12, 12, 56, 40],
+        [86, 12, 54, 40],
+        [154, 12, 48, 40],
+        [12, 72, 56, 34],
+        [86, 72, 54, 34],
+        [216, 74, 66, 32],
+        [292, 16, 40, 90],
+      ].map(([x, y, w, h], i) => (
+        <rect key={i} x={x} y={y} width={w} height={h} rx="2" fill={c.block} />
+      ))}
+      <g stroke={c.road} strokeLinecap="round" fill="none">
+        <path d="M-10 64 H340" strokeWidth="8" />
+        <path d="M77 -10 V200" strokeWidth="6" />
+        <path d="M147 -10 V140" strokeWidth="5" />
+        <path d="M209 -10 V140" strokeWidth="5" />
+        <path d="M-10 116 C80 110 200 120 340 112" strokeWidth="6" />
+        <path d="M287 -10 V120" strokeWidth="4" />
+      </g>
+      <path d="M-10 64 H340" stroke={c.major} strokeWidth="5" strokeLinecap="round" />
+      <path d="M77 -10 V200" stroke={c.major} strokeWidth="3.5" strokeLinecap="round" />
+      {live && <circle cx="160" cy="92" r="30" fill="#4285f4" opacity="0.18" />}
+      <g transform="translate(160 92)">
+        <ellipse cx="0" cy="1" rx="5" ry="2" fill="#000" opacity="0.2" />
+        {live ? (
+          <>
+            <circle r="10.5" fill="#fff" />
+            <circle r="7.5" fill="#4285f4" />
+          </>
+        ) : (
+          <>
+            <path d="M0 0 C-2 -8 -11 -13 -11 -22 A11 11 0 0 1 11 -22 C11 -13 2 -8 0 0Z" fill="#ea4335" stroke="#b31412" strokeWidth="1" />
+            <circle cy="-22" r="4" fill="#b31412" />
+          </>
+        )}
+      </g>
+    </svg>
+  );
+}
+
+/** A shared place = the link card of a Google Maps link (X Chat has no location messages). */
+function LocationCard({ loc, p, dark }: { loc: LocationShare; p: Pal; dark: boolean }) {
+  return (
+    <CardShell p={p} width={MAX_W}>
+      <div style={{ width: "100%", height: Math.min(CARD_BANNER_MAX, (MAX_W * 9) / 16) }}>
+        <GoogleMapArt dark={dark} live={loc.live} />
+      </div>
+      <CardText title={loc.title} host="maps.google.com" p={p} />
+    </CardShell>
+  );
+}
+
+/** Document card [RC]: gray-100, px-6 py-3, icon-document, name (ext kept) + meta line. */
+function FileCard({ file, p, l, rtl }: { file: FileShare; p: Pal; l: Strings; rtl: boolean }) {
+  const dot = file.name.lastIndexOf(".");
+  const base = dot > 0 ? file.name.slice(0, dot) : file.name;
+  const ext = dot > 0 ? file.name.slice(dot) : "";
+  const meta = [l.download, file.size?.trim() ? l.size(file.size.trim()) : ""].filter(Boolean).join(" · ");
+  return (
+    <div
+      className="flex items-center"
+      style={{ maxWidth: MAX_W, background: p.tile, border: `1px solid ${p.tile}`, borderRadius: CARD_RADIUS, padding: "13px 25.5px", gap: 13 }}
+    >
+      <PathGlyph d={DOC_D} size={21} color={p.docIcon} />
+      <div className="flex min-w-0 flex-col">
+        <div dir="ltr" className="flex min-w-0" style={{ fontSize: TEXT, lineHeight: `${LINE}px`, fontWeight: 500, color: p.fg, justifyContent: rtl ? "flex-end" : "flex-start" }}>
+          <span className="truncate">{base}</span>
+          <span className="shrink-0">{ext}</span>
+        </div>
+        <span className="truncate" style={{ fontSize: META_TEXT, lineHeight: `${META_LINE}px`, color: p.secondary, textAlign: "start" }}>
+          {meta}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** Call entry [RU/LU]: centred icon + "<kind> call missed · time", Call Back pill when missed. */
+function CallRow({ call, time, incoming, group, p, l }: { call: CallEntry; time: string; incoming: boolean; group: boolean; p: Pal; l: Strings }) {
+  const tint = call.missed ? RED : p.secondary;
+  return (
+    <div className="flex flex-col items-center" style={{ gap: 8.5, paddingBlock: 2 }}>
+      <div className="flex items-center justify-center" style={{ gap: 6, color: tint }}>
+        <Glyph d={call.video ? D.video : D.phone} size={CALL_ICON} color={tint} />
+        <span style={{ fontSize: META_TEXT, lineHeight: `${META_LINE}px`, fontWeight: 500, whiteSpace: "nowrap" }}>
+          {l.call(call, group)}
+          {" · "}
+          <span dir="ltr">{time}</span>
+        </span>
+      </div>
+      {call.missed && incoming && (
+        <span
+          className="inline-flex items-center justify-center rounded-full"
+          style={{ height: CALL_PILL_H, paddingInline: CALL_PILL_PAD, background: p.pill, color: p.fg, fontSize: META_TEXT, fontWeight: 500 }}
+        >
+          {l.callBack}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** Sticker: X has none — the supersize emoji (no bubble) or a borderless image. */
+function Sticker({ m }: { m: Message }) {
+  if (m.imageSrc) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={m.imageSrc} alt="" draggable={false} className="block object-contain" style={{ width: STICKER_IMG, height: STICKER_IMG }} />
+    );
+  }
+  return (
+    <div dir="ltr" style={{ fontSize: STICKER_EMOJI, lineHeight: `${Math.round(STICKER_EMOJI * 1.15)}px`, letterSpacing: "0.1em", paddingInline: 4 }}>
+      {m.text.trim() || "🙂"}
+    </div>
+  );
+}
+
+/** Group facepile [St/_t]: two heads, the front one (member 0) ringed in the page colour. */
+function Facepile({ members, p, size }: { members: Person[]; p: Pal; size: number }) {
+  const head = Math.round(size * 0.75);
+  const ring = 1;
+  const a = members[0] ?? { name: "", avatar: null };
+  const b = members[1] ?? a;
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <div className="absolute" style={{ top: 0, insetInlineStart: 0 }}>
+        <XAvatar person={b} size={head} p={p} />
+      </div>
+      <div className="absolute rounded-full" style={{ bottom: 0, insetInlineEnd: 0, padding: ring, background: p.bg }}>
+        <XAvatar person={a} size={head} p={p} />
+      </div>
     </div>
   );
 }
@@ -617,6 +973,9 @@ function TypingRow({
 
 /* ------------------------------ component ------------------------------ */
 
+/** Calls are informational rows; a message deleted for everyone is gone from the thread. */
+const isInfo = (m: Message) => m.type === "call" || m.type === "deleted";
+
 export function XChatAndroid({ scenario, playback, lang, rtl }: PlatformProps) {
   const dark = scenario.theme === "dark";
   const p = dark ? DARK : LIGHT;
@@ -630,6 +989,16 @@ export function XChatAndroid({ scenario, playback, lang, rtl }: PlatformProps) {
   const draft = playback.draft;
   const composerRef = useRef<HTMLDivElement>(null);
   const composerH = useRef<number | undefined>(undefined);
+  const kb = useKeyboardInset();
+  const kbUp = kb.inset > 0;
+  const prevInset = useRef<number | undefined>(undefined);
+
+  const group = scenario.group ?? null;
+  const members = group?.members ?? [];
+  const memberAt = (i: number | undefined): Person =>
+    members.length ? members[Math.min(members.length - 1, Math.max(0, i ?? 0))] : scenario.them;
+  const personOf = (m: Message): Person => (m.sender === "me" ? scenario.me : group ? memberAt(m.authorIndex) : scenario.them);
+  const keyOf = (m: Message) => (m.sender === "me" ? "me" : group ? `t${Math.max(0, m.authorIndex ?? 0)}` : "t");
 
   // As the composer grows with the draft, keep the thread pinned to its bottom.
   useLayoutEffect(() => {
@@ -641,6 +1010,27 @@ export function XChatAndroid({ scenario, playback, lang, rtl }: PlatformProps) {
     composerH.current = h;
     if (prev !== undefined && h !== prev) list.scrollTop += h - prev;
   }, [draft?.text, scrollRef]);
+
+  // Keyboard (adjustResize): the thread shrinks above the lifted composer and stays on
+  // its newest row (exact per export frame; the observer follows the live transition).
+  useLayoutEffect(() => {
+    const list = scrollRef.current;
+    const prev = prevInset.current;
+    prevInset.current = kb.inset;
+    if (list && prev !== undefined && prev !== kb.inset) list.scrollTop = list.scrollHeight;
+  }, [kb.inset, scrollRef]);
+  useEffect(() => {
+    const list = scrollRef.current;
+    if (!list || typeof ResizeObserver === "undefined") return;
+    let h = list.clientHeight;
+    const ro = new ResizeObserver(() => {
+      const nh = list.clientHeight;
+      if (nh < h) list.scrollTop = list.scrollHeight;
+      h = nh;
+    });
+    ro.observe(list);
+    return () => ro.disconnect();
+  }, [scrollRef]);
 
   // Typing row entrance in exported frames (CSS animations don't run there).
   useLayoutEffect(() => {
@@ -658,18 +1048,43 @@ export function XChatAndroid({ scenario, playback, lang, rtl }: PlatformProps) {
   // The receipt sits under the user's most recent message, even after replies.
   let lastMineId: string | undefined;
   for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].sender === "me") {
+    if (messages[i].sender === "me" && !isInfo(messages[i])) {
       lastMineId = messages[i].id;
       break;
     }
   }
 
+  const vis = messages.filter((m) => m.type !== "deleted");
+  const visIndex = new Map(vis.map((m, i) => [m.id, i]));
   const byId = new Map(messages.map((m) => [m.id, m]));
   const rows: ReactNode[] = [];
   let prevHadReceipt = false;
-  messages.forEach((m, i) => {
+  messages.forEach((m) => {
     const mine = m.sender === "me";
-    const { firstOfGroup } = groupInfo(messages, i);
+    if (m.type === "deleted") {
+      rows.push(<div key={m.id} data-mid={m.id} data-sender={m.sender} aria-hidden style={{ height: 0, overflow: "hidden" }} />);
+      return;
+    }
+    const vi = visIndex.get(m.id) ?? 0;
+    const prevV = vis[vi - 1];
+    const nextV = vis[vi + 1];
+    const firstOfBurst = !prevV || isInfo(prevV) || keyOf(prevV) !== keyOf(m);
+    const lastOfBurst = !nextV || isInfo(nextV) || keyOf(nextV) !== keyOf(m);
+    const anim = live ? (mine ? "xc-and-anim-out" : "xc-and-anim-in") : "";
+
+    let marginTop = 0;
+    if (prevV) marginTop = prevHadReceipt ? GAP_AFTER_RECEIPT : m.type === "call" || firstOfBurst ? GAP_SENDER : GAP_GROUP;
+
+    if (m.type === "call") {
+      rows.push(
+        <div key={m.id} data-mid={m.id} data-sender={m.sender} className={anim} style={{ marginTop, paddingInline: SIDE, transformOrigin: originFor(mine, rtl) }}>
+          <CallRow call={m.call ?? { video: false, missed: true }} time={m.time} incoming={!mine} group={!!group} p={p} l={l} />
+        </div>,
+      );
+      prevHadReceipt = false;
+      return;
+    }
+
     const status = mine && m.id === lastMineId ? playback.statusOf(m) : undefined;
     const caption = m.text.trim();
     const emojis = m.type === "text" ? emojiCount(m.text) : 0;
@@ -688,11 +1103,24 @@ export function XChatAndroid({ scenario, playback, lang, rtl }: PlatformProps) {
           )}
         </>
       );
+    } else if (m.type === "sticker") {
+      content = <Sticker m={m} />;
+    } else if (m.type === "location") {
+      content = <LocationCard loc={m.location ?? { title: m.text || "Location" }} p={p} dark={dark} />;
+    } else if (m.type === "file") {
+      content = <FileCard file={m.file ?? { name: m.text || "Document.pdf" }} p={p} l={l} rtl={rtl} />;
     } else if (emojis) {
       const fs = JUMBO_SIZE[emojis];
       content = (
         <div dir="ltr" style={{ fontSize: fs, lineHeight: `${Math.round(fs * 1.2)}px` }}>
           {m.text.trim()}
+        </div>
+      );
+    } else if (m.link) {
+      content = (
+        <div className="flex max-w-full flex-col" style={{ alignItems: mine ? "flex-end" : "flex-start", gap: 4 }}>
+          <LinkCard link={m.link} p={p} />
+          {caption && <TextBubble text={m.text} mine={mine} p={p} />}
         </div>
       );
     } else {
@@ -701,36 +1129,68 @@ export function XChatAndroid({ scenario, playback, lang, rtl }: PlatformProps) {
 
     const target = m.replyToId ? byId.get(m.replyToId) : undefined;
     const reaction = m.reaction?.trim();
-    if (target || reaction) {
-      content = (
-        <div className="flex max-w-full flex-col" style={{ alignItems: mine ? "flex-end" : "flex-start" }}>
-          {target && (
-            <ReplyPreview
-              target={target}
-              name={target.sender === "me" ? scenario.me.name : scenario.them.name}
-              mine={mine}
-              p={p}
-              l={l}
-            />
-          )}
-          {content}
+    const align = mine ? "flex-end" : "flex-start";
+    const main = (
+      <div className="flex min-w-0 max-w-full flex-col" style={{ alignItems: align }}>
+        {target && <ReplyPreview target={target} name={personOf(target).name} mine={mine} p={p} l={l} />}
+        {content}
+      </div>
+    );
+    const info =
+      reaction || m.edited ? (
+        <div className="flex max-w-full flex-col" style={{ alignItems: align }}>
           {reaction && <ReactionChip emoji={reaction} mine={mine} p={p} />}
+          {m.edited && (
+            <div style={{ marginTop: reaction ? 0 : EDITED_GAP, paddingInline: EDITED_GAP, color: p.secondary, fontSize: 12, lineHeight: "16px", whiteSpace: "nowrap" }}>
+              {l.edited}
+            </div>
+          )}
         </div>
-      );
-    }
+      ) : null;
 
-    let marginTop = 0;
-    if (i > 0) marginTop = prevHadReceipt ? GAP_AFTER_RECEIPT : firstOfGroup ? GAP_SENDER : GAP_GROUP;
-
+    const inGroup = !!group && !mine;
+    const sender = personOf(m);
     rows.push(
       <div
         key={m.id}
         data-mid={m.id}
         data-sender={m.sender}
-        className={`flex flex-col ${live ? (mine ? "xc-and-anim-out" : "xc-and-anim-in") : ""}`}
-        style={{ alignItems: mine ? "flex-end" : "flex-start", paddingInline: SIDE, marginTop, transformOrigin: originFor(mine, rtl) }}
+        className={`flex flex-col ${anim}`}
+        style={{ alignItems: align, paddingInline: SIDE, marginTop, transformOrigin: originFor(mine, rtl) }}
       >
-        {content}
+        {inGroup ? (
+          <>
+            {firstOfBurst && (
+              <div
+                dir={dirOf(sender.name)}
+                className="max-w-full truncate"
+                style={{
+                  paddingInlineStart: GROUP_AVATAR + GROUP_GAP + PAD_X,
+                  marginBottom: NAME_AFTER,
+                  color: p.secondary,
+                  fontSize: NAME_TEXT,
+                  lineHeight: `${NAME_LINE}px`,
+                  alignSelf: "stretch",
+                  textAlign: "start",
+                }}
+              >
+                {sender.name}
+              </div>
+            )}
+            <div className="flex max-w-full items-end" style={{ gap: GROUP_GAP }}>
+              <div className="shrink-0" style={{ width: GROUP_AVATAR, marginBottom: 2 }}>
+                {lastOfBurst && <XAvatar person={sender} size={GROUP_AVATAR} p={p} />}
+              </div>
+              {main}
+            </div>
+            {info && <div style={{ paddingInlineStart: GROUP_AVATAR + GROUP_GAP }}>{info}</div>}
+          </>
+        ) : (
+          <>
+            {main}
+            {info}
+          </>
+        )}
         {status && (
           <div
             key={status}
@@ -745,8 +1205,20 @@ export function XChatAndroid({ scenario, playback, lang, rtl }: PlatformProps) {
     prevHadReceipt = !!status;
   });
 
-  const last = messages[messages.length - 1];
-  const typingGap = !last ? 0 : prevHadReceipt ? GAP_AFTER_RECEIPT : last.sender === "them" ? GAP_GROUP + 4 : GAP_SENDER;
+  const last = vis[vis.length - 1];
+  const shown = new Set(messages.map((m) => m.id));
+  const nextThem = scenario.messages.find((m) => !shown.has(m.id) && m.sender === "them");
+  const typistIndex = Math.max(0, (nextThem ?? (last?.sender === "them" ? last : undefined))?.authorIndex ?? 0);
+  const typist = group ? memberAt(typistIndex) : scenario.them;
+  const typingGap = !last
+    ? 0
+    : prevHadReceipt
+      ? GAP_AFTER_RECEIPT
+      : last.sender === "them" && !isInfo(last) && (!group || Math.max(0, last.authorIndex ?? 0) === typistIndex)
+        ? GAP_GROUP + 4
+        : GAP_SENDER;
+
+  const title = group ? group.name : scenario.them.name;
 
   return (
     <div
@@ -763,11 +1235,19 @@ export function XChatAndroid({ scenario, playback, lang, rtl }: PlatformProps) {
           <Glyph d={D.arrowLeft} color={p.fg} className="rtl:-scale-x-100" />
         </span>
         <span className="absolute" style={{ insetInlineStart: 56, top: (TOOLBAR_H - 32) / 2 }}>
-          <XAvatar person={scenario.them} size={32} p={p} />
+          {group ? (
+            group.avatar ? (
+              <Avatar person={{ name: group.name, avatar: group.avatar }} size={32} />
+            ) : (
+              <Facepile members={members} p={p} size={32} />
+            )
+          ) : (
+            <XAvatar person={scenario.them} size={32} p={p} />
+          )}
         </span>
         <div className="absolute flex items-center" style={{ insetInlineStart: 100, insetInlineEnd: 104, top: 0, height: TOOLBAR_H }}>
-          <span dir={dirOf(scenario.them.name)} className="truncate" style={{ fontSize: 17, lineHeight: "22px", fontWeight: 700 }}>
-            {scenario.them.name}
+          <span dir={dirOf(title)} className="truncate" style={{ fontSize: 17, lineHeight: "22px", fontWeight: 700 }}>
+            {title}
           </span>
         </div>
         <div className="absolute flex items-center" style={{ insetInlineEnd: 16, top: (TOOLBAR_H - 24) / 2, gap: 24 }}>
@@ -786,7 +1266,7 @@ export function XChatAndroid({ scenario, playback, lang, rtl }: PlatformProps) {
             {rows}
             {typing && (
               <div style={{ marginTop: typingGap }}>
-                <TypingRow person={scenario.them} p={p} label={l.typing(scenario.them.name)} live={live} clockMs={clockMs} boxRef={typingRef} />
+                <TypingRow person={typist} p={p} label={l.typing(typist.name)} live={live} clockMs={clockMs} boxRef={typingRef} />
               </div>
             )}
           </div>
@@ -797,7 +1277,7 @@ export function XChatAndroid({ scenario, playback, lang, rtl }: PlatformProps) {
       <div
         ref={composerRef}
         className="flex shrink-0 items-end"
-        style={{ minHeight: COMPOSER_H, paddingInlineStart: SIDE, paddingInlineEnd: SIDE, gap: 8, marginTop: 4, marginBottom: 10 }}
+        style={{ minHeight: COMPOSER_H, paddingInlineStart: SIDE, paddingInlineEnd: SIDE, gap: 8, marginTop: 4, marginBottom: COMPOSER_BOTTOM }}
       >
         <span className="flex shrink-0 items-center justify-center rounded-full" style={{ width: COMPOSER_H, height: COMPOSER_H, background: p.plusFill }}>
           <Glyph d={D.plus} color={p.fg} />
@@ -842,7 +1322,19 @@ export function XChatAndroid({ scenario, playback, lang, rtl }: PlatformProps) {
         )}
       </div>
 
-      <SystemBottomBar device="android" bg={p.bg} fg={p.fg} />
+      {/* Nav-bar band; while the keyboard is up it grows so the composer rides KB_GAP
+          above the keyboard (continuous in the inset, so export frames match). */}
+      <div
+        className="relative shrink-0"
+        style={{
+          height: kbUp ? Math.max(NAV_BAND, kb.inset + KB_GAP - COMPOSER_BOTTOM) : NAV_BAND,
+          transition: kb.transition === "none" ? undefined : `height ${kb.transition}`,
+        }}
+      >
+        <div className="absolute inset-x-0 bottom-0">
+          <SystemBottomBar device="android" bg={p.bg} fg={p.fg} />
+        </div>
+      </div>
     </div>
   );
 }

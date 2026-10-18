@@ -64,6 +64,24 @@
  *    expander, the pill widens and grows up to 5 lines (22pt each), the caret
  *    is a 2pt theme-blue bar, and the 👍 becomes the blue paper-plane send
  *    glyph (mirrored in Arabic). The smiley stays inside the pill.
+ *  - Groups: default group picture = two member heads stacked diagonally
+ *    (front head bottom-leading with a canvas ring), group name + "Active
+ *    now"; 12pt grey first name above each run from another member, that
+ *    member's 28pt head beside the run's last bubble, and a row of 14pt
+ *    seen-heads under the newest message the members have seen.
+ *  - New kinds: stickers 120pt with no bubble; link previews as a grey "XMA"
+ *    card (image 1.91:1, semibold title, domain) joined under the text bubble,
+ *    URL underlined in the bubble; location = grey map card + title/address
+ *    ("Live location" with the sharer's head on the map); file = bubble in
+ *    the sender's colour with a round doc chip + "2 pages · 245 KB · PDF";
+ *    call = grey card with round glyph (red when missed), "Missed audio call"
+ *    / "Video chat" + time or duration, and a "Call back" / "Call again"
+ *    button; unsent = outlined empty bubble "You unsent a message" /
+ *    "Khalid unsent a message" (AR «قمت بإلغاء إرسال رسالة» / «ألغى خالد
+ *    إرسال رسالة»); "Edited" («تم التعديل») 12pt grey above the bubble.
+ *  - Keyboard: the whole screen pads its bottom by the keyboard inset (home
+ *    indicator hidden by SystemBottomBar), and the thread keeps its bottom
+ *    edge anchored while it shrinks.
  */
 
 import { Fragment, useEffect, type CSSProperties, type ReactNode, type RefObject } from "react";

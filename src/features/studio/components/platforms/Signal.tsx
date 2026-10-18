@@ -97,9 +97,10 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
-import type { DeliveryStatus, Message, Person } from "../../types";
+import type { DeliveryStatus, GroupChat, LinkPreview, Message, Person } from "../../types";
 import { Avatar, dirOf, SystemBottomBar, useChatScroll } from "../shared";
 import { StatusBar } from "../devices/StatusBar";
+import { useKeyboardInset } from "../devices/keyboard-context";
 import type { Lang } from "./chrome";
 import type { PlatformMotion, PlatformProps } from "./types";
 
@@ -186,10 +187,38 @@ function glass(dark: boolean): CSSProperties {
  * "صورة شخصية" in Signal-iOS ar.lproj — but that string means "profile photo"
  * (shared key), so the quote uses plain "صورة" like SignalAndroid.
  */
-const LOCAL: Record<
-  Lang,
-  { today: string; placeholder: string; noGroups: string; you: string; photo: string; voice: string }
-> = {
+interface LocalStrings {
+  today: string;
+  placeholder: string;
+  noGroups: string;
+  you: string;
+  photo: string;
+  voice: string;
+  /** MESSAGE_STATUS_EDITED */
+  edited: string;
+  /** YOU_DELETED_THIS_MESSAGE / DELETED_THIS_MESSAGE */
+  youDeleted: string;
+  deletedBy: (name: string) => string;
+  /** CVComponentSystemMessage call rows (TSCall.previewText) */
+  missedVoice: string;
+  missedVideo: string;
+  incomingVoice: string;
+  incomingVideo: string;
+  outgoingVoice: string;
+  outgoingVideo: string;
+  unansweredVoice: string;
+  unansweredVideo: string;
+  /** CALLBACK_BUTTON_TITLE / CALL_AGAIN_BUTTON_TITLE */
+  callBack: string;
+  callAgain: string;
+  /** GROUP_CALL_STARTED_MESSAGE_FORMAT / GROUP_CALL_STARTED_BY_YOU */
+  groupCallBy: (name: string) => string;
+  groupCallYou: string;
+  /** THREAD_DETAILS_*_MEMBERS_AND_YOURSELF (names sorted, "you" last) */
+  members: (names: string[]) => string;
+}
+
+const LOCAL: Record<Lang, LocalStrings> = {
   en: {
     today: "Today",
     placeholder: "Message",
@@ -197,6 +226,31 @@ const LOCAL: Record<
     you: "You",
     photo: "Photo",
     voice: "Voice Message",
+    edited: "Edited",
+    youDeleted: "You deleted this message",
+    deletedBy: (n) => `${n} deleted this message`,
+    missedVoice: "Missed voice call",
+    missedVideo: "Missed video call",
+    incomingVoice: "Incoming voice call",
+    incomingVideo: "Incoming video call",
+    outgoingVoice: "Outgoing voice call",
+    outgoingVideo: "Outgoing video call",
+    unansweredVoice: "Unanswered voice call",
+    unansweredVideo: "Unanswered video call",
+    callBack: "Call Back",
+    callAgain: "Call Again",
+    groupCallBy: (n) => `${n} started a group call`,
+    groupCallYou: "You started a group call",
+    members: (n) =>
+      n.length === 0
+        ? "No other group members yet"
+        : n.length === 1
+          ? `${n[0]} and you`
+          : n.length === 2
+            ? `${n[0]}, ${n[1]}, and you`
+            : n.length === 3
+              ? `${n[0]}, ${n[1]}, ${n[2]}, and you`
+              : `${n[0]}, ${n[1]}, ${n[2]}, and ${n.length - 2} others`,
   },
   ar: {
     today: "اليوم",
@@ -205,12 +259,74 @@ const LOCAL: Record<
     you: "أنت",
     photo: "صورة",
     voice: "رسالة صوتية",
+    edited: "تمَّ التعديل",
+    youDeleted: "حذفتَ هذه الرسالة.",
+    deletedBy: (n) => `حذفَ ${n} هذه الرسالة.`,
+    missedVoice: "مكالمة صوتية فائتة",
+    missedVideo: "مكالمة فيديو فائتة",
+    incomingVoice: "مكالمة صوتية واردة",
+    incomingVideo: "مكالمة فيديو واردة",
+    outgoingVoice: "مكالمة صوتية صادرة",
+    outgoingVideo: "مكالمة فيديو صادرة",
+    unansweredVoice: "مكالمة صوتية لم يتم الرد عليها",
+    unansweredVideo: "مكالمة فيديو لم يتم الرد عليها",
+    callBack: "إعادة الاتصال",
+    callAgain: "مُعاودة الاتصال",
+    groupCallBy: (n) => `بدأ ${n} مُكالمة جماعية`,
+    groupCallYou: "بدأتَ مُكالمة جماعية",
+    members: (n) =>
+      n.length === 0
+        ? "لا يوجد أعضاء آخرون في المجموعة حتى الآن"
+        : n.length === 1
+          ? `${n[0]} وأنت`
+          : n.length === 2
+            ? `${n[0]}، و${n[1]} وأنت`
+            : n.length === 3
+              ? `${n[0]} و${n[1]} و${n[2]} وأنت`
+              : `${n[0]}، و${n[1]}، و${n[2]}، و${n.length - 2} آخرين`,
   },
 };
+
+/**
+ * SignalUI/Appearance/GroupNameColors.swift — groupNameColorValues (light,
+ * dark), assigned to the members in order.
+ */
+const NAME_COLORS: [string, string][] = [
+  ["#006da3", "#00a7fa"],
+  ["#067906", "#0ab80a"],
+  ["#b814b8", "#f65af6"],
+  ["#c13215", "#ff6f52"],
+  ["#5b6976", "#8ba1b6"],
+  ["#cc0066", "#f76eb2"],
+  ["#2e51ff", "#8599ff"],
+  ["#007575", "#00b2b2"],
+  ["#9c5711", "#d5920b"],
+  ["#d00b4d", "#ff6b9c"],
+  ["#8f2af4", "#bf80ff"],
+  ["#3d7406", "#5eb309"],
+];
+
+/** UIColor.Signal.emphasisLabel (missed incoming call rows). */
+const EMPHASIS = { light: "#e81f28", dark: "#fc3040" };
+/** UIColor.Signal.transparentSeparator (remotely-deleted bubble stroke). */
+const SEPARATOR = { light: "rgba(60,60,67,0.36)", dark: "rgba(84,84,88,0.65)" };
+/** UIColor.Signal.secondaryFill (system message action button). */
+const SECONDARY_FILL = { light: "rgba(120,120,128,0.16)", dark: "rgba(120,120,128,0.32)" };
 
 /* metrics (pt) — see header */
 const GUTTER = 16;
 const MAX_BUBBLE = 317;
+/**
+ * [CS] group threads: leading gutter 12, a 28pt sender-avatar column and 8pt
+ * stack spacing (bubbles start at 48), max width 317 − (28 + 8) − 4 = 285.
+ */
+const GROUP_GUTTER = 12;
+const GROUP_AVATAR = 28;
+const MAX_BUBBLE_GROUP = 285;
+/** CVComponentSticker.stickerSize */
+const STICKER = 175;
+/** ConversationStyle.systemMessageSpacing */
+const SYSTEM_SPACING = 20;
 const TEXT_INSET_X = 12;
 const TEXT_INSET_Y = 7;
 const MAX_TEXT = MAX_BUBBLE - TEXT_INSET_X * 2; // 293
@@ -470,6 +586,20 @@ function abbreviation(name: string): string | null {
   return Array.from(abbr).length < 4 ? abbr : null;
 }
 
+/** AvatarBuilder default group avatar: theme fill + the group glyph. */
+function GroupAvatar({ group, size }: { group: GroupChat; size: number }) {
+  if (group.avatar) return <Avatar person={{ name: group.name, avatar: group.avatar }} size={size} />;
+  const [bg, fg] = themeFor(group.name);
+  return (
+    <div
+      className="flex shrink-0 items-center justify-center rounded-full"
+      style={{ width: size, height: size, background: bg }}
+    >
+      <Icon24 d={I_GROUP} color={fg} size={size * 0.6} />
+    </div>
+  );
+}
+
 function SignalAvatar({ person, size }: { person: Person; size: number }) {
   if (person.avatar) return <Avatar person={person} size={size} />;
   const [bg, fg] = themeFor(person.name);
@@ -519,6 +649,9 @@ function clock(t: string): string {
 /** [IVS] messages cluster when they are less than 3 minutes apart. */
 function canCluster(a: Message, b: Message): boolean {
   if (a.sender !== b.sender) return false;
+  // call rows are system messages; group messages cluster per author
+  if (a.type === "call" || b.type === "call") return false;
+  if (a.sender === "them" && (a.authorIndex ?? 0) !== (b.authorIndex ?? 0)) return false;
   const x = minutesOf(a.time);
   const y = minutesOf(b.time);
   if (x === null || y === null) return true;
@@ -564,12 +697,48 @@ function cornerRadii(mine: boolean, rtl: boolean, first: boolean, last: boolean)
     : `${top}px ${R_WIDE}px ${R_WIDE}px ${bottom}px`;
 }
 
+/** URLs in a body are linkified, underlined in the body colour (linkifyStyle .underlined). */
+const URL_RE = /(https?:\/\/[^\s]+|www\.[^\s]+)/g;
+function richText(text: string): ReactNode {
+  if (!URL_RE.test(text)) return text;
+  URL_RE.lastIndex = 0;
+  return text.split(URL_RE).map((part, i) =>
+    i % 2 === 1 ? (
+      <span key={i} style={{ textDecoration: "underline", textUnderlineOffset: 2, textDecorationThickness: 1 }}>
+        {part}
+      </span>
+    ) : (
+      part
+    ),
+  );
+}
+
+function domainOf(link: LinkPreview): string {
+  if (link.siteName?.trim()) return link.siteName.trim().toLowerCase();
+  try {
+    return new URL(link.url).hostname.replace(/^www\./, "").toLowerCase();
+  } catch {
+    return link.url;
+  }
+}
+
+/** Deterministic coordinates for the maps URL Signal appends to a shared location. */
+function mapsUrl(seed: string): string {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) h = Math.imul(h ^ seed.charCodeAt(i), 16777619);
+  const lat = (24.6 + ((h >>> 0) % 100000) / 1e6).toFixed(6);
+  const lon = (46.6 + ((h >>> 8) % 100000) / 1e6).toFixed(6);
+  return `https://maps.google.com/maps?q=${lat}%2C${lon}`;
+}
+
 /* ------------------------------- footer [FT] ------------------------------- */
 
 interface FooterSpec {
   time: string;
   status?: DeliveryStatus;
   color: string;
+  /** MESSAGE_STATUS_EDITED label shown before the time */
+  edited?: string;
 }
 
 function Footer({
@@ -599,6 +768,7 @@ function Footer({
         boxSizing: "border-box",
       }}
     >
+      {spec.edited && <span>{spec.edited}</span>}
       <span>{clock(spec.time)}</span>
       {spec.status && (
         <span key={spec.status} className="sig-ios-anim flex" style={{ width: 18, height: 12, justifyContent: "flex-start" }}>
@@ -630,6 +800,7 @@ function TextBlock({
   borderless,
   fontsTick,
   fill,
+  maxText = MAX_TEXT,
 }: {
   text: string;
   size: number;
@@ -640,6 +811,8 @@ function TextBlock({
   fontsTick: number;
   /** take the whole bubble width (a wider quote above sets it) */
   fill?: boolean;
+  /** text column width limit (group threads are narrower) */
+  maxText?: number;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLSpanElement>(null);

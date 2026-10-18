@@ -810,7 +810,7 @@ function IosCard({
       >
         {tile}
       </div>
-      <div className="min-w-0 flex-1" dir="auto" style={{ marginInlineEnd: 10, paddingBlock: 6 }}>
+      <div className="min-w-0 flex-1" style={{ marginInlineEnd: 10, paddingBlock: 6 }}>
         <div
           style={{
             color: titleColor ?? pal.text,
@@ -889,13 +889,18 @@ function fileExt(name: string): string {
 
 function IosFileCard({ file, pal }: { file: NonNullable<Message["file"]>; pal: IosPalette }) {
   const ext = fileExt(file.name);
-  const meta = [file.pages, file.size, ext].filter(Boolean).join(" · ");
+  const parts = [file.pages, file.size, ext].filter((x): x is string => !!x);
   return (
     <IosCard
       pal={pal}
       tile={<SnapDocGlyph ext={ext} />}
-      title={<span dir="ltr">{file.name}</span>}
-      subtitle={<span dir="auto">{meta}</span>}
+      title={<bdi>{file.name}</bdi>}
+      subtitle={parts.map((p, k) => (
+        <span key={k}>
+          {k > 0 && " · "}
+          <bdi>{p}</bdi>
+        </span>
+      ))}
     />
   );
 }
@@ -974,9 +979,9 @@ function IosLocationCard({
           <span style={{ width: 10, height: 4, borderRadius: "50%", background: "rgba(0,0,0,0.22)", marginTop: 4 }} />
         </span>
       </div>
-      <div style={{ padding: "8px 12px 10px" }} dir="auto">
+      <div style={{ padding: "8px 12px 10px" }}>
         <div className="truncate" style={{ color: pal.text, fontSize: 15.5, lineHeight: "20px", fontWeight: 600, textAlign: "start" }}>
-          {loc.title}
+          <bdi>{loc.title}</bdi>
         </div>
         {(loc.live || loc.subtitle) && (
           <div className="flex items-center" style={{ gap: 5, marginTop: 1 }}>

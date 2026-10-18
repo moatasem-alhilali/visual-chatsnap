@@ -870,7 +870,9 @@ function TtFile({ file, mine, pal }: { file: NonNullable<Message["file"]>; mine:
     ? parts.map((p, i) => (
         <Fragment key={i}>
           {i > 0 && " · "}
-          <span style={{ unicodeBidi: "isolate" }}>{p}</span>
+          <span dir="auto" style={{ unicodeBidi: "isolate" }}>
+            {p}
+          </span>
         </Fragment>
       ))
     : null;
