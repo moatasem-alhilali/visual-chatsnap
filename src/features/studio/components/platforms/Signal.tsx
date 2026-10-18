@@ -160,9 +160,31 @@ function glass(dark: boolean): CSSProperties {
       };
 }
 
-const LOCAL: Record<Lang, { today: string; placeholder: string; noGroups: string }> = {
-  en: { today: "Today", placeholder: "Message", noGroups: "No groups in common" },
-  ar: { today: "اليوم", placeholder: "رسالة", noGroups: "لا توجد مجموعات مُشتركة" },
+/**
+ * [L10N] + quoted-reply strings (YOU, QUOTED_REPLY_TYPE_PHOTO,
+ * QUOTED_REPLY_TYPE_VOICE_MESSAGE). The Arabic "Photo" really is
+ * "صورة شخصية" in Signal-iOS ar.lproj.
+ */
+const LOCAL: Record<
+  Lang,
+  { today: string; placeholder: string; noGroups: string; you: string; photo: string; voice: string }
+> = {
+  en: {
+    today: "Today",
+    placeholder: "Message",
+    noGroups: "No groups in common",
+    you: "You",
+    photo: "Photo",
+    voice: "Voice Message",
+  },
+  ar: {
+    today: "اليوم",
+    placeholder: "رسالة",
+    noGroups: "لا توجد مجموعات مُشتركة",
+    you: "أنت",
+    photo: "صورة شخصية",
+    voice: "رسالة صوتية",
+  },
 };
 
 /* metrics (pt) — see header */
@@ -190,6 +212,27 @@ const SAFE_BOTTOM = 34;
 const TOOLBAR_H = 56;
 const FIELD_H = 40;
 const BODY_BOTTOM = SAFE_BOTTOM + TOOLBAR_H + 8;
+/** [IT] text view: 7 − hairline vertical insets, 35…98pt tall, body 17pt. */
+const INPUT_INSET_Y = 7 - 1 / 3;
+const INPUT_MIN_H = 35;
+const INPUT_MAX_H = 98;
+/** [RC] CVReactionCountsView: 24pt pill, 7pt overlap, 6pt inset from the bubble edge. */
+const REACTION_H = 24;
+const REACTION_OVERLAP = 7;
+const REACTION_INSET = 6;
+/** [QR] CVQuotedMessageView: wide 10 / sharp 4 corners, 4pt stripe, 64 / 72pt thumbnail. */
+const QUOTE_R_WIDE = 10;
+const QUOTE_R_SHARP = 4;
+const FOOTNOTE_LINE = 13 * SF_LINE;
+const SUBHEAD_LINE = 15 * SF_LINE;
+/** UIColor.Signal.ultramarine (text caret / tint). */
+const ACCENT = { light: "#2267f5", dark: "#2d70fa" };
+/**
+ * Send button tint [IT]: ColorOrGradientValue.asChatUIElementTintColor() →
+ * HSB midpoint of the Ultramarine gradient (#1860EE) blended with 16% white
+ * (light) / 10% black (dark).
+ */
+const SEND_TINT = { light: "#3d78f1", dark: "#1655d7" };
 
 /* ------------------------------ motion ------------------------------ */
 
@@ -221,6 +264,9 @@ export const signalIosMotion: PlatformMotion = {
   enterStyle: (p) => ({ opacity: Number(easeInOut(Math.min(1, Math.max(0, p))).toFixed(4)) }),
 };
 
+/** UIKit caret blink period (on half / off half). */
+const CARET_MS = 1000;
+
 /* typing dots [TI]: 8 key values per dot, spread evenly over 1.5s */
 const DOT_PERIOD = 1500;
 const DOT_KEYS: number[][] = [
@@ -250,6 +296,11 @@ function buildStyle(): string {
     css += "}";
   });
   css += `.sig-ios-out{background-color:${ULTRA_FALLBACK};background-image:${ULTRA_GRADIENT};background-size:100% var(--sig-h,852px);background-repeat:no-repeat}`;
+  // UIKit caret: solid while keys land (re-keyed per keystroke), then a 1s on/off blink
+  css += `@keyframes sig-ios-caret{0%,50%{opacity:1}50.01%,100%{opacity:0}}.sig-ios-caret{animation:sig-ios-caret ${CARET_MS}ms step-end infinite;animation-delay:${CARET_MS / 2}ms}`;
+  // [IT] setView(hidden:) under a 0.25s spring: alpha 0→1, scale 0.1→1
+  css += `.sig-ios-pop{transition:opacity 250ms cubic-bezier(.3,1.25,.5,1),transform 250ms cubic-bezier(.3,1.25,.5,1),width 250ms cubic-bezier(.25,1,.5,1)}`;
+  css += `.sig-ios-grow{transition:height 250ms cubic-bezier(.25,1,.5,1)}`;
   return css;
 }
 const STYLE = buildStyle();
@@ -326,6 +377,27 @@ const I_GROUP = [
 const I_PLAY = [
   "M20.93 13.507C22.077 12.83 22.077 11.17 20.93 10.493L7.764 2.723C6.598 2.034 5.125 2.875 5.125 4.23L5.125 19.77C5.125 21.125 6.598 21.966 7.764 21.277L20.93 13.507Z",
 ];
+
+/** Symbols.xcassets/arrow/arrow-up.pdf (Theme.iconImage(.arrowUp)), the iOS 26 send glyph. */
+const I_ARROW_UP = [
+  "M12.619 4.131C12.455 3.967 12.232 3.875 12 3.875C11.768 3.875 11.545 3.967 11.381 4.131L4.881 10.631C4.54 10.973 4.54 11.527 4.881 11.869C5.223 12.21 5.777 12.21 6.119 11.869L11.251 6.736L11.125 8.5L11.125 19.75C11.125 20.233 11.517 20.625 12 20.625C12.483 20.625 12.875 20.233 12.875 19.75L12.875 8.5L12.749 6.736L17.881 11.869C18.223 12.21 18.777 12.21 19.119 11.869C19.46 11.527 19.46 10.973 19.119 10.631L12.619 4.131Z",
+];
+
+/** SignalSymbol.audioSquare (Signal's symbol font), drawn as the same rounded square + bars. */
+function AudioSquare({ color, size }: { color: string; size: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      style={{ display: "inline-block", verticalAlign: `${-size * 0.16}px`, flexShrink: 0 }}
+    >
+      <rect x="1.1" y="1.1" width="13.8" height="13.8" rx="3.6" stroke={color} strokeWidth="1.3" />
+      <path d="M5 6.6v2.8M8 4.6v6.8M11 6v4" stroke={color} strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 /** SF "chevron.backward" for the system back button (mirrors in RTL). */
 function ChevronBack({ color }: { color: string }) {
@@ -536,6 +608,7 @@ function TextBlock({
   uiRtl,
   borderless,
   fontsTick,
+  fill,
 }: {
   text: string;
   size: number;
@@ -544,6 +617,8 @@ function TextBlock({
   uiRtl: boolean;
   borderless?: boolean;
   fontsTick: number;
+  /** take the whole bubble width (a wider quote above sets it) */
+  fill?: boolean;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLSpanElement>(null);
@@ -600,7 +675,16 @@ function TextBlock({
   const extra = !footer ? 0 : lay?.overlap ? footerH - overlapH : 3 + footerH;
 
   return (
-    <div ref={wrapRef} className="relative" style={{ display: "flow-root", width: lay ? lay.w : MAX_TEXT, maxWidth: MAX_TEXT, minWidth: 0 }}>
+    <div
+      ref={wrapRef}
+      className="relative"
+      style={{
+        display: "flow-root",
+        width: fill ? "100%" : lay ? lay.w : MAX_TEXT,
+        minWidth: fill && lay ? lay.w : 0,
+        maxWidth: MAX_TEXT,
+      }}
+    >
       <div
         dir={dir}
         style={{
@@ -624,15 +708,233 @@ function TextBlock({
   );
 }
 
+/* ------------------------------ quoted reply [QR] ------------------------------ */
+
+interface QuoteSpec {
+  author: string;
+  /** snippet text (caption / body), or the attachment label */
+  text: string;
+  /** the snippet is an attachment-type label (italic) rather than quoted text */
+  typeLabel: boolean;
+  voice: boolean;
+  /** thumbnail for an image target (null src = image that failed to load) */
+  thumb: { src: string | null } | null;
+}
+
+function quoteOf(target: Message, them: Person, l: (typeof LOCAL)[Lang]): QuoteSpec {
+  const author = target.sender === "me" ? l.you : them.name;
+  if (target.type === "voice") return { author, text: l.voice, typeLabel: false, voice: true, thumb: null };
+  if (target.type === "image") {
+    const caption = target.text.trim();
+    return {
+      author,
+      text: caption || l.photo,
+      typeLabel: !caption,
+      voice: false,
+      thumb: { src: target.imageSrc ?? null },
+    };
+  }
+  return { author, text: target.text.trim(), typeLabel: false, voice: false, thumb: null };
+}
+
+/**
+ * CVQuotedMessageView: tinted box (wide 10 / sharp 4 corners) with a 4pt
+ * stripe, 8pt gaps, author (footnote semibold) over the snippet
+ * (subheadline, 2 lines — 1 next to a thumbnail), 6pt vertical margins.
+ * Colours [UC]: outgoing = ColorBase (stripe white 80%, tint white 60/48%,
+ * black text); incoming without wallpaper = LightBase (stripe white / white
+ * 48%, tint white 60% / 16%, label text). The incoming tint starts after the
+ * stripe (bubbleView leading layout margin).
+ */
+function QuoteBlock({
+  q,
+  mine,
+  dark,
+  p,
+  rtl,
+  topStartSharp,
+  topEndSharp,
+}: {
+  q: QuoteSpec;
+  mine: boolean;
+  dark: boolean;
+  p: Palette;
+  rtl: boolean;
+  topStartSharp: boolean;
+  topEndSharp: boolean;
+}) {
+  const stripe = mine ? "rgba(255,255,255,0.8)" : dark ? "rgba(255,255,255,0.48)" : "#ffffff";
+  const tint = mine
+    ? dark
+      ? "rgba(255,255,255,0.48)"
+      : "rgba(255,255,255,0.6)"
+    : dark
+      ? "rgba(255,255,255,0.16)"
+      : "rgba(255,255,255,0.6)";
+  const fg = mine ? "#000000" : p.label;
+  const thumbSize = q.thumb ? (q.typeLabel ? 64 : 72) : 0;
+  const ts = topStartSharp ? QUOTE_R_SHARP : QUOTE_R_WIDE;
+  const te = topEndSharp ? QUOTE_R_SHARP : QUOTE_R_WIDE;
+  // physical radii: tl tr br bl
+  const radius = rtl
+    ? `${te}px ${ts}px ${QUOTE_R_SHARP}px ${QUOTE_R_SHARP}px`
+    : `${ts}px ${te}px ${QUOTE_R_SHARP}px ${QUOTE_R_SHARP}px`;
+  const snippetDir = dirOf(q.text);
+  return (
+    <div
+      dir={rtl ? "rtl" : "ltr"}
+      className="relative flex overflow-hidden"
+      style={{ borderRadius: radius, background: mine ? tint : undefined, minHeight: thumbSize || undefined }}
+    >
+      {!mine && <div className="absolute inset-y-0" style={{ insetInlineStart: 4, insetInlineEnd: 0, background: tint }} />}
+      <div className="relative shrink-0" style={{ width: 4, background: stripe }} />
+      <div className="relative min-w-0 flex-1" style={{ padding: "6px 0", marginInline: 8 }}>
+        <div
+          dir={dirOf(q.author)}
+          className="truncate"
+          style={{
+            color: fg,
+            fontSize: 13,
+            lineHeight: `${FOOTNOTE_LINE}px`,
+            fontWeight: 600,
+            letterSpacing: "-0.08px",
+            width: "fit-content",
+            maxWidth: "100%",
+          }}
+        >
+          {q.author}
+        </div>
+        <div style={{ height: 2 }} />
+        <div
+          dir={snippetDir}
+          style={{
+            color: fg,
+            fontSize: 15,
+            lineHeight: `${SUBHEAD_LINE}px`,
+            letterSpacing: "-0.23px",
+            fontStyle: q.typeLabel ? "italic" : undefined,
+            display: "-webkit-box",
+            WebkitBoxOrient: "vertical",
+            WebkitLineClamp: q.thumb ? 1 : 2,
+            overflow: "hidden",
+            overflowWrap: "anywhere",
+            width: "fit-content",
+            maxWidth: "100%",
+          }}
+        >
+          {q.voice && (
+            <>
+              <AudioSquare color={fg} size={15} />{" "}
+            </>
+          )}
+          {q.text}
+        </div>
+      </div>
+      {q.thumb && (
+        <div className="relative shrink-0" style={{ width: thumbSize, alignSelf: "stretch", background: p.mediaFill }}>
+          {q.thumb.src && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={q.thumb.src}
+              alt=""
+              draggable={false}
+              className="absolute inset-0 block h-full w-full"
+              style={{ objectFit: "cover" }}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------ reactions [RC] ------------------------------ */
+
+/**
+ * CVReactionCountsView pill: 24pt capsule, 1pt border in the chat background
+ * colour, 3/7 margins, bold 14pt emoji. Fill: gray05 / gray90 when the
+ * reaction is the other person's, gray25 / gray60 when it is mine. Placed
+ * 7pt over the bubble's bottom edge, 6pt in from the edge that faces the
+ * middle of the screen; a bubble narrower than the pill lets it extend
+ * further into the middle (CVComponentMessage reactions layout block).
+ */
+function ReactionPill({
+  emoji,
+  fromMe,
+  innerLeft,
+  dark,
+  p,
+}: {
+  emoji: string;
+  fromMe: boolean;
+  innerLeft: boolean;
+  dark: boolean;
+  p: Palette;
+}) {
+  const fill = fromMe ? (dark ? "#5e5e5e" : "#b9b9b9") : dark ? "#1b1b1b" : "#e9e9e9";
+  return (
+    <div
+      dir="ltr"
+      className="pointer-events-none absolute flex"
+      style={{
+        left: 0,
+        right: 0,
+        top: `calc(100% - ${REACTION_OVERLAP}px)`,
+        padding: `0 ${REACTION_INSET}px`,
+        justifyContent: innerLeft ? "flex-end" : "flex-start",
+      }}
+    >
+      <div
+        className="flex shrink-0 items-center justify-center"
+        style={{
+          height: REACTION_H,
+          borderRadius: REACTION_H / 2,
+          border: `1px solid ${p.bg}`,
+          background: fill,
+          padding: "0 6px",
+          boxSizing: "border-box",
+          marginRight: innerLeft ? "auto" : undefined,
+          marginLeft: innerLeft ? undefined : "auto",
+        }}
+      >
+        <span style={{ fontSize: 14, lineHeight: "17px", fontWeight: 700 }}>{emoji}</span>
+      </div>
+    </div>
+  );
+}
+
 /* ------------------------------- bubbles ------------------------------- */
 
 interface BubbleCtx {
   p: Palette;
   rtl: boolean;
   mine: boolean;
+  dark: boolean;
   radii: string;
   footer: FooterSpec | null;
   fontsTick: number;
+  quote: QuoteSpec | null;
+  /** the bubble's top corners touch a clustered neighbour (sharp) — start / end side */
+  topStartSharp: boolean;
+  topEndSharp: boolean;
+}
+
+/** Quote at the top of a bubble: 7pt top inset (textInsets.top), 8pt side margins. */
+function QuoteHeader({ ctx }: { ctx: BubbleCtx }) {
+  if (!ctx.quote) return null;
+  return (
+    <div style={{ padding: `${TEXT_INSET_Y}px 8px 0` }}>
+      <QuoteBlock
+        q={ctx.quote}
+        mine={ctx.mine}
+        dark={ctx.dark}
+        p={ctx.p}
+        rtl={ctx.rtl}
+        topStartSharp={ctx.topStartSharp}
+        topEndSharp={ctx.topEndSharp}
+      />
+    </div>
+  );
 }
 
 function bubbleFill(ctx: BubbleCtx): { className: string; style: CSSProperties } {
@@ -643,25 +945,33 @@ function bubbleFill(ctx: BubbleCtx): { className: string; style: CSSProperties }
 
 function TextBubble({ text, ctx }: { text: string; ctx: BubbleCtx }) {
   const fill = bubbleFill(ctx);
+  const quoted = !!ctx.quote;
   return (
     <div
       className={`relative ${fill.className}`}
       style={{
         ...fill.style,
         borderRadius: ctx.radii,
-        padding: `${TEXT_INSET_Y}px ${TEXT_INSET_X}px`,
+        padding: quoted ? 0 : `${TEXT_INSET_Y}px ${TEXT_INSET_X}px`,
         minWidth: R_WIDE * 2,
         maxWidth: MAX_BUBBLE,
+        display: quoted ? "flex" : undefined,
+        flexDirection: quoted ? "column" : undefined,
       }}
     >
-      <TextBlock
-        text={text}
-        size={BODY}
-        color={ctx.mine ? ctx.p.outText : ctx.p.inText}
-        footer={ctx.footer}
-        uiRtl={ctx.rtl}
-        fontsTick={ctx.fontsTick}
-      />
+      <QuoteHeader ctx={ctx} />
+      {/* quote → body text: 7pt ("large component" spacing), then the usual 7pt bottom inset */}
+      <div style={quoted ? { padding: `${TEXT_INSET_Y}px ${TEXT_INSET_X}px` } : undefined}>
+        <TextBlock
+          text={text}
+          size={BODY}
+          color={ctx.mine ? ctx.p.outText : ctx.p.inText}
+          footer={ctx.footer}
+          uiRtl={ctx.rtl}
+          fontsTick={ctx.fontsTick}
+          fill={quoted}
+        />
+      </div>
     </div>
   );
 }
@@ -689,10 +999,9 @@ function VoiceBubble({ m, ctx }: { m: Message; ctx: BubbleCtx }) {
   const timeColor = mine ? "rgba(255,255,255,0.8)" : p.secondary;
   const dotColor = mine ? p.outSecondary : p.secondary;
   return (
-    <div
-      className={`relative ${fill.className}`}
-      style={{ ...fill.style, borderRadius: ctx.radii, width: AUDIO_W, padding: `${TEXT_INSET_Y}px ${TEXT_INSET_X}px` }}
-    >
+    <div className={`relative ${fill.className}`} style={{ ...fill.style, borderRadius: ctx.radii, width: AUDIO_W }}>
+      <QuoteHeader ctx={ctx} />
+      <div style={{ padding: `${TEXT_INSET_Y}px ${TEXT_INSET_X}px` }}>
       <div dir="ltr" className="flex items-center" style={{ height: 48, padding: "4px 0" }}>
         <span
           className="flex shrink-0 items-center justify-center rounded-full"
@@ -728,6 +1037,7 @@ function VoiceBubble({ m, ctx }: { m: Message; ctx: BubbleCtx }) {
           </div>
         )}
       </div>
+      </div>
     </div>
   );
 }
@@ -753,12 +1063,16 @@ function MediaBubble({ m, ctx }: { m: Message; ctx: BubbleCtx }) {
     mw = Math.round(MAX_BUBBLE * 0.75);
   }
   const fill = bubbleFill(ctx);
+  // a quote above the media gives the bubble its fill [QR]
+  const filled = hasCaption || !!ctx.quote;
   const overlay = !hasCaption && ctx.footer ? { ...ctx.footer, color: "#ffffff" } : null;
   return (
     <div
-      className={`relative overflow-hidden ${hasCaption ? fill.className : ""}`}
-      style={{ ...(hasCaption ? fill.style : {}), borderRadius: ctx.radii, display: "flex", flexDirection: "column", minWidth: mw, maxWidth: MAX_BUBBLE }}
+      className={`relative overflow-hidden ${filled ? fill.className : ""}`}
+      style={{ ...(filled ? fill.style : {}), borderRadius: ctx.radii, display: "flex", flexDirection: "column", minWidth: mw, maxWidth: MAX_BUBBLE }}
     >
+      <QuoteHeader ctx={ctx} />
+      {ctx.quote && <div style={{ height: 8 }} />}
       <div className="relative" style={{ width: "100%", height: mh, background: p.mediaFill }}>
         {m.imageSrc ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -783,7 +1097,7 @@ function MediaBubble({ m, ctx }: { m: Message; ctx: BubbleCtx }) {
           </div>
         )}
         {/* inner hairline (OWSBubbleShapeView .innerShadow, r 0.5, 15%) */}
-        {!hasCaption && (
+        {!filled && (
           <div
             className="pointer-events-none absolute inset-0"
             style={{ borderRadius: ctx.radii, boxShadow: `inset 0 0 0.5px 0.5px ${p.mediaHairline}` }}
@@ -900,6 +1214,150 @@ function ThreadDetails({ person, p, text }: { person: Person; p: Palette; text: 
   );
 }
 
+/* ------------------------------ composer [IT] ------------------------------ */
+
+/** UIKit text caret: 2pt bar in the accent tint, a touch taller than the line. */
+function IosCaret({ color, exporting, keystroke }: { color: string; exporting: boolean; keystroke: number }) {
+  return (
+    <span aria-hidden className="relative inline-block" style={{ width: 0, height: 17 * SF_LINE, verticalAlign: "top" }}>
+      <span
+        key={exporting ? undefined : keystroke}
+        className={exporting ? "absolute" : "sig-ios-caret absolute"}
+        style={{ left: 0, top: -0.5, width: 2, height: 21.5, borderRadius: 1, background: color }}
+      />
+    </span>
+  );
+}
+
+/**
+ * iOS 26 input toolbar (forced LTR): glass "+" | glass field with sticker,
+ * camera and mic inside | glass-prominent send button. With text in the
+ * draft: the sticker hides (any input), camera + mic hide and the 40pt send
+ * button (arrow-up, chat-colour tint) springs in 12pt after the field, which
+ * gives up the room. The text view (17pt, 12pt side / 6.67pt vertical insets)
+ * grows from 35 to 98pt (≈ 4 lines) and then scrolls; the "+" and the send
+ * button stay pinned to the bottom. While the draft is typed the caret stays
+ * solid (UIKit only blinks it ~0.5s after the last keystroke, longer than
+ * the 220ms compose hold), so the exporter (clockMs) draws it solid.
+ */
+function IosComposer({
+  p,
+  dark,
+  rtl,
+  placeholder,
+  text,
+  clockMs,
+  fieldRef,
+}: {
+  p: Palette;
+  dark: boolean;
+  rtl: boolean;
+  placeholder: string;
+  text: string;
+  clockMs?: number;
+  fieldRef: React.Ref<HTMLDivElement>;
+}) {
+  const exporting = clockMs !== undefined;
+  const anyInput = text.length > 0;
+  const send = text.trim().length > 0;
+  const pop = exporting ? "" : "sig-ios-pop";
+  const shown = (on: boolean): CSSProperties => ({ opacity: on ? 1 : 0, transform: on ? "none" : "scale(0.1)" });
+  return (
+    <div
+      dir="ltr"
+      className="pointer-events-none absolute z-20 flex items-end"
+      style={{ left: GUTTER, right: GUTTER, bottom: SAFE_BOTTOM + 8 }}
+    >
+      <div
+        className="flex shrink-0 items-center justify-center rounded-full"
+        style={{ ...glass(dark), width: FIELD_H, height: FIELD_H, marginRight: 12 }}
+      >
+        <Icon24 d={I_PLUS} color={p.label} evenOdd={false} />
+      </div>
+
+      <div
+        ref={fieldRef}
+        className="relative flex min-w-0 flex-1 items-center"
+        style={{ ...glass(dark), borderRadius: FIELD_H / 2, minHeight: FIELD_H }}
+      >
+        {anyInput ? (
+          <div
+            className="flex min-w-0 flex-1 flex-col justify-end overflow-hidden"
+            style={{ minHeight: INPUT_MIN_H, maxHeight: INPUT_MAX_H }}
+          >
+            <div
+              dir={dirOf(text)}
+              style={{
+                padding: `${INPUT_INSET_Y}px 12px`,
+                color: p.label,
+                fontSize: BODY,
+                lineHeight: `${BODY * SF_LINE}px`,
+                letterSpacing: "-0.43px",
+                whiteSpace: "pre-wrap",
+                overflowWrap: "anywhere",
+                textAlign: "start",
+              }}
+            >
+              {text}
+              <IosCaret color={dark ? ACCENT.dark : ACCENT.light} exporting={exporting} keystroke={text.length} />
+            </div>
+          </div>
+        ) : (
+          <span
+            className="min-w-0 flex-1 truncate"
+            dir={rtl ? "rtl" : "ltr"}
+            style={{
+              color: p.secondary,
+              fontSize: BODY,
+              lineHeight: "21px",
+              letterSpacing: "-0.43px",
+              paddingLeft: 12,
+              paddingRight: 12 + 3 * FIELD_H,
+              textAlign: rtl ? "right" : "left",
+            }}
+          >
+            {placeholder}
+          </span>
+        )}
+        {/* in-field buttons, pinned to the bottom trailing corner (4pt in) */}
+        <div className="absolute bottom-0 flex" style={{ right: 4 }}>
+          {[
+            { d: I_STICKER, on: !anyInput },
+            { d: I_CAMERA, on: !send },
+            { d: I_MIC, on: !send },
+          ].map((b, i) => (
+            <span
+              key={i}
+              className={`flex items-center justify-center ${pop}`}
+              style={{ width: FIELD_H, height: FIELD_H, ...shown(b.on) }}
+            >
+              <Icon24 d={b.d} color={p.label} />
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* send: 12pt gap + 40pt prominent-glass capsule, 16pt from the edge */}
+      <div className={`relative shrink-0 ${pop}`} style={{ width: send ? 12 + FIELD_H : 0, height: FIELD_H }}>
+        <div
+          className={`absolute bottom-0 right-0 flex items-center justify-center rounded-full ${pop}`}
+          style={{
+            width: FIELD_H,
+            height: FIELD_H,
+            background: dark ? SEND_TINT.dark : SEND_TINT.light,
+            boxShadow: dark
+              ? "inset 0 0.5px 0 rgba(255,255,255,0.28), 0 3px 10px rgba(0,0,0,0.35)"
+              : "inset 0 0.5px 0 rgba(255,255,255,0.45), 0 3px 10px rgba(34,103,245,0.22)",
+            ...shown(send),
+          }}
+        >
+          <Icon24 d={I_ARROW_UP} color="#ffffff" evenOdd={false} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ------------------------------ component ------------------------------ */
 
 /** Positions each outgoing fill's slice of the screen-fixed gradient, and the sticky date header. */
@@ -928,7 +1386,16 @@ export function Signal({ scenario, playback, lang, rtl }: PlatformProps) {
   const { messages, clockMs } = playback;
   const live = playback.isLive;
   const typing = playback.typing || (!live && scenario.presence === "typing");
-  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}`);
+  const draftText = playback.draft?.text ?? "";
+  // [IT] the field grows with the draft; the list keeps its newest row above it
+  const fieldRef = useRef<HTMLDivElement>(null);
+  const [fieldH, setFieldH] = useState(FIELD_H);
+  useLayoutEffect(() => {
+    const h = fieldRef.current ? Math.round(fieldRef.current.offsetHeight) : FIELD_H;
+    if (h && h !== fieldH) setFieldH(h);
+  });
+  const bodyBottom = BODY_BOTTOM + (fieldH - FIELD_H);
+  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}-${fieldH}`);
   const rootRef = useRef<HTMLDivElement>(null);
   const [fontsTick, setFontsTick] = useState(0);
 
@@ -973,14 +1440,32 @@ export function Signal({ scenario, playback, lang, rtl }: PlatformProps) {
     const footer: FooterSpec | null = hideFooter
       ? null
       : { time: m.time, status, color: mine ? p.outSecondary : p.secondary };
-    const ctx: BubbleCtx = { p, rtl, mine, radii: cornerRadii(mine, rtl, first, last), footer, fontsTick };
-    const jumbo = m.type === "text" ? emojiCount(m.text) : 0;
+    const target = m.replyToId ? scenario.messages.find((x) => x.id === m.replyToId) : undefined;
+    const quote = target ? quoteOf(target, scenario.them, l) : null;
+    const ctx: BubbleCtx = {
+      p,
+      rtl,
+      mine,
+      dark,
+      radii: cornerRadii(mine, rtl, first, last),
+      footer,
+      fontsTick,
+      quote,
+      topStartSharp: !mine && !first,
+      topEndSharp: mine && !first,
+    };
+    // a quoted message always has a bubble (no borderless jumbomoji)
+    const jumbo = m.type === "text" && !quote ? emojiCount(m.text) : 0;
 
     let content: ReactNode;
     if (m.type === "voice") content = <VoiceBubble m={m} ctx={ctx} />;
     else if (m.type === "image") content = <MediaBubble m={m} ctx={ctx} />;
     else if (jumbo) content = <JumboBubble text={m.text} count={jumbo} ctx={ctx} />;
     else content = <TextBubble text={m.text} ctx={ctx} />;
+
+    const reaction = m.reaction?.trim();
+    // the pill sits on the bubble edge that faces the middle of the screen
+    const innerLeft = mine !== rtl;
 
     rows.push(
       <div
@@ -992,9 +1477,18 @@ export function Signal({ scenario, playback, lang, rtl }: PlatformProps) {
           justifyContent: mine ? "flex-end" : "flex-start",
           paddingInline: GUTTER,
           marginTop: i === 0 ? GAP_DEFAULT : first ? GAP_DEFAULT : GAP_CLUSTER,
+          // hOuterStack bottom inset = reaction protrusion (24 − 7)
+          paddingBottom: reaction ? REACTION_H - REACTION_OVERLAP : 0,
         }}
       >
-        {content}
+        {reaction ? (
+          <div className="relative" style={{ minWidth: 0 }}>
+            {content}
+            <ReactionPill emoji={reaction} fromMe={!mine} innerLeft={innerLeft} dark={dark} p={p} />
+          </div>
+        ) : (
+          content
+        )}
       </div>,
     );
   });
@@ -1013,7 +1507,7 @@ export function Signal({ scenario, playback, lang, rtl }: PlatformProps) {
 
       {/* ------------------------------ thread ------------------------------ */}
       <div ref={scrollRef} className="rcss-scroll absolute inset-0 overflow-y-auto">
-        <div style={{ paddingTop: CONTENT_TOP, paddingBottom: BODY_BOTTOM }}>
+        <div style={{ paddingTop: CONTENT_TOP, paddingBottom: bodyBottom }}>
           <ThreadDetails person={scenario.them} p={p} text={l.noGroups} />
           <div className="flex justify-center" style={{ marginTop: GAP_DEFAULT }}>
             <div data-sig-date style={{ padding: "3px 12px", color: p.secondary }}>
@@ -1088,45 +1582,21 @@ export function Signal({ scenario, playback, lang, rtl }: PlatformProps) {
       <div
         className="pointer-events-none absolute inset-x-0 bottom-0 z-10"
         style={{
-          height: BODY_BOTTOM,
-          background: `linear-gradient(to top, ${p.bg} 0px, ${p.bgA(0.9)} ${SAFE_BOTTOM - 8}px, ${p.bgA(0.55)} ${SAFE_BOTTOM + 22}px, ${p.bgA(0.18)} ${SAFE_BOTTOM + 48}px, ${p.bgA(0)} ${BODY_BOTTOM}px)`,
+          height: bodyBottom,
+          background: `linear-gradient(to top, ${p.bg} 0px, ${p.bgA(0.9)} ${SAFE_BOTTOM - 8}px, ${p.bgA(0.55)} ${SAFE_BOTTOM + 22}px, ${p.bgA(0.18)} ${SAFE_BOTTOM + 48}px, ${p.bgA(0)} ${bodyBottom}px)`,
         }}
       />
 
       {/* ------------------------------ composer [IT] ------------------------------ */}
-      <div
-        dir="ltr"
-        className="pointer-events-none absolute z-20 flex items-center"
-        style={{ left: GUTTER, right: GUTTER, bottom: SAFE_BOTTOM + 8, height: FIELD_H, gap: 12 }}
-      >
-        <div className="flex shrink-0 items-center justify-center rounded-full" style={{ ...glass(dark), width: FIELD_H, height: FIELD_H }}>
-          <Icon24 d={I_PLUS} color={p.label} evenOdd={false} />
-        </div>
-        <div className="relative flex h-full min-w-0 flex-1 items-center rounded-full" style={glass(dark)}>
-          <span
-            className="min-w-0 flex-1 truncate"
-            dir={rtl ? "rtl" : "ltr"}
-            style={{
-              color: p.secondary,
-              fontSize: 17,
-              lineHeight: "21px",
-              letterSpacing: "-0.43px",
-              paddingLeft: 12,
-              paddingRight: 12,
-              textAlign: rtl ? "right" : "left",
-            }}
-          >
-            {l.placeholder}
-          </span>
-          <div className="flex shrink-0" style={{ marginRight: 4 }}>
-            {[I_STICKER, I_CAMERA, I_MIC].map((d, i) => (
-              <span key={i} className="flex items-center justify-center" style={{ width: FIELD_H, height: FIELD_H }}>
-                <Icon24 d={d} color={p.label} />
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
+      <IosComposer
+        p={p}
+        dark={dark}
+        rtl={rtl}
+        placeholder={l.placeholder}
+        text={draftText}
+        clockMs={clockMs}
+        fieldRef={fieldRef}
+      />
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20">
         <SystemBottomBar device={scenario.device} bg="transparent" fg={p.label} />

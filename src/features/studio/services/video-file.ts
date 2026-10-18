@@ -16,6 +16,13 @@ export function createVideoFile(blob: Blob, platform: Platform, device: Device =
   return new File([blob], videoFileName(platform, device), { type: blob.type || "video/mp4" });
 }
 
+const MIME: Record<string, string> = { mp4: "video/mp4", gif: "image/gif", png: "image/png", jpg: "image/jpeg" };
+
+/** Any export (mp4 / gif / png / jpg) as a named file, e.g. scenora-whatsapp-iphone-2026-10-18.gif */
+export function createExportFile(blob: Blob, platform: Platform, device: Device, ext: "mp4" | "gif" | "png" | "jpg"): File {
+  return new File([blob], videoFileName(platform, device, ext), { type: blob.type || MIME[ext] });
+}
+
 export function isTouchDevice(): boolean {
   if (typeof navigator === "undefined") return false;
   if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) return true;

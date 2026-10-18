@@ -38,6 +38,20 @@
  * RTL mirrors the layout; the back arrow mirrors, phone / video / play / voice
  * glyphs do not. Each bubble's text direction comes from its content.
  *
+ * Reactions, replies and compose typing (round 4), from the X Chat client [C]
+ * (pin-page-rweb chunk: Mq/wq/dq reactions, u2/d2/f2/p2 reply preview, ct composer)
+ * and the XChat launch film (0:21, typed draft + send disc). Web px × 16/15:
+ *  - reaction chip: rounded-full, 21 dp content row, px 8.5, min-w 43, 1 dp ring in
+ *    the page colour, tucked 10.5 dp under the bubble and 13 dp in from its edge on
+ *    the sender's side; my reaction = selected (#1D9BF0 fill), theirs = gray-50 fill.
+ *  - reply preview above the bubble: icon-reply-alt + quoted sender name (14/17 sp,
+ *    gray-700), then the quote pill (px 13, py 6.5, 2 lines): gray-50 fill when it
+ *    quotes them, 1 dp #1D9BF0/50 outline + blue text when it quotes me; voice →
+ *    icon-voice + "Voice message", photo → 25% thumbnail (8.5 dp corners, hairline).
+ *  - draft: text-colour text with a 2 dp caret, capsule grows (fixed 22 dp corners,
+ *    up to 5 lines), the voice glyph becomes a 34 dp #1D9BF0 disc with a white
+ *    icon-arrow-up, 5 dp from the capsule's end and bottom; 80 ms scale-0.9 fade.
+ *
  * Motion: outgoing pills rise from the composer and settle on a lightly damped
  * spring while scaling 0.94 → 1; incoming pills fade up 10 dp (same functions as
  * iOS). Keyframes are generated from the same frame functions used by
@@ -69,6 +83,8 @@ interface Pal {
   avatarFg: string;
   playDisc: string;
   playGlyph: string;
+  /** gray-200 hairline around reply thumbnails */
+  hairline: string;
 }
 
 const LIGHT: Pal = {
@@ -83,6 +99,7 @@ const LIGHT: Pal = {
   avatarFg: "#ffffff",
   playDisc: "#000000",
   playGlyph: "#ffffff",
+  hairline: "#e5e5e5",
 };
 
 const DARK: Pal = {
@@ -97,11 +114,23 @@ const DARK: Pal = {
   avatarFg: "#8a8a8a",
   playDisc: "#ffffff",
   playGlyph: "#000000",
+  hairline: "#2e2e2e",
 };
 
-const STR: Record<Lang, { today: string; message: string; seen: string; sent: string; typing: (n: string) => string }> = {
-  en: { today: "Today", message: "Message", seen: "Seen", sent: "Sent", typing: (n) => `${n} is typing …` },
-  ar: { today: "اليوم", message: "رسالة", seen: "تمت المشاهدة", sent: "تم الإرسال", typing: (n) => `${n} يكتب …` },
+interface Strings {
+  today: string;
+  message: string;
+  seen: string;
+  sent: string;
+  typing: (n: string) => string;
+  voice: string;
+  photo: string;
+}
+
+/* X Chat bundle strings; "Voice message" / "Photo" are the reply-preview labels. */
+const STR: Record<Lang, Strings> = {
+  en: { today: "Today", message: "Message", seen: "Seen", sent: "Sent", typing: (n) => `${n} is typing …`, voice: "Voice message", photo: "Photo" },
+  ar: { today: "اليوم", message: "رسالة", seen: "تمت المشاهدة", sent: "تم الإرسال", typing: (n) => `${n} يكتب …`, voice: "رسالة صوتية", photo: "الصورة" },
 };
 
 /* metrics (dp) */
@@ -120,6 +149,29 @@ const GAP_SENDER = 16;
 const GAP_AFTER_RECEIPT = 14;
 const TOOLBAR_H = 56;
 const COMPOSER_H = 44;
+
+/* Reply preview + reaction chip: X Chat client metrics (web px) × 16/15 (Android body / web body). */
+const QUOTE_TEXT = 14; // subtext2 13px
+const QUOTE_LINE = 17; // 16px
+const QUOTE_PAD_Y = 6.5; // py-1.5
+const QUOTE_PAD_X = 13; // px-3
+const QUOTE_GAP = 4; // gap-1
+const THUMB_SCALE = 0.25; // reply thumbnails are 25% of the media size
+const THUMB_RADIUS = 8.5; // rounded-sm 8px
+const CHIP_H = 21; // h-5 row
+const CHIP_PAD_X = 8.5; // px-2
+const CHIP_MIN_W = 43; // min-w-10
+const CHIP_RING = 1; // 1px border in the page colour
+const CHIP_EMOJI = 16; // 18px × 0.84
+const CHIP_OVERLAP = 10.5; // -mt-2.5
+const CHIP_INSET = 13; // mx-3
+const CHIP_AFTER = 4; // pb-1
+
+/* Compose typing: capsule grows with fixed 22 dp corners, send disc bottom-aligned. */
+const SEND_D = 34;
+const SEND_INSET = (COMPOSER_H - SEND_D) / 2;
+const DRAFT_MAX_LINES = 5;
+const CARET_PERIOD = 1000;
 
 /* ------------------------------ motion ------------------------------ */
 
@@ -201,6 +253,10 @@ const STYLE = [
   `.xc-and-anim-in{animation:xc-and-in ${IN_MS}ms linear both}`,
   `.xc-and-anim-typing{animation:xc-and-fade ${TYPING_IN_MS}ms ease-out both}`,
   ".xc-and-anim-receipt{animation:xc-and-fade 200ms ease-out both}",
+  "@keyframes xc-and-caret{0%,50%{opacity:1}50.01%,100%{opacity:0}}",
+  `.xc-and-caret{animation:xc-and-caret ${CARET_PERIOD}ms linear infinite}`,
+  "@keyframes xc-and-send{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:scale(1)}}",
+  ".xc-and-send{animation:xc-and-send 80ms ease-out both}",
   "@keyframes xc-and-shim{0%{color:var(--xc-sec)}15%{color:var(--xc-pri)}60%{color:var(--xc-pri)}75%{color:var(--xc-sec)}100%{color:var(--xc-sec)}}",
 ].join("\n");
 
@@ -223,6 +279,7 @@ const D = {
     "M13.7314 4.00586C15.773 4.10929 17.4537 5.57379 17.8887 7.50977L22.5 5.46094V18.5391L17.8887 16.4893C17.4377 18.4984 15.6452 20 13.5 20H6C3.51472 20 1.5 17.9853 1.5 15.5V8.5C1.5 6.01472 3.51472 4 6 4H13.5L13.7314 4.00586ZM6 6C4.61929 6 3.5 7.11929 3.5 8.5V15.5C3.5 16.8807 4.61929 18 6 18H13.5C14.8807 18 16 16.8807 16 15.5V8.5C16 7.20566 15.0164 6.14082 13.7559 6.0127L13.5 6H6ZM18 9.64941V14.3496L20.5 15.4609V8.53906L18 9.64941Z",
   plus: "M11 11V4h2v7h7v2h-7v7h-2v-7H4v-2h7z",
   voice: "M7 21V3h2v18H7zm8-2V5h2v14h-2zm-4-2V7h2v10h-2zm-8-2V9h2v6H3zm16 0V9h2v6h-2z",
+  arrowUp: "M12 3.59l7.457 7.45-1.414 1.42L13 7.41V21h-2V7.41l-5.043 5.05-1.414-1.42L12 3.59z",
   play: "M6 17.93V6.07C6 4.51 7.71 3.55 9.05 4.37L18.72 10.29C19.99 11.08 19.99 12.92 18.72 13.71L9.05 19.63C7.71 20.45 6 19.49 6 17.93Z",
   photo:
     "M3 5.5C3 4.119 4.119 3 5.5 3h13C19.881 3 21 4.119 21 5.5v13c0 1.381-1.119 2.5-2.5 2.5h-13C4.119 21 3 19.881 3 18.5v-13zM5.5 5c-.276 0-.5.224-.5.5v9.086l3-3 3 3 5-5 3 3V5.5c0-.276-.224-.5-.5-.5h-13zM19 15.414l-3-3-5 5-3-3-3 3V18.5c0 .276.224.5.5.5h13c.276 0 .5-.224.5-.5v-3.086zM9.75 7C8.784 7 8 7.784 8 8.75s.784 1.75 1.75 1.75 1.75-.784 1.75-1.75S10.716 7 9.75 7z",
@@ -327,8 +384,8 @@ function VoiceBubble({ m, mine, p }: { m: Message; mine: boolean; p: Pal }) {
   );
 }
 
-function ImageBubble({ src, p }: { src?: string | null; p: Pal }) {
-  const [ratio, setRatio] = useState<number | null>(null);
+/** Bubble size of a photo (dp), shared by the image bubble and its reply thumbnail. */
+function fitImage(src: string | null | undefined, ratio: number | null): { w: number; h: number } {
   let w = IMG_MAX_W;
   let h = 204;
   if (src) {
@@ -340,6 +397,12 @@ function ImageBubble({ src, p }: { src?: string | null; p: Pal }) {
     }
     h = Math.max(140, h);
   }
+  return { w, h };
+}
+
+function ImageBubble({ src, p }: { src?: string | null; p: Pal }) {
+  const [ratio, setRatio] = useState<number | null>(null);
+  const { w, h } = fitImage(src, ratio);
   return (
     <div className="overflow-hidden" style={{ width: Math.round(w), height: Math.round(h), borderRadius: IMG_RADIUS, background: p.photoFill }}>
       {src ? (
@@ -360,6 +423,141 @@ function ImageBubble({ src, p }: { src?: string | null; p: Pal }) {
         </div>
       )}
     </div>
+  );
+}
+
+/** 25%-scale photo thumbnail of the reply preview (rounded-sm, gray-200 hairline) [C]. */
+function ReplyThumb({ src, p }: { src?: string | null; p: Pal }) {
+  const [ratio, setRatio] = useState<number | null>(null);
+  const { w, h } = fitImage(src, ratio);
+  return (
+    <div
+      className="overflow-hidden"
+      style={{
+        width: Math.round(w * THUMB_SCALE),
+        height: Math.round(h * THUMB_SCALE),
+        borderRadius: THUMB_RADIUS,
+        border: `1px solid ${p.hairline}`,
+        background: p.photoFill,
+      }}
+    >
+      {src && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={src}
+          alt=""
+          draggable={false}
+          className="block h-full w-full object-cover"
+          onLoad={(e) => {
+            const im = e.currentTarget;
+            if (im.naturalWidth && im.naturalHeight) setRatio(im.naturalWidth / im.naturalHeight);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * X Chat's reply preview, stacked above the replying bubble on the same side [C]:
+ * icon-reply-alt + the quoted sender's name, then the quoted text in a small pill
+ * (two lines max) — gray-50 fill / gray-700 text when it quotes them, a 1px
+ * chat-accent/50 outline + accent text when it quotes me. Voice → icon-voice +
+ * "Voice message"; photo → 25% thumbnail.
+ */
+function ReplyPreview({ target, name, mine, p, l }: { target: Message; name: string; mine: boolean; p: Pal; l: Strings }) {
+  const quotesMe = target.sender === "me";
+  const pill: CSSProperties = quotesMe
+    ? { border: "1px solid rgba(29,155,240,0.5)", color: BLUE, padding: `${QUOTE_PAD_Y - 1}px ${QUOTE_PAD_X - 1}px` }
+    : { background: p.inBubble, color: p.secondary, padding: `${QUOTE_PAD_Y}px ${QUOTE_PAD_X}px` };
+  const text = target.text.trim();
+  return (
+    <div className="flex flex-col" style={{ alignItems: mine ? "flex-end" : "flex-start", gap: QUOTE_GAP, marginTop: 2, marginBottom: QUOTE_GAP, maxWidth: MAX_W }}>
+      <div className="flex min-w-0 items-center" style={{ gap: QUOTE_GAP, paddingInline: 8.5, color: p.secondary, maxWidth: "100%" }}>
+        <svg width={QUOTE_TEXT} height={QUOTE_TEXT} viewBox="0 0 12 12" fill={p.secondary} style={{ display: "block", flexShrink: 0 }}>
+          <path d="M3.393 5.565L4.826 7L3.942 7.88L1 4.94L3.942 2L4.826 2.88L3.393 4.315H6.634C8.498 4.315 10.009 5.825 10.009 7.69V9.44H8.759V7.69C8.759 6.515 7.8075 5.565 6.634 5.565H3.393Z" />
+        </svg>
+        <span dir={dirOf(name)} className="truncate" style={{ fontSize: QUOTE_TEXT, lineHeight: `${QUOTE_LINE}px` }}>
+          {name}
+        </span>
+      </div>
+      {target.type === "image" && <ReplyThumb src={target.imageSrc} p={p} />}
+      {target.type === "voice" ? (
+        <div className="flex items-center" style={{ ...pill, gap: 6.5, borderRadius: RADIUS }}>
+          <Glyph d={D.voice} size={17} color="currentColor" />
+          <span style={{ fontSize: QUOTE_TEXT, lineHeight: `${QUOTE_LINE}px`, whiteSpace: "nowrap" }}>{l.voice}</span>
+        </div>
+      ) : text ? (
+        <div style={{ ...pill, borderRadius: RADIUS, maxWidth: "100%" }}>
+          <p
+            dir={dirOf(text)}
+            className="break-words"
+            style={{
+              margin: 0,
+              fontSize: QUOTE_TEXT,
+              lineHeight: `${QUOTE_LINE}px`,
+              textAlign: "start",
+              display: "-webkit-box",
+              WebkitBoxOrient: "vertical",
+              WebkitLineClamp: 2,
+              overflow: "hidden",
+            }}
+          >
+            {text}
+          </p>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * X Chat reaction chip [C]: rounded-full, ringed in the page colour, tucked under the
+ * bubble's bottom edge and inset from its edge on the sender's side. My own reaction
+ * is the selected state (chat-accent fill); theirs uses the gray-50 fill. No count for 1.
+ */
+function ReactionChip({ emoji, mine, p }: { emoji: string; mine: boolean; p: Pal }) {
+  const selected = !mine; // reaction on their message = mine
+  return (
+    <div
+      className="relative flex"
+      style={{ justifyContent: mine ? "flex-end" : "flex-start", paddingInline: CHIP_INSET, marginTop: -CHIP_OVERLAP, marginBottom: CHIP_AFTER, zIndex: 1 }}
+    >
+      <div
+        className="flex items-center justify-center rounded-full"
+        style={{
+          height: CHIP_H + 2 * CHIP_RING,
+          minWidth: CHIP_MIN_W,
+          paddingInline: CHIP_PAD_X,
+          background: selected ? BLUE : p.inBubble,
+          border: `${CHIP_RING}px solid ${p.bg}`,
+          boxSizing: "border-box",
+        }}
+      >
+        <span style={{ fontSize: CHIP_EMOJI, lineHeight: `${CHIP_H}px`, display: "block" }}>{emoji}</span>
+      </div>
+    </div>
+  );
+}
+
+/** The text caret: a 2 dp bar in the text colour, blinking (clockMs-driven in exports). */
+function Caret({ color, clockMs, height }: { color: string; clockMs?: number; height: number }) {
+  const on = clockMs === undefined ? undefined : clockMs % CARET_PERIOD < CARET_PERIOD / 2;
+  return (
+    <span
+      aria-hidden
+      className={clockMs === undefined ? "xc-and-caret" : undefined}
+      style={{
+        display: "inline-block",
+        width: 2,
+        height,
+        marginInlineStart: 1,
+        verticalAlign: -4,
+        borderRadius: 1,
+        background: color,
+        opacity: on === false ? 0 : undefined,
+      }}
+    />
   );
 }
 
@@ -428,6 +626,20 @@ export function XChatAndroid({ scenario, playback, lang, rtl }: PlatformProps) {
   const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}`);
   const typingRef = useRef<HTMLDivElement>(null);
   const typingSince = useRef<number | undefined>(undefined);
+  const draft = playback.draft;
+  const composerRef = useRef<HTMLDivElement>(null);
+  const composerH = useRef<number | undefined>(undefined);
+
+  // As the composer grows with the draft, keep the thread pinned to its bottom.
+  useLayoutEffect(() => {
+    const box = composerRef.current;
+    const list = scrollRef.current;
+    if (!box || !list) return;
+    const h = box.offsetHeight;
+    const prev = composerH.current;
+    composerH.current = h;
+    if (prev !== undefined && h !== prev) list.scrollTop += h - prev;
+  }, [draft?.text, scrollRef]);
 
   // Typing row entrance in exported frames (CSS animations don't run there).
   useLayoutEffect(() => {
@@ -451,6 +663,7 @@ export function XChatAndroid({ scenario, playback, lang, rtl }: PlatformProps) {
     }
   }
 
+  const byId = new Map(messages.map((m) => [m.id, m]));
   const rows: ReactNode[] = [];
   let prevHadReceipt = false;
   messages.forEach((m, i) => {
@@ -483,6 +696,26 @@ export function XChatAndroid({ scenario, playback, lang, rtl }: PlatformProps) {
       );
     } else {
       content = <TextBubble text={m.text} mine={mine} p={p} />;
+    }
+
+    const target = m.replyToId ? byId.get(m.replyToId) : undefined;
+    const reaction = m.reaction?.trim();
+    if (target || reaction) {
+      content = (
+        <div className="flex max-w-full flex-col" style={{ alignItems: mine ? "flex-end" : "flex-start" }}>
+          {target && (
+            <ReplyPreview
+              target={target}
+              name={target.sender === "me" ? scenario.me.name : scenario.them.name}
+              mine={mine}
+              p={p}
+              l={l}
+            />
+          )}
+          {content}
+          {reaction && <ReactionChip emoji={reaction} mine={mine} p={p} />}
+        </div>
+      );
     }
 
     let marginTop = 0;
@@ -561,21 +794,51 @@ export function XChatAndroid({ scenario, playback, lang, rtl }: PlatformProps) {
 
       {/* ------------------------------ composer ------------------------------ */}
       <div
-        className="flex shrink-0 items-center"
-        style={{ height: COMPOSER_H, paddingInlineStart: SIDE, paddingInlineEnd: SIDE, gap: 8, marginTop: 4, marginBottom: 10 }}
+        ref={composerRef}
+        className="flex shrink-0 items-end"
+        style={{ minHeight: COMPOSER_H, paddingInlineStart: SIDE, paddingInlineEnd: SIDE, gap: 8, marginTop: 4, marginBottom: 10 }}
       >
         <span className="flex shrink-0 items-center justify-center rounded-full" style={{ width: COMPOSER_H, height: COMPOSER_H, background: p.plusFill }}>
           <Glyph d={D.plus} color={p.fg} />
         </span>
-        <div
-          className="flex h-full min-w-0 flex-1 items-center rounded-full"
-          style={{ background: p.input, paddingInlineStart: 16, paddingInlineEnd: 13 }}
-        >
-          <span className="min-w-0 flex-1 truncate" style={{ color: p.secondary, fontSize: TEXT, lineHeight: `${LINE}px` }}>
-            {l.message}
-          </span>
-          <Glyph d={D.voice} size={20} color={p.fg} />
-        </div>
+        {draft ? (
+          <div className="relative min-w-0 flex-1" style={{ background: p.input, borderRadius: COMPOSER_H / 2, minHeight: COMPOSER_H }}>
+            <div
+              className="flex flex-col justify-end overflow-hidden"
+              style={{
+                maxHeight: DRAFT_MAX_LINES * LINE + (COMPOSER_H - LINE),
+                paddingBlock: (COMPOSER_H - LINE) / 2,
+                paddingInlineStart: 16,
+                paddingInlineEnd: SEND_INSET + SEND_D + 8,
+              }}
+            >
+              <p
+                dir={dirOf(draft.text)}
+                className="whitespace-pre-wrap"
+                style={{ margin: 0, color: p.fg, fontSize: TEXT, lineHeight: `${LINE}px`, textAlign: "start", overflowWrap: "anywhere" }}
+              >
+                {draft.text}
+                <Caret color={p.fg} clockMs={clockMs} height={19} />
+              </p>
+            </div>
+            <span
+              className={`absolute flex items-center justify-center rounded-full ${live ? "xc-and-send" : ""}`}
+              style={{ insetInlineEnd: SEND_INSET, bottom: SEND_INSET, width: SEND_D, height: SEND_D, background: BLUE }}
+            >
+              <Glyph d={D.arrowUp} size={17} color="#ffffff" />
+            </span>
+          </div>
+        ) : (
+          <div
+            className="flex min-w-0 flex-1 items-center rounded-full"
+            style={{ height: COMPOSER_H, background: p.input, paddingInlineStart: 16, paddingInlineEnd: 13 }}
+          >
+            <span className="min-w-0 flex-1 truncate" style={{ color: p.secondary, fontSize: TEXT, lineHeight: `${LINE}px` }}>
+              {l.message}
+            </span>
+            <Glyph d={D.voice} size={20} color={p.fg} />
+          </div>
+        )}
       </div>
 
       <SystemBottomBar device="android" bg={p.bg} fg={p.fg} />

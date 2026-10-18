@@ -53,6 +53,23 @@
  * "Active now". Emoji-only (1–3) render large with no bubble; photos have no
  * bubble, a caption follows as its own bubble. Call / video / like / play
  * glyphs do not mirror in Arabic; the back arrow does.
+ *
+ * Reactions: a 20dp pill (12sp emoji on white / #3A3B3C, 2dp canvas-colour
+ * ring + soft shadow) hanging off the bubble's bottom corner on the side that
+ * faces the middle of the thread (bottom-left of my bubbles, bottom-right of
+ * theirs), overlapping the bubble by 6dp; the row gets 14dp of extra space.
+ * ("reactions … at the bottom left corner" of your own messages —
+ * https://mobilesyrup.com/2017/03/23/facebook-message-reactions-mentions-messenger/ ;
+ * pill styling cross-checked with https://ishadeed.com/article/facebook-messenger-chat-component/ )
+ * Replies: 12sp secondary label led by the reply arrow — "You replied to
+ * Khalid" / "Khalid replied to you" (AR "قمت بالرد على خالد" / "قام خالد بالرد
+ * عليك", the "قمت بـ…" phrasing of "قمت بإلغاء إرسال رسالة") — then the quoted
+ * message as a washed bubble (max 3 lines) tucked behind the top of the reply
+ * (messenger.com: `.message--washed{margin-bottom:-17px}`). Photos quote as a
+ * faded thumbnail, voice as "Voice message".
+ * Compose typing: + camera gallery mic collapse into one theme-blue ">"
+ * expander, the pill widens and grows up to 5 lines, theme-blue 2dp caret, and
+ * the 👍 becomes the filled paper-plane send glyph (mirrored in Arabic).
  */
 
 import type { CSSProperties, ReactNode } from "react";
@@ -80,6 +97,10 @@ interface Pal {
   divider: string;
   imgPlaceholder: string;
   wave: string;
+  reactBg: string;
+  reactShadow: string;
+  quoteBg: string;
+  quoteFg: string;
 }
 
 function palette(dark: boolean): Pal {
@@ -96,6 +117,10 @@ function palette(dark: boolean): Pal {
         divider: "rgba(255,255,255,0.1)",
         imgPlaceholder: "#242526",
         wave: "#b0b3b8",
+        reactBg: "#3a3b3c",
+        reactShadow: "0 1px 3px rgba(0,0,0,0.5)",
+        quoteBg: "#1c1c1c",
+        quoteFg: "#9a9ca0",
       }
     : {
         bg: "#ffffff",
@@ -109,6 +134,10 @@ function palette(dark: boolean): Pal {
         divider: "rgba(0,0,0,0.1)",
         imgPlaceholder: "#e4e6eb",
         wave: "#65676b",
+        reactBg: "#ffffff",
+        reactShadow: "0 0 0 0.5px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.16)",
+        quoteBg: "#f6f6f6",
+        quoteFg: "#7d7f83",
       };
 }
 
@@ -122,6 +151,11 @@ const STR: Record<
     viewProfile: string;
     e2ee: string;
     learnMore: string;
+    youRepliedTo: (name: string) => string;
+    repliedToYou: (name: string) => string;
+    youRepliedToYourself: string;
+    repliedToThemselves: (name: string) => string;
+    voiceMessage: string;
   }
 > = {
   en: {
@@ -131,6 +165,11 @@ const STR: Record<
     viewProfile: "View profile",
     e2ee: "Messages and calls are secured with end-to-end encryption. Only people in this chat can read, listen to, or share them.",
     learnMore: "Learn more",
+    youRepliedTo: (n) => `You replied to ${n}`,
+    repliedToYou: (n) => `${n} replied to you`,
+    youRepliedToYourself: "You replied to yourself",
+    repliedToThemselves: (n) => `${n} replied to themselves`,
+    voiceMessage: "Voice message",
   },
   ar: {
     activeNow: "نشط الآن",
@@ -139,6 +178,11 @@ const STR: Record<
     viewProfile: "عرض الملف الشخصي",
     e2ee: "الرسائل والمكالمات محمية بالتشفير التام بين الطرفين. لا يمكن لأحد غير الأشخاص في هذه الدردشة قراءتها أو الاستماع إليها أو مشاركتها.",
     learnMore: "معرفة المزيد",
+    youRepliedTo: (n) => `قمت بالرد على ${n}`,
+    repliedToYou: (n) => `قام ${n} بالرد عليك`,
+    youRepliedToYourself: "قمت بالرد على نفسك",
+    repliedToThemselves: (n) => `قام ${n} بالرد على نفسه`,
+    voiceMessage: "رسالة صوتية",
   },
 };
 
@@ -220,6 +264,13 @@ function dotAt(phase: number): { opacity: number; y: number } {
   return { opacity: 0.45 + 0.55 * k, y: -3 * k };
 }
 
+/** Android EditText cursor: 500ms on / 500ms off (BLINK = 500 in Editor.java). */
+const CARET_MS = 1000;
+function caretOn(clockMs: number | undefined): boolean | null {
+  if (clockMs === undefined) return null;
+  return clockMs % CARET_MS < CARET_MS / 2;
+}
+
 const KEYFRAMES = `
 @keyframes msa-enter {
   from { transform: translateY(${RISE}px) scale(${FROM_SCALE}); }
@@ -244,6 +295,11 @@ const KEYFRAMES = `
 [dir="rtl"] .msa-typing-in { transform-origin: right bottom; }
 .msa-fade { animation: msa-fade-in 200ms ease-out both; }
 .msa-dot { animation: msa-dot ${TYPING_CYCLE}ms linear infinite; }
+@keyframes msa-caret {
+  0%, 50% { opacity: 1; }
+  50.01%, 100% { opacity: 0; }
+}
+.msa-caret { animation: msa-caret ${CARET_MS}ms linear infinite; }
 `;
 
 /* ------------------------------- icons ------------------------------ */
@@ -369,6 +425,48 @@ function StatusCircle({ filled, bg }: { filled: boolean; bg: string }) {
   );
 }
 
+/** Composer ">" expander that replaces the four leading glyphs while typing. */
+function ExpandIcon() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="rtl:-scale-x-100">
+      <path d="m9 5 7 7-7 7" stroke={THEME} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** Messenger's filled paper-plane send glyph (replaces the 👍 while typing). */
+function SendIcon() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" className="rtl:-scale-x-100">
+      <path
+        fill={THEME}
+        d="M3.4 2.6 21.6 10.6c1.2.5 1.2 2.3 0 2.8L3.4 21.4c-1.2.5-2.4-.7-1.9-1.9L5.2 13l8.3-1-8.3-1-3.7-6.5c-.5-1.2.7-2.4 1.9-1.9Z"
+      />
+    </svg>
+  );
+}
+
+/** Small curved reply arrow that leads the "You replied to …" label. */
+function ReplyArrow({ color }: { color: string }) {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" className="shrink-0 rtl:-scale-x-100">
+      <path
+        fill={color}
+        d="M9.6 4.2c.7-.6 1.8-.1 1.8.8v3.3c6.2.4 10.1 4.5 10.6 11.2.1.7-.8 1-1.2.4-2-3-4.8-4.5-9.4-4.6v3.4c0 .9-1.1 1.4-1.8.8L2.4 12.8a1 1 0 0 1 0-1.6l7.2-7Z"
+      />
+    </svg>
+  );
+}
+
+function MicGlyph({ color }: { color: string }) {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" className="inline-block shrink-0" style={{ verticalAlign: "-2px" }}>
+      <rect x="8" y="2" width="8" height="13" rx="4" fill={color} />
+      <path d="M5 11a7 7 0 0 0 14 0M12 18v3.6" stroke={color} strokeWidth="2.4" strokeLinecap="round" fill="none" />
+    </svg>
+  );
+}
+
 /* ------------------------------ helpers ----------------------------- */
 
 /** "10:42", "9:05 PM", "٩:٠٥ م" → minutes since midnight (null if unparseable). */
@@ -456,6 +554,103 @@ function VoiceContent({ mine, pal, duration }: { mine: boolean; pal: Pal; durati
   );
 }
 
+/* Reaction pill geometry (dp). */
+const REACT = { h: 20, ring: 2, emoji: 12, overlap: 6, inset: 4, extra: 14 } as const;
+
+/** Reaction pill hanging off the bubble's bottom corner (inner side). */
+function ReactionBadge({ emoji, pal, onRight }: { emoji: string; pal: Pal; onRight: boolean }) {
+  return (
+    <span
+      dir="ltr"
+      className="absolute z-[2] flex items-center justify-center rounded-full"
+      style={{
+        bottom: -(REACT.h - REACT.overlap),
+        ...(onRight ? { left: REACT.inset } : { right: REACT.inset }),
+        height: REACT.h,
+        minWidth: REACT.h,
+        padding: "0 1px",
+        background: pal.reactBg,
+        border: `${REACT.ring}px solid ${pal.bg}`,
+        boxShadow: pal.reactShadow,
+        boxSizing: "border-box",
+        fontSize: REACT.emoji,
+        lineHeight: "14px",
+      }}
+    >
+      {emoji}
+    </span>
+  );
+}
+
+const QUOTE_TUCK = 14;
+
+/** "You replied to Khalid" + the washed quoted bubble tucked behind the reply. */
+function QuoteBlock({ target, mine, label, pal, voiceLabel }: { target: Message; mine: boolean; label: string; pal: Pal; voiceLabel: string }) {
+  const text = target.text.trim();
+  const isVoice = target.type === "voice";
+  return (
+    <div className={`flex flex-col ${mine ? "items-end" : "items-start"}`} style={{ maxWidth: M.maxW }}>
+      <div className="flex items-center" style={{ gap: 4, paddingInline: 12, marginBottom: 4, fontSize: 12, lineHeight: "16px", color: pal.sub }}>
+        <ReplyArrow color={pal.sub} />
+        <span className="truncate" dir="auto">
+          {label}
+        </span>
+      </div>
+      {target.type === "image" ? (
+        <div
+          className="overflow-hidden"
+          style={{ width: 112, height: 140 + QUOTE_TUCK, borderRadius: M.radius, marginBottom: -QUOTE_TUCK, background: pal.imgPlaceholder, opacity: 0.55 }}
+        >
+          {target.imageSrc ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={target.imageSrc} alt="" draggable={false} className="block h-full w-full object-cover" />
+          ) : (
+            <div className="flex h-full items-center justify-center">
+              <ImageGlyph color={pal.sub} />
+            </div>
+          )}
+        </div>
+      ) : (
+        <div
+          style={{
+            borderRadius: M.radius,
+            background: pal.quoteBg,
+            color: pal.quoteFg,
+            padding: `8px 12px ${8 + QUOTE_TUCK}px`,
+            marginBottom: -QUOTE_TUCK,
+            maxWidth: "100%",
+          }}
+        >
+          <div
+            dir={isVoice ? undefined : dirOf(text)}
+            className="line-clamp-3 break-words whitespace-pre-wrap"
+            style={{ fontSize: 14, lineHeight: "18px", textAlign: "start" }}
+          >
+            {isVoice ? (
+              <>
+                <MicGlyph color={pal.quoteFg} /> {voiceLabel}
+              </>
+            ) : (
+              text
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Theme-blue 2dp text cursor (clock-driven blink during export). */
+function Caret({ clockMs }: { clockMs?: number }) {
+  const on = caretOn(clockMs);
+  return (
+    <span
+      className={`inline-block ${on === null ? "msa-caret" : ""}`}
+      style={{ width: 2, height: 19, marginInline: 1, verticalAlign: "-4px", background: THEME, opacity: on === false ? 0 : 1 }}
+    />
+  );
+}
+
 function TypingRow({ person, pal, animate, clockMs }: { person: Person; pal: Pal; animate: boolean; clockMs?: number }) {
   return (
     <div className="flex items-end" style={{ marginTop: M.senderGap, gap: 8 }}>
@@ -497,7 +692,20 @@ export function MessengerAndroid({ scenario, playback, lang, rtl }: PlatformProp
   const { messages, typing, clockMs } = playback;
   const live = playback.isLive && clockMs === undefined;
   const showTyping = typing || (!playback.isLive && clockMs === undefined && scenario.presence === "typing");
-  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${showTyping}`);
+  const draft = playback.draft;
+  const draftText = draft?.text ?? "";
+  const composing = draftText.length > 0;
+  // rough wrapped-line estimate so the thread stays pinned while the composer grows
+  const draftLines = draftText ? Math.min(5, Math.ceil(draftText.length / 24)) : 0;
+  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${showTyping}-${draftLines}`);
+
+  const byId = new Map(scenario.messages.map((m) => [m.id, m] as const));
+  const firstName = scenario.them.name.trim().split(/\s+/)[0] || scenario.them.name;
+  const quoteOf = (m: Message): Message | null => (m.replyToId ? (byId.get(m.replyToId) ?? null) : null);
+  const replyLabel = (m: Message, target: Message): string => {
+    if (m.sender === "me") return target.sender === "me" ? s.youRepliedToYourself : s.youRepliedTo(firstName);
+    return target.sender === "me" ? s.repliedToYou(firstName) : s.repliedToThemselves(firstName);
+  };
 
   const active = scenario.presence !== "lastseen";
   const subtitle = active ? s.activeNow : scenario.lastSeenText;
@@ -594,9 +802,14 @@ export function MessengerAndroid({ scenario, playback, lang, rtl }: PlatformProp
             const kind = kinds[i];
             const sep = needsSeparator(messages, i);
             const g = groupInfo(messages, i);
-            const firstOfGroup = g.firstOfGroup || sep;
+            const quote = quoteOf(m);
+            // a quoted reply opens its own run: full corners above, sender-gap spacing
+            const firstOfGroup = g.firstOfGroup || sep || !!quote;
             const nextSep = i + 1 < messages.length && needsSeparator(messages, i + 1);
-            const lastOfGroup = g.lastOfGroup || nextSep;
+            const nextQuoted = i + 1 < messages.length && !!quoteOf(messages[i + 1]);
+            const lastOfGroup = g.lastOfGroup || nextSep || nextQuoted;
+            const reaction = m.reaction?.trim() || null;
+            const badge = reaction ? <ReactionBadge emoji={reaction} pal={pal} onRight={onRight} /> : null;
             const joinAbove = !firstOfGroup && joins(kinds[i - 1], kind);
             const joinBelow = !lastOfGroup && joins(kind, kinds[i + 1]);
 
@@ -614,26 +827,31 @@ export function MessengerAndroid({ scenario, playback, lang, rtl }: PlatformProp
             let body: ReactNode;
             if (kind === "emoji") {
               body = (
-                <div dir="auto" style={{ fontSize: M.emoji, lineHeight: `${M.emoji + 8}px`, paddingInline: 2 }}>
+                <div dir="auto" className="relative" style={{ fontSize: M.emoji, lineHeight: `${M.emoji + 8}px`, paddingInline: 2 }}>
                   {m.text.trim()}
+                  {badge}
                 </div>
               );
             } else if (kind === "image") {
               const imgCorners = cornersFor(onRight, joinAbove, !!caption || joinBelow, M.imgRadius);
               body = (
                 <>
-                  <div className="overflow-hidden" style={{ ...imgCorners, width: M.imgWidth, background: pal.imgPlaceholder }}>
-                    {m.imageSrc ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={m.imageSrc} alt="" draggable={false} className="block w-full object-cover" style={{ maxHeight: 290 }} />
-                    ) : (
-                      <div className="flex items-center justify-center" style={{ height: 270 }}>
-                        <ImageGlyph color={pal.sub} />
-                      </div>
-                    )}
+                  <div className="relative" style={{ width: M.imgWidth }}>
+                    <div className="overflow-hidden" style={{ ...imgCorners, width: M.imgWidth, background: pal.imgPlaceholder }}>
+                      {m.imageSrc ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={m.imageSrc} alt="" draggable={false} className="block w-full object-cover" style={{ maxHeight: 290 }} />
+                      ) : (
+                        <div className="flex items-center justify-center" style={{ height: 270 }}>
+                          <ImageGlyph color={pal.sub} />
+                        </div>
+                      )}
+                    </div>
+                    {!caption && badge}
                   </div>
                   {caption && (
                     <div
+                      className="relative"
                       style={{
                         ...cornersFor(onRight, true, joinBelow, M.radius),
                         marginTop: M.groupGap,
@@ -645,6 +863,7 @@ export function MessengerAndroid({ scenario, playback, lang, rtl }: PlatformProp
                       <div dir={dirOf(caption)} className="whitespace-pre-wrap break-words" style={{ fontSize: M.text, lineHeight: `${M.line}px`, textAlign: "start" }}>
                         {caption}
                       </div>
+                      {badge}
                     </div>
                   )}
                 </>
@@ -652,6 +871,7 @@ export function MessengerAndroid({ scenario, playback, lang, rtl }: PlatformProp
             } else {
               body = (
                 <div
+                  className="relative"
                   style={{
                     ...cornersFor(onRight, joinAbove, joinBelow, M.radius),
                     background: mine ? THEME : pal.inBubble,
@@ -666,6 +886,7 @@ export function MessengerAndroid({ scenario, playback, lang, rtl }: PlatformProp
                       {m.text}
                     </div>
                   )}
+                  {badge}
                 </div>
               );
             }
@@ -683,7 +904,7 @@ export function MessengerAndroid({ scenario, playback, lang, rtl }: PlatformProp
                   data-mid={m.id}
                   data-sender={m.sender}
                   className={`flex items-end ${mine ? "justify-end" : "justify-start"} ${live ? "msa-enter" : ""}`}
-                  style={{ marginTop, ...(live ? { transformOrigin: originOf(mine, rtl) } : {}) }}
+                  style={{ marginTop, marginBottom: reaction ? REACT.extra : 0, ...(live ? { transformOrigin: originOf(mine, rtl) } : {}) }}
                 >
                   {!mine && (
                     <div className="shrink-0" style={{ width: M.inAvatar, marginInlineEnd: 8 }}>
@@ -691,6 +912,9 @@ export function MessengerAndroid({ scenario, playback, lang, rtl }: PlatformProp
                     </div>
                   )}
                   <div className={`flex min-w-0 flex-col ${mine ? "items-end" : "items-start"}`} style={{ maxWidth: M.maxW }}>
+                    {quote && (
+                      <QuoteBlock target={quote} mine={mine} label={replyLabel(m, quote)} pal={pal} voiceLabel={s.voiceMessage} />
+                    )}
                     {body}
                   </div>
                   {mine && (
@@ -712,23 +936,48 @@ export function MessengerAndroid({ scenario, playback, lang, rtl }: PlatformProp
       </div>
 
       {/* Composer */}
-      <div className="flex shrink-0 items-center" style={{ background: pal.bg, height: 56, paddingInlineStart: 4, paddingInlineEnd: 4 }}>
-        {[<PlusCircle key="p" cut={pal.bg} />, <CameraIcon key="c" />, <GalleryIcon key="g" />, <MicIcon key="m" />].map((icon, k) => (
-          <span key={k} className="flex shrink-0 items-center justify-center" style={{ width: 40, height: 40 }}>
-            {icon}
+      {/* Typing collapses + camera gallery mic into ">" and swaps 👍 for send. */}
+      <div className="flex shrink-0 items-end" style={{ background: pal.bg, minHeight: 56, padding: "10px 4px" }}>
+        {composing ? (
+          <span className="flex shrink-0 items-center justify-center" style={{ width: 40, height: 36 }}>
+            <ExpandIcon />
           </span>
-        ))}
+        ) : (
+          [<PlusCircle key="p" cut={pal.bg} />, <CameraIcon key="c" />, <GalleryIcon key="g" />, <MicIcon key="m" />].map((icon, k) => (
+            <span key={k} className="flex shrink-0 items-center justify-center" style={{ width: 40, height: 36 }}>
+              {icon}
+            </span>
+          ))
+        )}
         <div
-          className="flex min-w-0 flex-1 items-center rounded-full"
-          style={{ background: pal.field, height: 36, marginInlineStart: 4, paddingInlineStart: 14, paddingInlineEnd: 6 }}
+          className="flex min-w-0 flex-1 items-end"
+          style={{ background: pal.field, minHeight: 36, borderRadius: 18, marginInlineStart: 4, paddingInlineStart: 14, paddingInlineEnd: 6 }}
         >
-          <span className="min-w-0 flex-1 truncate" style={{ fontSize: 15, color: pal.sub }}>
-            {s.message}
+          <div className="flex min-w-0 flex-1 flex-col justify-end overflow-hidden" style={{ maxHeight: M.line * 5 + 16, paddingBlock: 8 }}>
+            {composing ? (
+              <div
+                dir={dirOf(draftText)}
+                className="whitespace-pre-wrap break-words"
+                style={{ fontSize: M.text, lineHeight: `${M.line}px`, color: pal.fg, textAlign: "start" }}
+              >
+                {draftText}
+                <Caret clockMs={clockMs} />
+              </div>
+            ) : (
+              <div className="flex min-w-0 items-center" style={{ height: M.line }}>
+                {draft && <Caret clockMs={clockMs} />}
+                <span className="min-w-0 flex-1 truncate" style={{ fontSize: M.text, color: pal.sub, textAlign: "start" }}>
+                  {s.message}
+                </span>
+              </div>
+            )}
+          </div>
+          <span className="flex shrink-0 items-center" style={{ height: 36, marginInlineStart: 6 }}>
+            <SmileyIcon cut={pal.field} />
           </span>
-          <SmileyIcon cut={pal.field} />
         </div>
-        <span className="flex shrink-0 items-center justify-center" style={{ width: 44, height: 40 }}>
-          <LikeIcon />
+        <span className="flex shrink-0 items-center justify-center" style={{ width: 44, height: 36 }}>
+          {composing ? <SendIcon /> : <LikeIcon />}
         </span>
       </div>
 

@@ -111,22 +111,84 @@ function scheduleReceive(ctx: OfflineAudioContext, t: number, out: AudioNode) {
   }
 }
 
-/** Render the whole sound track (stereo, 48 kHz) for the given cues. */
-export async function renderSoundTrack(cues: SoundCue[], durationMs: number): Promise<AudioBuffer> {
+/** Background music bed mixed under the message sounds. */
+export interface MusicBed {
+  buffer: AudioBuffer;
+  /** where in the file the music starts (s) */
+  offsetSec: number;
+  /** 0–1 */
+  volume: number;
+  fadeInMs: number;
+  fadeOutMs: number;
+  /** repeat from `offsetSec` when the file is shorter than the video */
+  loop: boolean;
+}
+
+/** Decode an uploaded audio file (mp3 / m4a / wav / ogg) at the export sample rate. */
+export async function decodeMusic(file: Blob): Promise<AudioBuffer> {
+  const data = await file.arrayBuffer();
+  const ctx = new OfflineAudioContext(CHANNELS, 1, AUDIO_SAMPLE_RATE);
+  return ctx.decodeAudioData(data);
+}
+
+function scheduleMusic(ctx: OfflineAudioContext, m: MusicBed, durationSec: number, out: AudioNode) {
+  const offset = Math.min(Math.max(0, m.offsetSec), Math.max(0, m.buffer.duration - 0.05));
+  const src = ctx.createBufferSource();
+  src.buffer = m.buffer;
+  if (m.loop && m.buffer.duration - offset < durationSec) {
+    src.loop = true;
+    src.loopStart = offset;
+    src.loopEnd = m.buffer.duration;
+  }
+  const g = ctx.createGain();
+  const vol = Math.max(0, Math.min(1, m.volume));
+  const playable = src.loop ? durationSec : Math.min(durationSec, m.buffer.duration - offset);
+  const fin = Math.min(m.fadeInMs / 1000, playable / 2);
+  const fout = Math.min(m.fadeOutMs / 1000, playable / 2);
+  if (fin > 0) {
+    g.gain.setValueAtTime(0, 0);
+    g.gain.linearRampToValueAtTime(vol, fin);
+  } else {
+    g.gain.setValueAtTime(vol, 0);
+  }
+  if (fout > 0) {
+    g.gain.setValueAtTime(vol, Math.max(fin, playable - fout));
+    g.gain.linearRampToValueAtTime(0, playable);
+  }
+  src.connect(g).connect(out);
+  src.start(0, offset);
+  src.stop(durationSec);
+}
+
+/**
+ * Render the whole sound track (stereo, 48 kHz): the message cues plus an
+ * optional music bed, trimmed/looped to the video length, through a gentle
+ * limiter so the mix never clips.
+ */
+export async function renderSoundTrack(cues: SoundCue[], durationMs: number, music?: MusicBed | null): Promise<AudioBuffer> {
   const frames = Math.max(1, Math.ceil((durationMs / 1000) * AUDIO_SAMPLE_RATE));
   const ctx = new OfflineAudioContext(CHANNELS, frames, AUDIO_SAMPLE_RATE);
+  const limiter = ctx.createDynamicsCompressor();
+  limiter.threshold.value = -1.5;
+  limiter.knee.value = 0;
+  limiter.ratio.value = 20;
+  limiter.attack.value = 0.003;
+  limiter.release.value = 0.2;
+  limiter.connect(ctx.destination);
+
   const master = ctx.createGain();
   master.gain.value = 0.9;
   const comp = ctx.createDynamicsCompressor(); // keeps overlapping cues from clipping
   comp.threshold.value = -12;
   comp.ratio.value = 4;
-  master.connect(comp).connect(ctx.destination);
+  master.connect(comp).connect(limiter);
   for (const c of cues) {
     const t = c.at / 1000;
-    if (t * 1000 >= durationMs - 50) continue;
+    if (t < 0 || t * 1000 >= durationMs - 50) continue;
     if (c.kind === "send") scheduleSend(ctx, t, master);
     else scheduleReceive(ctx, t, master);
   }
+  if (music) scheduleMusic(ctx, music, durationMs / 1000, limiter);
   return ctx.startRendering();
 }
 

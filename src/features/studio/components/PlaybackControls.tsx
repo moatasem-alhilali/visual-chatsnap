@@ -18,6 +18,7 @@ export function PlaybackControls({
   messages,
   t,
   selectedId,
+  composeTyping,
   onJump,
   className,
 }: {
@@ -25,13 +26,14 @@ export function PlaybackControls({
   messages: Message[];
   t: StudioLabels;
   selectedId?: string | null;
+  composeTyping?: boolean;
   onJump?: (id: string) => void;
   className?: string;
 }) {
   const { phase } = playback;
   const playing = phase === "playing";
   const paused = phase === "paused";
-  const { elapsed, total, bounds } = usePlaybackClock(playback, messages);
+  const { elapsed, total, bounds } = usePlaybackClock(playback, messages, composeTyping);
 
   const primaryLabel = playing ? t.pause : paused ? t.resume : t.play;
   const onPrimary = playing ? playback.pause : paused ? playback.resume : playback.play;

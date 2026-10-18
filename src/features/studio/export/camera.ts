@@ -41,6 +41,12 @@ export interface CameraOptions {
   followSides: boolean;
   /** glide back to the full frame after the last message */
   zoomOutAtEnd: boolean;
+  /**
+   * Fractions of the output height covered by fixed overlays (e.g. a caption
+   * band). The focused bubble is framed inside the remaining area.
+   */
+  safeTop?: number;
+  safeBottom?: number;
 }
 
 export interface CameraScene {
@@ -107,9 +113,12 @@ export function focusState(
 ): CameraState {
   if (!focus) return WIDE(scene);
   if (lockScale) opts = { ...opts, maxZoom: lockScale };
+  const st = Math.max(0, opts.safeTop ?? 0);
+  const sb = Math.max(0, opts.safeBottom ?? 0);
+  const avail = Math.max(0.3, 1 - st - sb);
   if (context) {
     const u = union(focus, context);
-    const fitU = Math.min((scene.W * 0.9) / Math.max(1, u.w), (scene.H * 0.55) / Math.max(1, u.h));
+    const fitU = Math.min((scene.W * 0.9) / Math.max(1, u.w), (scene.H * 0.55 * avail) / Math.max(1, u.h));
     // context never lowers the zoom (that would pump in and out between messages)
     if (fitU >= opts.maxZoom) {
       return focusState(u, scene, { ...opts, maxZoom: Math.min(opts.maxZoom, fitU) });
@@ -117,22 +126,23 @@ export function focusState(
   }
   const { W, H, phone } = scene;
   // zoom in up to maxZoom, but never so far that a big bubble (photo) won't fit
-  const fit = Math.min((W * 0.86) / Math.max(1, focus.w), (H * 0.5) / Math.max(1, focus.h));
+  const fit = Math.min((W * 0.86) / Math.max(1, focus.w), (H * 0.5 * avail) / Math.max(1, focus.h));
   const scale = Math.max(1, Math.min(opts.maxZoom, fit));
   const phoneCx = phone.x + phone.w / 2;
   const fx = focus.x + focus.w / 2;
   // stay centred on the phone and lean a little toward the speaker; the pan
   // below then only moves as far as needed to keep the bubble fully in view
   let cx = phoneCx + (fx - phoneCx) * (opts.followSides ? 0.3 : 0);
-  // put the bubble a little below centre: the context above it stays readable
-  let cy = focus.y + focus.h / 2 - (H / scale) * 0.08;
-  // …but the focused bubble itself must always be fully in view (with margin)
   const vw = W / scale;
   const vh = H / scale;
+  // put the bubble a little below the centre of the free area (fixed overlays
+  // such as a caption band are excluded): the context above stays readable
+  let cy = focus.y + focus.h / 2 - vh * 0.08 * avail - (vh * (st - sb)) / 2;
+  // …but the focused bubble itself must always be fully in view (with margin)
   const mx = Math.min(vw * 0.06, Math.max(0, (vw - focus.w) / 2));
-  const my = Math.min(vh * 0.06, Math.max(0, (vh - focus.h) / 2));
+  const my = Math.min(vh * 0.06 * avail, Math.max(0, (vh * avail - focus.h) / 2));
   cx = Math.max(Math.min(cx, focus.x - mx + vw / 2), focus.x + focus.w + mx - vw / 2);
-  cy = Math.max(Math.min(cy, focus.y - my + vh / 2), focus.y + focus.h + my - vh / 2);
+  cy = Math.max(Math.min(cy, focus.y - my + vh / 2 - vh * st), focus.y + focus.h + my - vh / 2 + vh * sb);
   return clampCamera({ scale, cx, cy }, scene);
 }
 

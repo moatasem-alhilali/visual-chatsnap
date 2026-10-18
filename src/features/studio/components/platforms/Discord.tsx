@@ -55,6 +55,39 @@
  *     call buttons top-right; voice message = blurple play circle, waveform,
  *     duration; no read receipts anywhere in Discord.
  *
+ * Round 4 (reactions, replies, compose typing) — all from the live client CSS
+ * (discord.com/assets/*.css, Oct 2026; theme tokens resolved for .theme-darker
+ * = "Dark" and .theme-light):
+ *   Reaction pill (.reaction / .reactionInner / .reactionCount): radius 8,
+ *     1 px border, padding 2/6, 20 px emoji with 2 px block margin, count 14
+ *     semibold 6 px after the emoji, 4 px between pills.
+ *     default  bg --reaction-background-default  #97979f@.122 (both themes)
+ *              border --reaction-border-default   #97979f@.122 · @.278 (light)
+ *              count --text-subtle                #abacb2 · #595a63
+ *     mine     bg --reaction-background-reacted-default #5865f2@.239
+ *              border --reaction-border-reacted-default #5865f2
+ *              count --reaction-text-reacted-default  #b9c8ff · #273478
+ *   Reply bar (.repliedMessage / .replyAvatar / .messageSpine:before): one
+ *     14 px line on an 18 px line-height (--custom-message-reply-message-
+ *     preview-line-height 1.125rem), 4 px (--reply-spacing) above the header,
+ *     16 px round avatar + 4 px (--custom-message-meta-space), "@name" at
+ *     .64 opacity, one-line snippet in --text-default. Spine: 2 px border
+ *     (top + start) with a 6 px start-start radius in --spine-default
+ *     #474851 · #c5c6ca, from the avatar's centre line to 4 px before the
+ *     reply, top at the line's middle, ending 2 px above the avatar. A reply
+ *     always starts a new message group (avatar + name are shown again).
+ *     Attachment-only targets read "Tap to see attachment" (italic) + image icon.
+ *   Floating chat bar while typing (.mobile-visual-refresh-floating): send
+ *     button 36×36 (--mobile-chat-input-send-button-*), a blurple
+ *     (--control-primary-background-default #5865f2) circle with the white
+ *     SendMessageIcon; it replaces the mic, the Gift button collapses and the
+ *     Emoji button stays. Input text-md/normal (16/20) in --text-default; the
+ *     bar grows line by line (buttons stay pinned to the bottom) up to 6 lines.
+ *     Replying adds the floating accessory bar above it (1 px border, 8 px
+ *     below, 16 px side margins, context-bar padding 12/8):
+ *     "Replying to Name" · "@ ON" · close.
+ *   Voice message duration in the floating refresh: text-sm/semibold (14/600).
+ *
  * Arabic / RTL: Discord ships no Arabic localisation and no RTL layout (the
  * client's locale list has no "ar"; support.discord.com community posts
  * 360050257474 and 360030086752 are open requests). On an Arabic iPhone the
@@ -98,6 +131,14 @@ interface Pal {
   playTo: string;
   wave: string;
   homeIndicator: string;
+  spine: string;
+  reactBg: string;
+  reactBorder: string;
+  reactText: string;
+  reactedBg: string;
+  reactedBorder: string;
+  reactedText: string;
+  brand: string;
 }
 
 function palette(dark: boolean): Pal {
@@ -117,6 +158,14 @@ function palette(dark: boolean): Pal {
         playTo: "#4752c4",
         wave: "#6c6d76",
         homeIndicator: "#ffffff",
+        spine: "#474851",
+        reactBg: "rgba(151,151,159,0.122)",
+        reactBorder: "rgba(151,151,159,0.122)",
+        reactText: "#abacb2",
+        reactedBg: "rgba(88,101,242,0.239)",
+        reactedBorder: "#5865f2",
+        reactedText: "#b9c8ff",
+        brand: "#5865f2",
       }
     : {
         bg: "#fbfbfb",
@@ -133,6 +182,14 @@ function palette(dark: boolean): Pal {
         playTo: "#5865f2",
         wave: "#abacb2",
         homeIndicator: "#000000",
+        spine: "#c5c6ca",
+        reactBg: "rgba(151,151,159,0.122)",
+        reactBorder: "rgba(151,151,159,0.278)",
+        reactText: "#595a63",
+        reactedBg: "rgba(88,101,242,0.239)",
+        reactedBorder: "#5865f2",
+        reactedText: "#273478",
+        brand: "#5865f2",
       };
 }
 
@@ -149,6 +206,9 @@ const EN = {
   todayAt: (time: string) => `Today at ${time}`,
   isTyping: " is typing...",
   beginning: "This is the beginning of your direct message history with ",
+  attachment: "Tap to see attachment",
+  replyingTo: "Replying to ",
+  mentionOn: "ON",
 };
 const STR: Record<Lang, typeof EN> = { en: EN, ar: EN };
 
@@ -199,6 +259,7 @@ const NAME_LINE = 20;
 const GROUP_GAP = 16; // [B] 56 pt pitch for one-line groups
 const IN_GROUP_GAP = 4;
 const BAR_H = 56;
+const DRAFT_MAX_LINES = 6; // the input grows to ~6 lines, then scrolls inside
 const BAR_BOTTOM = 23; // bar bottom sits 42 pt above the screen edge = 23 + 19 (home-indicator band)
 
 /* --------------------------------- motion --------------------------------- */
@@ -247,6 +308,14 @@ function dotAt(ms: number, i: number): { opacity: number; scale: number } {
   return { opacity: 0.3 + 0.7 * k, scale: 0.85 + 0.15 * k };
 }
 
+/** UIKit text caret: ~0.5 s on / 0.5 s off. */
+const CARET_CYCLE = 1000;
+const CARET_ON_PCT = 50;
+
+function caretOn(ms: number): boolean {
+  return ((ms % CARET_CYCLE) + CARET_CYCLE) % CARET_CYCLE < (CARET_CYCLE * CARET_ON_PCT) / 100;
+}
+
 /** Keyframes generated from the exporter's own functions → preview == export. */
 const DISCORD_IOS_CSS = (() => {
   const steps = 26;
@@ -265,7 +334,9 @@ const DISCORD_IOS_CSS = (() => {
     `@keyframes dcios-enter{${frames}}.dcios-enter{animation:dcios-enter ${ENTER_MS}ms linear both}` +
     `@keyframes dcios-dot{${dot}}.dcios-dot{animation:dcios-dot ${DOT_CYCLE}ms linear infinite}` +
     `@keyframes dcios-fade{from{opacity:0}to{opacity:1}}.dcios-fade{animation:dcios-fade 180ms ease-out both}` +
-    `.dcios-pending{transition:opacity 150ms ease-out}`
+    `.dcios-pending{transition:opacity 150ms ease-out}` +
+    `@keyframes dcios-caret{0%,${CARET_ON_PCT}%{opacity:1}${CARET_ON_PCT + 0.01}%,100%{opacity:0}}` +
+    `.dcios-caret{animation:dcios-caret ${CARET_CYCLE}ms linear infinite}`
   );
 })();
 
@@ -389,9 +460,31 @@ function PlayGlyph() {
   );
 }
 
-function ImageGlyph({ color }: { color: string }) {
+/** SendMessageIcon (paper plane) — the send button's glyph; never mirrored. */
+function SendGlyph() {
   return (
-    <Icon size={40}>
+    <Icon size={20}>
+      <path
+        fill="#ffffff"
+        d="M6.6 10.02 14 11.4a.6.6 0 0 1 0 1.18L6.6 14l-2.94 5.87a1.48 1.48 0 0 0 1.99 1.98l17.03-8.52a1.48 1.48 0 0 0 0-2.64L5.65 2.16a1.48 1.48 0 0 0-1.99 1.98l2.94 5.88Z"
+      />
+    </Icon>
+  );
+}
+
+/** Filled circle with an X — the reply accessory's close button. */
+function CircleXGlyph({ color, cut }: { color: string; cut: string }) {
+  return (
+    <Icon size={20}>
+      <circle cx="12" cy="12" r="10" fill={color} />
+      <path d="m8.5 8.5 7 7m0-7-7 7" stroke={cut} strokeWidth="2" strokeLinecap="round" />
+    </Icon>
+  );
+}
+
+function ImageGlyph({ color, size = 40 }: { color: string; size?: number }) {
+  return (
+    <Icon size={size}>
       <path
         fill={color}
         fillRule="evenodd"
@@ -530,7 +623,7 @@ function VoiceMessage({ id, pal, duration }: { id: string; pal: Pal; duration?: 
       </span>
       <span
         className="shrink-0 tabular-nums"
-        style={{ color: pal.muted, fontSize: 12, lineHeight: "16px", fontWeight: 600, marginLeft: -2 }}
+        style={{ color: pal.muted, fontSize: 14, lineHeight: "18px", fontWeight: 600, marginLeft: -2 }}
       >
         {duration || "0:08"}
       </span>
@@ -560,6 +653,138 @@ function usernameOf(name: string): string {
     .slice(0, 32);
 }
 
+/* ------------------------- reactions / replies / caret ------------------------- */
+
+/** One reaction pill with count 1; `me` = my own reaction (blurple reacted state). */
+function ReactionPill({ emoji, me, pal }: { emoji: string; me: boolean; pal: Pal }) {
+  return (
+    <div className="flex" style={{ paddingTop: 4 }}>
+      <span
+        className="flex items-center"
+        style={{
+          boxSizing: "border-box",
+          borderRadius: 8,
+          border: `1px solid ${me ? pal.reactedBorder : pal.reactBorder}`,
+          background: me ? pal.reactedBg : pal.reactBg,
+          padding: "2px 6px",
+        }}
+      >
+        <span
+          className="flex items-center justify-center"
+          style={{ width: 20, height: 20, margin: "2px 0", fontSize: 17, lineHeight: "20px" }}
+        >
+          {emoji}
+        </span>
+        <span
+          className="tabular-nums"
+          style={{
+            color: me ? pal.reactedText : pal.reactText,
+            fontSize: 14,
+            lineHeight: "18px",
+            fontWeight: 600,
+            marginLeft: 6,
+            minWidth: 9,
+            textAlign: "center",
+          }}
+        >
+          1
+        </span>
+      </span>
+    </div>
+  );
+}
+
+/** One-line preview of the replied-to message (newlines collapsed). */
+function replySnippet(m: Message): string {
+  return m.text.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Reply bar above a message header: spine from the avatar's centre line,
+ * 16 px avatar, "@name", one-line snippet. Rendered inside the content column
+ * (x = 68), so the spine reaches back by avatar/2 + gutter.
+ */
+function ReplyBar({ target, person, fallbackName, pal, s }: {
+  target: Message;
+  person: Person;
+  fallbackName: string;
+  pal: Pal;
+  s: typeof EN;
+}) {
+  const name = person.name.trim() || fallbackName;
+  const snippet = replySnippet(target);
+  const attachmentOnly = target.type !== "text" && !snippet;
+  return (
+    <div
+      className="relative flex min-w-0 items-center"
+      style={{ height: 18, marginLeft: AVATAR + GUTTER, marginBottom: 4, fontSize: 14, lineHeight: "18px", whiteSpace: "pre" }}
+    >
+      <span
+        aria-hidden
+        className="absolute block"
+        style={{
+          left: -(AVATAR / 2 + GUTTER) - 1,
+          width: AVATAR / 2 + GUTTER + 1 - 4,
+          top: 8,
+          height: 12,
+          boxSizing: "border-box",
+          borderTop: `2px solid ${pal.spine}`,
+          borderLeft: `2px solid ${pal.spine}`,
+          borderTopLeftRadius: 6,
+        }}
+      />
+      <span className="shrink-0" style={{ marginRight: 4 }}>
+        <DiscordAvatar person={person} size={16} />
+      </span>
+      <span
+        dir="auto"
+        className="shrink-0"
+        style={{ color: pal.strong, fontWeight: 500, opacity: 0.64, marginRight: 4, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis" }}
+      >
+        @{name}
+      </span>
+      {attachmentOnly ? (
+        <span className="flex min-w-0 items-center" style={{ color: pal.text }}>
+          <span className="truncate" style={{ fontStyle: "italic", paddingRight: 2 }}>
+            {s.attachment}
+          </span>
+          {target.type === "image" && (
+            <span className="shrink-0" style={{ marginLeft: 4 }}>
+              <ImageGlyph color={pal.icon} size={16} />
+            </span>
+          )}
+        </span>
+      ) : (
+        <span dir="auto" className="min-w-0 truncate" style={{ color: pal.text }}>
+          {snippet}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** UIKit caret in Discord's tint: 2 pt wide, a bit taller than the text line. */
+function Caret({ pal, clockMs }: { pal: Pal; clockMs?: number }) {
+  const exporting = clockMs !== undefined;
+  return (
+    <span
+      aria-hidden
+      className={exporting ? undefined : "dcios-caret"}
+      style={{
+        display: "inline-block",
+        width: 2,
+        height: 22,
+        borderRadius: 1,
+        background: pal.brand,
+        verticalAlign: "-5px",
+        marginLeft: 1,
+        marginRight: 1,
+        opacity: exporting ? (caretOn(clockMs) ? 1 : 0) : undefined,
+      }}
+    />
+  );
+}
+
 /* --------------------------------- screen --------------------------------- */
 
 export function Discord({ scenario, playback, lang }: PlatformProps) {
@@ -569,7 +794,9 @@ export function Discord({ scenario, playback, lang }: PlatformProps) {
   const { messages, typing, clockMs } = playback;
   const exporting = clockMs !== undefined;
   const live = playback.isLive && !exporting;
-  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}`);
+  // The composer grows while a draft wraps: keep the list pinned to its newest row.
+  const draftKey = playback.draft ? `${Math.floor(playback.draft.text.length / 24)}` : "-";
+  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}-${draftKey}`);
 
   const showTyping = typing || (!playback.isLive && scenario.presence === "typing");
   const online = scenario.presence !== "lastseen" || showTyping;
@@ -577,6 +804,15 @@ export function Discord({ scenario, playback, lang }: PlatformProps) {
   const themName = them.name.trim() || "Discord";
   const handle = usernameOf(them.name);
   const today = longDate(new Date());
+
+  const draft = playback.draft;
+  const draftText = draft?.text ?? "";
+  const hasDraft = draftText.length > 0;
+  const draftMsg = draft ? scenario.messages.find((x) => x.id === draft.messageId) : undefined;
+  const draftReplyTo = draftMsg?.replyToId ? scenario.messages.find((x) => x.id === draftMsg.replyToId) : undefined;
+  const draftReplyName = draftReplyTo
+    ? (draftReplyTo.sender === "me" ? scenario.me.name : them.name).trim() || (draftReplyTo.sender === "me" ? "You" : themName)
+    : "";
 
   const textStyle: CSSProperties = {
     color: pal.text,
@@ -663,10 +899,13 @@ export function Discord({ scenario, playback, lang }: PlatformProps) {
               const mine = m.sender === "me";
               const person = mine ? scenario.me : them;
               const name = person.name.trim() || (mine ? "You" : themName);
-              const { firstOfGroup } = groupInfo(messages, i);
+              const replyTarget = m.replyToId ? scenario.messages.find((x) => x.id === m.replyToId) : undefined;
+              // A reply always opens a new group: avatar + name come back.
+              const firstOfGroup = groupInfo(messages, i).firstOfGroup || !!replyTarget;
               const caption = m.type === "image" ? m.text.trim() : "";
               const emoji = m.type === "text" && isEmojiOnly(m.text);
               const time = clock12(m.time);
+              const reaction = m.reaction?.trim() || "";
               // "Sending": only while playback has not yet reached the final state.
               const pending = mine && playback.isLive && playback.statusOf(m) === "sent" && m.status !== "sent";
 
@@ -707,6 +946,15 @@ export function Discord({ scenario, playback, lang }: PlatformProps) {
                   }}
                 >
                   <div className="dcios-pending" style={{ opacity: pending ? 0.5 : 1 }}>
+                    {replyTarget && (
+                      <ReplyBar
+                        target={replyTarget}
+                        person={replyTarget.sender === "me" ? scenario.me : them}
+                        fallbackName={replyTarget.sender === "me" ? "You" : themName}
+                        pal={pal}
+                        s={s}
+                      />
+                    )}
                     {firstOfGroup ? (
                       <div className="flex items-start">
                         <DiscordAvatar person={person} size={AVATAR} />
@@ -735,10 +983,14 @@ export function Discord({ scenario, playback, lang }: PlatformProps) {
                             )}
                           </div>
                           {body}
+                          {reaction && <ReactionPill emoji={reaction} me={!mine} pal={pal} />}
                         </div>
                       </div>
                     ) : (
-                      body
+                      <>
+                        {body}
+                        {reaction && <ReactionPill emoji={reaction} me={!mine} pal={pal} />}
+                      </>
                     )}
                   </div>
                 </div>
@@ -788,35 +1040,102 @@ export function Discord({ scenario, playback, lang }: PlatformProps) {
           )}
         </div>
 
-        {/* Chat bar: + · "Message @name" · Gift · Emoji · Mic */}
+        {/* Chat bar: + · "Message @name" · Gift · Emoji · Mic (typing: + · text · Emoji · Send) */}
         <div className="shrink-0" style={{ background: pal.bg, padding: `0 ${EDGE}px ${BAR_BOTTOM}px` }}>
+          {draftReplyTo && (
+            <div
+              className="flex items-center"
+              style={{
+                marginBottom: 8,
+                borderRadius: 16,
+                background: pal.bar,
+                border: `1px solid ${pal.border}`,
+                boxSizing: "border-box",
+                padding: "8px 12px",
+                gap: 8,
+              }}
+            >
+              <span className="min-w-0 flex-1 truncate" style={{ color: pal.muted, fontSize: 14, lineHeight: "18px", fontWeight: 500 }}>
+                {s.replyingTo}
+                <span dir="auto" style={{ color: pal.strong, fontWeight: 600 }}>
+                  {draftReplyName}
+                </span>
+              </span>
+              <span className="shrink-0" style={{ color: pal.brand, fontSize: 14, lineHeight: "18px", fontWeight: 700 }}>
+                @ {s.mentionOn}
+              </span>
+              <CircleXGlyph color={pal.icon} cut={pal.bar} />
+            </div>
+          )}
           <div
-            className="flex items-center"
+            className="flex items-end"
             style={{
-              height: BAR_H,
+              minHeight: BAR_H,
               borderRadius: 16,
               background: pal.bar,
               border: `1px solid ${pal.border}`,
               boxSizing: "border-box",
-              paddingLeft: 11,
-              paddingRight: 11,
+              padding: "9px 11px",
             }}
           >
-            <span className="flex shrink-0 items-center justify-center" style={{ width: 32, height: 32 }}>
+            <span className="flex shrink-0 items-center justify-center" style={{ width: 32, height: 36 }}>
               <PlusGlyph color={pal.icon} />
             </span>
-            <span
-              className="min-w-0 flex-1 truncate"
-              style={{ color: pal.muted, fontSize: 16, lineHeight: "20px", fontWeight: 400, marginLeft: 9, marginRight: 8 }}
-            >
-              {s.messageAt(themName)}
-            </span>
-            <span className="flex shrink-0 items-center" style={{ gap: 8 }}>
-              {[GiftGlyph, EmojiGlyph, MicGlyph].map((G, i) => (
-                <span key={i} className="flex items-center justify-center" style={{ width: 32, height: 32 }}>
-                  <G color={pal.icon} />
+            <div className="min-w-0 flex-1" style={{ padding: "8px 0", marginLeft: 9, marginRight: 8 }}>
+              {hasDraft ? (
+                <div
+                  className="flex flex-col justify-end overflow-hidden"
+                  style={{ maxHeight: DRAFT_MAX_LINES * 20 }}
+                >
+                  <div
+                    dir={dirOf(draftText)}
+                    style={{
+                      color: pal.text,
+                      fontSize: 16,
+                      lineHeight: "20px",
+                      fontWeight: 400,
+                      whiteSpace: "pre-wrap",
+                      overflowWrap: "anywhere",
+                      textAlign: "start",
+                    }}
+                  >
+                    {draftText}
+                    <Caret pal={pal} clockMs={clockMs} />
+                  </div>
+                </div>
+              ) : (
+                <div className="flex min-w-0 items-center" style={{ height: 20 }}>
+                  {draft && <Caret pal={pal} clockMs={clockMs} />}
+                  <span
+                    className="min-w-0 truncate"
+                    style={{ color: pal.muted, fontSize: 16, lineHeight: "20px", fontWeight: 400 }}
+                  >
+                    {s.messageAt(themName)}
+                  </span>
+                </div>
+              )}
+            </div>
+            <span className="flex shrink-0 items-center" style={{ gap: 8, height: 36 }}>
+              {!hasDraft && (
+                <span className="flex items-center justify-center" style={{ width: 32, height: 32 }}>
+                  <GiftGlyph color={pal.icon} />
                 </span>
-              ))}
+              )}
+              <span className="flex items-center justify-center" style={{ width: 32, height: 32 }}>
+                <EmojiGlyph color={pal.icon} />
+              </span>
+              {hasDraft ? (
+                <span
+                  className="flex items-center justify-center rounded-full"
+                  style={{ width: 36, height: 36, marginRight: -2, background: pal.brand }}
+                >
+                  <SendGlyph />
+                </span>
+              ) : (
+                <span className="flex items-center justify-center" style={{ width: 32, height: 32 }}>
+                  <MicGlyph color={pal.icon} />
+                </span>
+              )}
             </span>
           </div>
         </div>

@@ -15,28 +15,40 @@ function keepFocus() {
   });
 }
 
+/**
+ * Undo the last step if nothing changed since `after` was produced; otherwise
+ * restore `before` as a new (itself undoable) step.
+ */
+export function undoTo(before: ReturnType<typeof useStudioStore.getState>["scenario"], after: unknown) {
+  const s = useStudioStore.getState();
+  if (s.scenario === after) s.undo();
+  else s.loadScenario(before);
+}
+
 /** Message list operations shared by the editor rows and keyboard shortcuts. */
 export function useMessageActions(t: StudioLabels) {
   const deleteMessage = useStudioStore((s) => s.deleteMessage);
   const duplicateMessage = useStudioStore((s) => s.duplicateMessage);
   const moveMessage = useStudioStore((s) => s.moveMessage);
-  const loadScenario = useStudioStore((s) => s.loadScenario);
+  const moveMessageTo = useStudioStore((s) => s.moveMessageTo);
+  const applySmartTiming = useStudioStore((s) => s.applySmartTiming);
   const select = useStudioUi((s) => s.select);
 
   const remove = useCallback(
     (id: string) => {
-      const snapshot = useStudioStore.getState().scenario;
-      const list = snapshot.messages;
+      const before = useStudioStore.getState().scenario;
+      const list = before.messages;
       const idx = list.findIndex((m) => m.id === id);
       deleteMessage(id);
+      const after = useStudioStore.getState().scenario;
       const neighbour = list[idx + 1] ?? list[idx - 1];
       select(neighbour ? neighbour.id : null);
       toast({
         title: t.messageDeleted,
-        action: { label: t.undo, onClick: () => loadScenario(snapshot) },
+        action: { label: t.undo, onClick: () => undoTo(before, after) },
       });
     },
-    [deleteMessage, loadScenario, select, t.messageDeleted, t.undo],
+    [deleteMessage, select, t.messageDeleted, t.undo],
   );
 
   const duplicate = useCallback(
@@ -59,18 +71,26 @@ export function useMessageActions(t: StudioLabels) {
   );
 
   /** Move a message to an insertion index (0…n) — used by drag & drop. */
-  const moveTo = useCallback(
-    (id: string, insertAt: number) => {
-      const list = useStudioStore.getState().scenario.messages;
-      const from = list.findIndex((m) => m.id === id);
-      if (from < 0) return;
-      let to = insertAt > from ? insertAt - 1 : insertAt;
-      to = Math.min(Math.max(to, 0), list.length - 1);
-      const dir: -1 | 1 = to > from ? 1 : -1;
-      for (let i = 0; i < Math.abs(to - from); i++) moveMessage(id, dir);
+  const moveTo = useCallback((id: string, insertAt: number) => moveMessageTo(id, insertAt), [moveMessageTo]);
+
+  /** Natural timing for one message (or all when no id). */
+  const autoTiming = useCallback(
+    (id?: string) => {
+      const before = useStudioStore.getState().scenario;
+      applySmartTiming(id ? [id] : undefined);
+      const after = useStudioStore.getState().scenario;
+      if (after === before) {
+        toast({ title: t.autoTimingSame });
+        return;
+      }
+      toast({
+        title: id ? t.autoTimingOneDone : t.autoTimingDone,
+        variant: "success",
+        action: { label: t.undo, onClick: () => undoTo(before, after) },
+      });
     },
-    [moveMessage],
+    [applySmartTiming, t.autoTimingDone, t.autoTimingOneDone, t.autoTimingSame, t.undo],
   );
 
-  return { remove, duplicate, move, moveTo };
+  return { remove, duplicate, move, moveTo, autoTiming };
 }

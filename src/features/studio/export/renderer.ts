@@ -15,13 +15,28 @@ import {
 } from "./camera";
 import { DEVICE_MARGIN, FALLBACK_DEVICE, type DeviceGeometry, type FrameLayout } from "./layout";
 import type { FrameState, Timeline } from "./schedule";
+import {
+  chatTimeAt,
+  outputTimeOf,
+  paintCaption,
+  paintEndCard,
+  type CaptionConfig,
+  type EndCardConfig,
+  type SceneTiming,
+} from "./scenes";
+
+/** Extra, non-chat state of the stage (the notification intro). */
+export interface StageScene {
+  /** ms into the video while the notification intro is on screen; null = plain chat */
+  introT: number | null;
+}
 
 /** Imperative handle onto the off-screen stage that renders the phone. */
 export interface StageController {
   /** the capture box: the phone plus DEVICE_MARGIN of transparent padding */
   node: HTMLElement;
   /** synchronously render the conversation state (null = full static thread) */
-  render: (state: FrameState | null, clockMs?: number) => void;
+  render: (state: FrameState | null, clockMs?: number, scene?: StageScene | null) => void;
 }
 
 /**
@@ -210,6 +225,8 @@ function fnv(str: string, h = 0x811c9dc5): number {
 
 /** Longest side (px) of the high-res phone capture used when zooming. */
 const MAX_CAPTURE_SIDE = 2800;
+/** A composer must be within this fraction of the screen height (bottom bar, not the whole screen). */
+const COMPOSER_MAX_H = 0.32;
 /** Memory budget for re-usable phone captures (looping typing dots repeat). */
 const CACHE_BYTES = 160 * 1024 * 1024;
 
@@ -222,10 +239,16 @@ export interface FrameRendererOptions {
   background: BackgroundDef;
   paint: PaintOptions;
   fps: number;
-  introMs: number;
-  totalMs: number;
+  /** output-time structure (intro scene, holds, end card) */
+  timing: SceneTiming;
   /** null = no auto-zoom */
   camera: CameraOptions | null;
+  /** closing scene drawn after the chat (null = none) */
+  endCard?: EndCardConfig | null;
+  /** fixed caption above/below the phone (null = none) */
+  caption?: CaptionConfig | null;
+  /** cap for the high-res phone capture (stills can afford more) */
+  maxCaptureSide?: number;
 }
 
 /**
@@ -250,6 +273,10 @@ export class FrameRenderer {
   private cacheMax = 2;
   private path: CameraPath | null = null;
   private lastCam: CameraState | null = null;
+  /** the last chat frame, frozen for the end-card transition */
+  private lastChat: HTMLCanvasElement | null = null;
+  /** the output canvas holds something other than the current chat composite */
+  private dirty = false;
   /** phone capture resolution relative to layout.scale (>1 when zooming) */
   readonly captureMul: number;
   stats = { captured: 0, reused: 0, cacheHits: 0, captureMs: 0 };
@@ -266,7 +293,7 @@ export class FrameRenderer {
     ctx.imageSmoothingQuality = "high";
 
     const zoom = o.camera ? o.camera.maxZoom : 1;
-    this.captureMul = Math.max(1, Math.min(zoom, MAX_CAPTURE_SIDE / Math.max(boxW, boxH)));
+    this.captureMul = Math.max(1, Math.min(zoom, (o.maxCaptureSide ?? MAX_CAPTURE_SIDE) / Math.max(boxW, boxH)));
     const capBytes = boxW * boxH * this.captureMul * this.captureMul * 4;
     this.cacheMax = Math.max(2, Math.min(24, Math.floor(CACHE_BYTES / capBytes)));
 
@@ -321,10 +348,13 @@ export class FrameRenderer {
   async prepareCamera(): Promise<void> {
     const cam = this.o.camera;
     if (!cam) return;
-    const { stage, timeline, introMs, rtl } = this.o;
+    const { stage, timeline, timing, rtl } = this.o;
     const node = stage.node;
     const keys: CameraKey[] = [];
     let themSide: "left" | "right" | null = null;
+    const out = (chatMs: number) => outputTimeOf(timing, chatMs);
+    // events before the chat opens (notification intro) are already on screen
+    const live = (chatMs: number) => !timing.leadMs || chatMs > timing.skipMs;
 
     const measureRow = (id: string): Rect | null => {
       const row = node.querySelector<HTMLElement>(`[data-mid="${CSS.escape(id)}"]`);
@@ -332,15 +362,30 @@ export class FrameRenderer {
       const r = contentRect(row);
       return r ? this.toScene(r, node.getBoundingClientRect()) : null;
     };
+    const lastRevealBefore = (t: number) => [...timeline.reveals].reverse().find((r) => r.at <= t);
 
     const events = [
-      ...timeline.reveals.map((r) => ({ at: r.at, kind: "reveal" as const, id: r.id, sender: r.sender })),
-      ...timeline.typings.map((w) => ({ at: w.start, kind: "typing" as const, id: "", sender: "them" as const })),
+      ...timeline.reveals.map((r) => ({ at: r.at, kind: "reveal" as const, id: r.id, sender: r.sender, text: "", end: 0 })),
+      ...timeline.typings.map((w) => ({ at: w.start, kind: "typing" as const, id: "", sender: "them" as const, text: "", end: 0 })),
+      ...timeline.composes.map((c) => ({ at: c.start, kind: "compose" as const, id: c.id, sender: "me" as const, text: c.text, end: c.end })),
     ].sort((a, b) => a.at - b.at);
 
     for (const ev of events) {
+      if (ev.kind === "compose") {
+        if (!live(ev.at)) continue;
+        // measure the composer with (almost) the whole text typed: it may have grown
+        const tm = Math.max(ev.at + 1, ev.end - 2);
+        stage.render(timeline.stateAt(tm), tm);
+        this.scrollAllToBottom();
+        const prev = lastRevealBefore(ev.at);
+        const context = prev ? measureRow(prev.id) : null;
+        const focus = this.measureComposer(ev.text);
+        if (focus) keys.push({ at: out(ev.at), focus, context });
+        continue;
+      }
       const st = timeline.stateAt(ev.at + 1);
       if (ev.kind === "typing") {
+        if (!live(ev.at)) continue;
         // render once without the indicator so we can tell which nodes it adds
         stage.render({ ...st, typing: false }, ev.at + 1);
         this.before = new Set(node.querySelectorAll("*"));
@@ -352,17 +397,17 @@ export class FrameRenderer {
         const idx = timeline.reveals.findIndex((r) => r.id === ev.id);
         const context = idx > 0 ? measureRow(timeline.reveals[idx - 1].id) : null;
         if (rect) {
-          keys.push({ at: introMs + ev.at, focus: rect, context });
+          if (live(ev.at)) keys.push({ at: out(ev.at), focus: rect, context });
           if (ev.sender === "them" && !themSide) {
             const { phone } = this.o.layout;
             themSide = rect.x + rect.w / 2 < phone.x + phone.w / 2 ? "left" : "right";
           }
         }
       } else {
-        const prev = [...timeline.reveals].reverse().find((r) => r.at <= ev.at);
+        const prev = lastRevealBefore(ev.at);
         const lastReveal = prev ? measureRow(prev.id) : null;
         keys.push({
-          at: introMs + ev.at,
+          at: out(ev.at),
           focus: this.measureTyping(themSide ?? (rtl ? "right" : "left"), lastReveal),
           context: lastReveal,
         });
@@ -371,11 +416,66 @@ export class FrameRenderer {
     await yieldToEventLoop();
 
     const { W, H, phone } = this.o.layout;
-    const planned = planCameraKeys(keys, this.o.totalMs, introMs + timeline.contentMs, cam);
-    this.path = buildCameraPath(planned, { W, H, phone }, cam, this.o.totalMs);
+    const camEnd = timing.chatEnd;
+    const planned = planCameraKeys(keys, camEnd, out(timing.contentMs), cam);
+    this.path = buildCameraPath(planned, { W, H, phone }, cam, camEnd);
     // reset so frame 0 starts from a clean scroll state
+    this.seek();
+  }
+
+  /** Forget sequential state (scroll tweens, last camera) before a random-access frame. */
+  seek() {
     this.scroll.clear();
     this.first = true;
+    this.lastCam = null;
+    this.dirty = true;
+  }
+
+  /**
+   * The composer while one of my messages is typed into it. Prefers an
+   * explicit `[data-composer]` hook; otherwise finds the draft text outside
+   * the chat list and climbs to the full-width bar; otherwise the strip
+   * between the chat list and the bottom of the screen.
+   */
+  private measureComposer(text: string): Rect | null {
+    const node = this.o.stage.node;
+    const nodeRect = node.getBoundingClientRect();
+    const screen = node.querySelector<HTMLElement>("[data-device-screen]") ?? node;
+    const sr = screen.getBoundingClientRect();
+    const tagged = screen.querySelector<HTMLElement>("[data-composer]");
+    if (tagged) {
+      const r = tagged.getBoundingClientRect();
+      if (r.width > 1 && r.height > 1) return this.toScene(r, nodeRect);
+    }
+    const needle = text.trim().slice(0, 18);
+    if (needle) {
+      const walker = document.createTreeWalker(screen, NodeFilter.SHOW_TEXT);
+      let hit: HTMLElement | null = null;
+      while (walker.nextNode()) {
+        const tn = walker.currentNode as Text;
+        const el = tn.parentElement;
+        if (!el || el.closest(".rcss-scroll") || !tn.data.includes(needle)) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width < 1 || r.height < 1) continue;
+        hit = el;
+        break;
+      }
+      if (hit) {
+        let el = hit;
+        let best = hit.getBoundingClientRect();
+        while (el.parentElement && el.parentElement !== screen) {
+          const pr = el.parentElement.getBoundingClientRect();
+          if (pr.height > sr.height * COMPOSER_MAX_H) break;
+          el = el.parentElement;
+          best = pr;
+          if (pr.width >= sr.width * 0.9) break;
+        }
+        return this.toScene(best, nodeRect);
+      }
+    }
+    const sc = screen.querySelector(".rcss-scroll")?.getBoundingClientRect();
+    const top = sc && sr.bottom - sc.bottom > 30 ? sc.bottom : sr.bottom - 96;
+    return this.toScene(new DOMRect(sr.left, top, sr.width, Math.min(sr.bottom - top, 120)), nodeRect);
   }
 
   private before: Set<Element> | null = null;
@@ -422,9 +522,9 @@ export class FrameRenderer {
 
   /* ------------------------------------------------------------ frames */
 
-  /** timeline time (ms) of output frame i */
+  /** chat timeline time (ms) of output frame i */
   timeOf(i: number): number {
-    return (i * 1000) / this.o.fps - this.o.introMs;
+    return chatTimeAt(this.o.timing, (i * 1000) / this.o.fps);
   }
 
   private applyMotion(t: number) {
@@ -489,12 +589,34 @@ export class FrameRenderer {
   }
 
   async frame(i: number): Promise<HTMLCanvasElement> {
-    const tOut = (i * 1000) / this.o.fps;
-    const t = this.timeOf(i);
-    const tl = Math.max(0, t);
-    const { stage, timeline, layout } = this.o;
+    return this.renderAt((i * 1000) / this.o.fps, i === 0);
+  }
 
-    stage.render(timeline.stateAt(tl), tl);
+  /** Render output time `tOut` (ms) into `canvas`. Sequential calls reuse work. */
+  async renderAt(tOut: number, force = false): Promise<HTMLCanvasElement> {
+    const { timing, endCard } = this.o;
+    if (endCard && timing.endMs > 0 && tOut >= timing.chatEnd) {
+      if (!this.lastChat) {
+        await this.renderChat(timing.chatEnd - 1, true);
+        const c = document.createElement("canvas");
+        c.width = this.canvas.width;
+        c.height = this.canvas.height;
+        c.getContext("2d")!.drawImage(this.canvas, 0, 0);
+        this.lastChat = c;
+      }
+      paintEndCard(this.ctx, this.canvas.width, this.canvas.height, tOut - timing.chatEnd, this.lastChat, endCard);
+      this.dirty = true;
+      return this.canvas;
+    }
+    return this.renderChat(tOut, force);
+  }
+
+  private async renderChat(tOut: number, force: boolean): Promise<HTMLCanvasElement> {
+    const { stage, timeline, layout, timing } = this.o;
+    const tl = chatTimeAt(timing, tOut);
+    const introT = timing.leadMs > 0 && tOut < timing.leadMs ? tOut : null;
+
+    stage.render(timeline.stateAt(tl), tl, { introT });
     this.applyMotion(tl);
     const scrolled = this.applyScroll(tl);
     const mutated = this.observer.takeRecords().length > 0;
@@ -536,7 +658,11 @@ export class FrameRenderer {
         Math.abs(cam.scale - this.lastCam.scale) > 1e-5 ||
         Math.abs(cam.cx - this.lastCam.cx) > 1e-3 ||
         Math.abs(cam.cy - this.lastCam.cy) > 1e-3);
-    if (phoneChanged || camChanged || i === 0) this.composite(cam);
+    if (phoneChanged || camChanged || force || this.dirty) {
+      this.composite(cam);
+      if (this.o.caption) paintCaption(this.ctx, layout.W, layout.H, this.o.caption);
+      this.dirty = false;
+    }
     this.lastCam = cam;
     return this.canvas;
   }
@@ -577,10 +703,11 @@ export class FrameRenderer {
     }
     for (const c of this.cache.values()) release(c);
     this.cache.clear();
+    release(this.lastChat);
     release(this.base);
     release(this.shadowLayer);
     release(this.canvas);
-    this.phone = this.base = this.shadowLayer = null;
+    this.phone = this.base = this.shadowLayer = this.lastChat = null;
   }
 }
 
@@ -593,6 +720,7 @@ export function paintPreview(
   phone: HTMLCanvasElement | null,
   phoneScale: number,
   backdrop: ScreenBackdrop,
+  caption?: CaptionConfig | null,
 ): void {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
@@ -615,5 +743,6 @@ export function paintPreview(
     ctx.roundRect(layout.phone.x, layout.phone.y, layout.phone.w, layout.phone.h, layout.phone.r);
     ctx.fill();
   }
+  if (caption) paintCaption(ctx, layout.W, layout.H, caption);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
 }

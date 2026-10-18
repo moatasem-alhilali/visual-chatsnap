@@ -1,18 +1,26 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useLocale } from "next-intl";
 import {
   AlertTriangle,
+  BellRing,
+  Captions,
   Check,
   Clock,
   Download,
   Film,
+  Image as ImageIcon,
   Loader2,
+  Music,
   Palette,
+  Pause,
+  Play,
   RotateCcw,
   Share2,
+  Sparkles,
+  Upload,
   Volume2,
   VolumeX,
   X,
@@ -20,8 +28,8 @@ import {
 
 import { Button } from "@/shared/components/ui/button";
 import { cn } from "@/shared/lib/utils";
-import { DeviceFrame } from "./devices/DeviceFrame";
-import { PLATFORM_MAP, PlatformView, preloadPlatform } from "./platforms";
+import { DEVICE_SIZE, DeviceFrame } from "./devices/DeviceFrame";
+import { PLATFORM_MAP, PlatformView, preloadPlatform, resolvePlatformMotion } from "./platforms";
 import { deviceFontFamily } from "../data/fonts";
 import { buildTimeline, type FrameState } from "../export/schedule";
 import { canExportVideo, exportToMp4, ExportAbortedError, pickVideoCodec, type PickedCodec } from "../export/exportVideo";
@@ -30,6 +38,7 @@ import {
   estimateBytes,
   FALLBACK_DEVICE,
   PRESETS,
+  supportsCaption,
   type DeviceGeometry,
   type PhoneSize,
   type PresetId,
@@ -46,11 +55,25 @@ import {
   yieldToEventLoop,
   type StageController,
 } from "../export/renderer";
-import { ZOOM_LEVELS, type ZoomIntensity } from "../export/camera";
-import { pickAudioCodec, renderSoundTrack, type AudioCodec } from "../export/audio";
+import { ZOOM_LEVELS, type CameraOptions, type ZoomIntensity } from "../export/camera";
+import { decodeMusic, pickAudioCodec, renderSoundTrack, type AudioCodec, type MusicBed, type SoundCue } from "../export/audio";
+import {
+  captionBandFraction,
+  NOTIF,
+  outputTimeOf,
+  pageFontFamily,
+  sceneTiming,
+  type CaptionConfig,
+  type CaptionPosition,
+  type CaptionSize,
+  type EndCardConfig,
+  type SceneTiming,
+} from "../export/scenes";
+import { buildPalette, estimateGifBytes, GifWriter } from "../export/gif";
+import { introChatStyle, NotificationIntro, type NoticeInfo } from "../export/NotificationIntro";
 import {
   canShareVideoFile,
-  createVideoFile,
+  createExportFile,
   downloadVideoFile,
   isTouchDevice,
   saveVideoFile,
@@ -63,58 +86,18 @@ import type { StudioLabels } from "./labels";
 /* ------------------------------------------------------------------ copy */
 
 type Lang = "ar" | "en";
+type OutputKind = "video" | "gif" | "image";
+type Quality = "standard" | "high" | "max";
+type ImageFormat = "png" | "jpeg";
+type Peek = "intro" | "end";
 
-const COPY: Record<
-  Lang,
-  {
-    subtitle: string;
-    preview: string;
-    format: string;
-    presets: Record<PresetId, { name: string; hint: string }>;
-    phoneSize: string;
-    sizes: Record<PhoneSize, string>;
-    background: string;
-    bgs: Record<BackgroundId, string>;
-    pickColor: string;
-    fps: string;
-    quality: string;
-    qualities: Record<Quality, string>;
-    timing: string;
-
-    intro: string;
-    outro: string;
-    sec: (n: number) => string;
-    sound: string;
-    soundHint: string;
-    soundUnsupported: string;
-    zoom: string;
-    zoomHint: string;
-    zoomLevels: Record<ZoomIntensity, string>;
-    followSides: string;
-    zoomOutEnd: string;
-    start: string;
-    rendering: string;
-    frameOf: (a: number, b: number) => string;
-    eta: (s: string) => string;
-    estimating: string;
-    elapsed: (s: string) => string;
-    cancel: string;
-    done: string;
-    savedHint: string;
-    download: string;
-    share: string;
-    again: string;
-    close: string;
-    codecFallback: (c: string) => string;
-    noAudio: string;
-    errors: Record<string, string>;
-    privacy: string;
-    size: string;
-    duration: string;
-  }
-> = {
+const COPY = {
   en: {
-    subtitle: "MP4 for Reels, TikTok, Stories and feeds",
+    subtitle: "MP4, GIF or image for Reels, TikTok, Stories and feeds",
+    output: "Output",
+    kinds: { video: "Video", gif: "GIF", image: "Image" } as Record<OutputKind, string>,
+    kindHints: { video: "MP4 · sound", gif: "Loops anywhere", image: "PNG · JPEG" } as Record<OutputKind, string>,
+    videoOff: "This browser can't encode video — GIF and image export still work.",
     preview: "Preview",
     format: "Format",
     presets: {
@@ -123,9 +106,9 @@ const COPY: Record<
       square: { name: "Square", hint: "Feed · X · LinkedIn" },
       landscape: { name: "Landscape", hint: "YouTube · Web" },
       device: { name: "Phone only", hint: "Just the device" },
-    },
+    } as Record<PresetId, { name: string; hint: string }>,
     phoneSize: "Phone size",
-    sizes: { s: "Small", m: "Medium", l: "Large" },
+    sizes: { s: "Small", m: "Medium", l: "Large" } as Record<PhoneSize, string>,
     background: "Background",
     bgs: {
       studio: "Studio",
@@ -138,51 +121,116 @@ const COPY: Record<
       white: "White",
       black: "Black",
       custom: "Custom colour",
-    },
+    } as Record<BackgroundId, string>,
     pickColor: "Pick a colour",
     fps: "Frame rate",
     quality: "Quality",
-    qualities: { standard: "Standard", high: "High", max: "Max" },
+    qualities: { standard: "Standard", high: "High", max: "Max" } as Record<Quality, string>,
     timing: "Output",
     intro: "Hold at start",
     outro: "Hold at end",
-    sec: (n) => `${n}s`,
+    sec: (n: number) => `${n}s`,
     sound: "Message sounds",
     soundHint: "Subtle send and receive sounds",
+    soundUnsupported: "This browser can't encode audio",
     zoom: "Auto-zoom",
-    zoomHint: "The camera glides to each new message",
-    zoomLevels: { subtle: "Subtle", medium: "Medium", strong: "Strong" },
+    zoomHint: "The camera glides to each new message and the composer while typing",
+    zoomLevels: { subtle: "Subtle", medium: "Medium", strong: "Strong" } as Record<ZoomIntensity, string>,
     followSides: "Follow both sides",
     zoomOutEnd: "Zoom out at the end",
-    soundUnsupported: "This browser can't encode audio",
-    start: "Export video",
-    rendering: "Rendering video…",
-    frameOf: (a, b) => `Frame ${a} of ${b}`,
-    eta: (s) => `About ${s} left`,
+    scenes: "Scenes",
+    notif: "Notification intro",
+    notifHint: "Starts on the lock screen with the first message as a notification, then opens the chat",
+    notifNone: "Needs at least one incoming message",
+    peek: "Preview",
+    peekBack: "Back to layout",
+    showing: { intro: "Notification intro", end: "End card" } as Record<Peek, string>,
+    caption: "Caption",
+    captionHint: "A headline that stays above or below the phone",
+    captionOnlyTall: "Available for 9:16 and 4:5 formats",
+    captionText: "Caption text",
+    captionDefault: "Order in 2 taps",
+    position: "Position",
+    positions: { top: "Above", bottom: "Below" } as Record<CaptionPosition, string>,
+    textSize: "Text size",
+    textColor: "Text colour",
+    pill: "Background pill",
+    pillColor: "Pill colour",
+    endCard: "End card",
+    endHint: "Logo, headline and a call to action after the chat",
+    logo: "Logo",
+    uploadLogo: "Upload logo",
+    replaceLogo: "Replace",
+    removeLogo: "Remove",
+    logoError: "Couldn't read this image.",
+    headline: "Headline",
+    headlineDefault: "Your order, one message away",
+    cta: "Button text",
+    ctaDefault: "Order now",
+    colors: { bg: "Background", fg: "Headline", ctaBg: "Button", ctaFg: "Button text" },
+    endLength: "Length",
+    audio: "Audio",
+    music: "Background music",
+    musicHint: "MP3, M4A, WAV or OGG — trimmed or looped to the video",
+    chooseMusic: "Choose audio file",
+    replaceMusic: "Replace",
+    removeMusic: "Remove",
+    musicError: "Couldn't read this audio file.",
+    trimStart: "Start at",
+    volume: "Volume",
+    fadeIn: "Fade in",
+    fadeOut: "Fade out",
+    loop: "Loop if shorter than the video",
+    play: "Play preview",
+    stop: "Stop preview",
+    gifSettings: "GIF",
+    gifWidth: "Width",
+    gifFps: "Frame rate",
+    gifCap: "Max size",
+    gifHint: "Palette-optimised and size-capped; best for quick sharing",
+    imageSettings: "Image",
+    imageType: "File type",
+    resolution: "Resolution",
+    moment: "Moment",
+    finalFrame: "Final frame",
+    start: { video: "Export video", gif: "Export GIF", image: "Export image" } as Record<OutputKind, string>,
+    rendering: { video: "Rendering video…", gif: "Rendering GIF…", image: "Rendering image…" } as Record<OutputKind, string>,
+    gifRetry: "Over the size limit — rendering it smaller…",
+    frameOf: (a: number, b: number) => `Frame ${a} of ${b}`,
+    eta: (s: string) => `About ${s} left`,
     estimating: "Estimating time…",
-    elapsed: (s) => `Took ${s}`,
+    elapsed: (s: string) => `Took ${s}`,
     cancel: "Cancel",
-    done: "Your video is ready",
+    done: { video: "Your video is ready", gif: "Your GIF is ready", image: "Your image is ready" } as Record<OutputKind, string>,
     savedHint: "The download started automatically. You can save it again below.",
-    download: "Download MP4",
+    download: { video: "Download MP4", gif: "Download GIF", png: "Download PNG", jpeg: "Download JPEG" },
     share: "Share / Save",
     again: "Change settings",
     close: "Close",
-    codecFallback: (c) =>
+    codecFallback: (c: string) =>
       `This browser has no H.264 encoder, so the video was encoded as ${c}. Some apps may not play it; Chrome or Edge on a computer produce H.264.`,
     noAudio: "This browser can't encode audio, so the video has no sound.",
     errors: {
       VIDEO_UNSUPPORTED: "This browser can't encode video. Use Chrome or Edge, or Recording Mode to capture your screen.",
       CODEC_UNSUPPORTED: "This browser has no video encoder for this size. Try a smaller format or 30 fps.",
       CANVAS_UNAVAILABLE: "Couldn't create a drawing surface. Close other tabs and try again.",
+      IMAGE_FAILED: "Couldn't encode the image. Try a lower resolution.",
       generic: "Something went wrong while rendering.",
-    },
+    } as Record<string, string>,
     privacy: "Rendered entirely in your browser. Nothing is uploaded.",
     size: "Size",
     duration: "Length",
+    codec: "Codec",
+    dims: "Dimensions",
+    frames: "Frames",
+    max: (s: string) => `max ${s}`,
   },
   ar: {
-    subtitle: "فيديو MP4 جاهز للريلز وتيك توك والستوري والمنشورات",
+    subtitle: "فيديو MP4 أو GIF أو صورة للريلز وتيك توك والستوري والمنشورات",
+    output: "نوع الملف",
+    kinds: { video: "فيديو", gif: "GIF", image: "صورة" } as Record<OutputKind, string>,
+    kindHints: { video: "MP4 · بصوت", gif: "يتكرر في أي مكان", image: "PNG · JPEG" } as Record<OutputKind, string>,
+    videoOff: "متصفحك لا يدعم توليد الفيديو، لكن تصدير GIF والصور يعمل.",
     preview: "معاينة",
     format: "المقاس",
     presets: {
@@ -191,9 +239,9 @@ const COPY: Record<
       square: { name: "مربع", hint: "منشور · X · لينكدإن" },
       landscape: { name: "عرضي", hint: "يوتيوب · الويب" },
       device: { name: "الجهاز فقط", hint: "بدون مساحة حوله" },
-    },
+    } as Record<PresetId, { name: string; hint: string }>,
     phoneSize: "حجم الجوال",
-    sizes: { s: "صغير", m: "متوسط", l: "كبير" },
+    sizes: { s: "صغير", m: "متوسط", l: "كبير" } as Record<PhoneSize, string>,
     background: "الخلفية",
     bgs: {
       studio: "استوديو",
@@ -206,56 +254,118 @@ const COPY: Record<
       white: "أبيض",
       black: "أسود",
       custom: "لون مخصص",
-    },
+    } as Record<BackgroundId, string>,
     pickColor: "اختر لوناً",
     fps: "معدل الإطارات",
     quality: "الجودة",
-    qualities: { standard: "عادية", high: "عالية", max: "قصوى" },
+    qualities: { standard: "عادية", high: "عالية", max: "قصوى" } as Record<Quality, string>,
     timing: "الإخراج",
     intro: "ثبات في البداية",
     outro: "ثبات في النهاية",
-    sec: (n) => `${n.toLocaleString("ar-EG")} ث`,
+    sec: (n: number) => `${n.toLocaleString("ar-EG")} ث`,
     sound: "أصوات الرسائل",
     soundHint: "صوت خفيف عند الإرسال والاستلام",
+    soundUnsupported: "المتصفح لا يدعم ترميز الصوت",
     zoom: "تكبير تلقائي",
-    zoomHint: "الكاميرا تنتقل بسلاسة إلى كل رسالة جديدة",
-    zoomLevels: { subtle: "خفيف", medium: "متوسط", strong: "قوي" },
+    zoomHint: "الكاميرا تنتقل بسلاسة إلى كل رسالة جديدة وإلى خانة الكتابة أثناء الكتابة",
+    zoomLevels: { subtle: "خفيف", medium: "متوسط", strong: "قوي" } as Record<ZoomIntensity, string>,
     followSides: "تتبّع الطرفين",
     zoomOutEnd: "تصغير في النهاية",
-    soundUnsupported: "المتصفح لا يدعم ترميز الصوت",
-    start: "تصدير الفيديو",
-    rendering: "جارٍ توليد الفيديو…",
-    frameOf: (a, b) => `الإطار ${a.toLocaleString("ar-EG")} من ${b.toLocaleString("ar-EG")}`,
-    eta: (s) => `متبقٍ حوالي ${s}`,
+    scenes: "المشاهد",
+    notif: "مقدمة الإشعار",
+    notifHint: "يبدأ بشاشة القفل وإشعار بأول رسالة واردة ثم تُفتح المحادثة",
+    notifNone: "يحتاج رسالة واردة واحدة على الأقل",
+    peek: "معاينة",
+    peekBack: "العودة للتخطيط",
+    showing: { intro: "مقدمة الإشعار", end: "البطاقة الختامية" } as Record<Peek, string>,
+    caption: "عنوان ثابت",
+    captionHint: "نص يبقى فوق الجوال أو تحته طوال الفيديو",
+    captionOnlyTall: "متاح لمقاسي ٩:١٦ و٤:٥",
+    captionText: "نص العنوان",
+    captionDefault: "اطلب بضغطتين",
+    position: "الموضع",
+    positions: { top: "فوق", bottom: "تحت" } as Record<CaptionPosition, string>,
+    textSize: "حجم النص",
+    textColor: "لون النص",
+    pill: "خلفية للنص",
+    pillColor: "لون الخلفية",
+    endCard: "البطاقة الختامية",
+    endHint: "شعار وعنوان وزر دعوة بعد المحادثة",
+    logo: "الشعار",
+    uploadLogo: "رفع شعار",
+    replaceLogo: "استبدال",
+    removeLogo: "إزالة",
+    logoError: "تعذّرت قراءة الصورة.",
+    headline: "العنوان",
+    headlineDefault: "طلبك على بُعد رسالة",
+    cta: "نص الزر",
+    ctaDefault: "اطلب الآن",
+    colors: { bg: "الخلفية", fg: "العنوان", ctaBg: "الزر", ctaFg: "نص الزر" },
+    endLength: "المدة",
+    audio: "الصوت",
+    music: "موسيقى خلفية",
+    musicHint: "MP3 أو M4A أو WAV أو OGG — تُقص أو تُكرَّر حسب طول الفيديو",
+    chooseMusic: "اختر ملفاً صوتياً",
+    replaceMusic: "استبدال",
+    removeMusic: "إزالة",
+    musicError: "تعذّرت قراءة الملف الصوتي.",
+    trimStart: "البداية من",
+    volume: "مستوى الصوت",
+    fadeIn: "ظهور تدريجي",
+    fadeOut: "اختفاء تدريجي",
+    loop: "تكرار إذا كانت أقصر من الفيديو",
+    play: "تشغيل المعاينة",
+    stop: "إيقاف المعاينة",
+    gifSettings: "GIF",
+    gifWidth: "العرض",
+    gifFps: "معدل الإطارات",
+    gifCap: "الحد الأقصى",
+    gifHint: "ألوان محسّنة وحجم محدود، مناسب للمشاركة السريعة",
+    imageSettings: "الصورة",
+    imageType: "نوع الملف",
+    resolution: "الدقة",
+    moment: "اللحظة",
+    finalFrame: "الإطار الأخير",
+    start: { video: "تصدير الفيديو", gif: "تصدير GIF", image: "تصدير الصورة" } as Record<OutputKind, string>,
+    rendering: { video: "جارٍ توليد الفيديو…", gif: "جارٍ توليد GIF…", image: "جارٍ توليد الصورة…" } as Record<OutputKind, string>,
+    gifRetry: "تجاوز الحد المسموح — جارٍ التوليد بحجم أصغر…",
+    frameOf: (a: number, b: number) => `الإطار ${a.toLocaleString("ar-EG")} من ${b.toLocaleString("ar-EG")}`,
+    eta: (s: string) => `متبقٍ حوالي ${s}`,
     estimating: "جارٍ حساب الوقت…",
-    elapsed: (s) => `استغرق ${s}`,
+    elapsed: (s: string) => `استغرق ${s}`,
     cancel: "إلغاء",
-    done: "الفيديو جاهز",
+    done: { video: "الفيديو جاهز", gif: "ملف GIF جاهز", image: "الصورة جاهزة" } as Record<OutputKind, string>,
     savedHint: "بدأ التنزيل تلقائياً، ويمكنك حفظه مرة أخرى من هنا.",
-    download: "تنزيل MP4",
+    download: { video: "تنزيل MP4", gif: "تنزيل GIF", png: "تنزيل PNG", jpeg: "تنزيل JPEG" },
     share: "مشاركة / حفظ",
     again: "تعديل الإعدادات",
     close: "إغلاق",
-    codecFallback: (c) =>
+    codecFallback: (c: string) =>
       `متصفحك لا يدعم ترميز H.264، لذلك تم ترميز الفيديو بصيغة ${c}. قد لا تشغّله بعض التطبيقات؛ استخدم Chrome أو Edge على الكمبيوتر للحصول على H.264.`,
     noAudio: "المتصفح لا يدعم ترميز الصوت، لذلك الفيديو بدون صوت.",
     errors: {
       VIDEO_UNSUPPORTED: "متصفحك لا يدعم توليد الفيديو. استخدم Chrome أو Edge، أو وضع التسجيل وسجّل شاشتك.",
       CODEC_UNSUPPORTED: "لا يوجد مرمّز فيديو لهذا المقاس في متصفحك. جرّب مقاساً أصغر أو ٣٠ إطاراً.",
       CANVAS_UNAVAILABLE: "تعذّر إنشاء مساحة الرسم. أغلق بعض التبويبات وحاول مجدداً.",
-      generic: "حدث خطأ أثناء توليد الفيديو.",
-    },
+      IMAGE_FAILED: "تعذّر ترميز الصورة. جرّب دقة أقل.",
+      generic: "حدث خطأ أثناء التوليد.",
+    } as Record<string, string>,
     privacy: "يتم التوليد بالكامل داخل متصفحك دون رفع أي بيانات.",
     size: "الحجم",
     duration: "المدة",
+    codec: "الترميز",
+    dims: "الأبعاد",
+    frames: "الإطارات",
+    max: (s: string) => `الحد ${s}`,
   },
 };
 
+type Copy = (typeof COPY)["en"];
+
 /* ------------------------------------------------------------------ prefs */
 
-type Quality = "standard" | "high" | "max";
-
 interface Prefs {
+  kind: OutputKind;
   preset: PresetId;
   size: PhoneSize;
   bg: BackgroundId;
@@ -269,9 +379,36 @@ interface Prefs {
   zoomLevel: ZoomIntensity;
   followSides: boolean;
   zoomOutEnd: boolean;
+  imageFormat: ImageFormat;
+  imageScale: 1 | 2 | 3;
+  gifWidth: 360 | 480 | 640;
+  gifFps: 10 | 12 | 15;
+  gifCapMb: 5 | 10 | 15;
+  notif: boolean;
+  caption: boolean;
+  captionText: string;
+  captionPos: CaptionPosition;
+  captionSize: CaptionSize;
+  captionColor: string;
+  captionPill: boolean;
+  captionPillColor: string;
+  endCard: boolean;
+  endHeadline: string;
+  endCta: string;
+  endBg: string;
+  endFg: string;
+  endCtaBg: string;
+  endCtaFg: string;
+  endMs: 2000 | 3000 | 4000;
+  music: boolean;
+  musicVolume: number;
+  musicFadeIn: number;
+  musicFadeOut: number;
+  musicLoop: boolean;
 }
 
 const DEFAULT_PREFS: Prefs = {
+  kind: "video",
   preset: "story",
   size: "m",
   bg: "studio",
@@ -285,30 +422,84 @@ const DEFAULT_PREFS: Prefs = {
   zoomLevel: "medium",
   followSides: true,
   zoomOutEnd: true,
+  imageFormat: "png",
+  imageScale: 2,
+  gifWidth: 480,
+  gifFps: 12,
+  gifCapMb: 10,
+  notif: false,
+  caption: false,
+  captionText: "",
+  captionPos: "top",
+  captionSize: "m",
+  captionColor: "#ffffff",
+  captionPill: false,
+  captionPillColor: "#111827",
+  endCard: false,
+  endHeadline: "",
+  endCta: "",
+  endBg: "#0f172a",
+  endFg: "#ffffff",
+  endCtaBg: "#ffffff",
+  endCtaFg: "#0f172a",
+  endMs: 3000,
+  music: true,
+  musicVolume: 0.6,
+  musicFadeIn: 500,
+  musicFadeOut: 1500,
+  musicLoop: true,
 };
 
 const PREFS_KEY = "scenora.export.prefs";
 const INTRO_OPTIONS = [0, 500, 1000, 2000];
 const OUTRO_OPTIONS = [1000, 2000, 3000, 5000];
+const END_OPTIONS = [2000, 3000, 4000] as const;
+const FADE_IN_OPTIONS = [0, 500, 1000, 2000];
+const FADE_OUT_OPTIONS = [0, 1000, 1500, 3000];
+const GIF_WIDTHS = [360, 480, 640] as const;
+const GIF_FPS = [10, 12, 15] as const;
+const GIF_CAPS = [5, 10, 15] as const;
+const HEX = /^#[0-9a-f]{6}$/i;
+
+function oneOf<T>(v: unknown, list: readonly T[], def: T): T {
+  return list.includes(v as T) ? (v as T) : def;
+}
 
 function loadPrefs(): Prefs {
   try {
     const raw = window.localStorage.getItem(PREFS_KEY);
     if (!raw) return DEFAULT_PREFS;
     const p = { ...DEFAULT_PREFS, ...(JSON.parse(raw) as Partial<Prefs>) };
-    if (!PRESETS.some((x) => x.id === p.preset)) p.preset = DEFAULT_PREFS.preset;
-    if (!BACKGROUNDS.some((x) => x.id === p.bg)) p.bg = DEFAULT_PREFS.bg;
-    if (!["s", "m", "l"].includes(p.size)) p.size = DEFAULT_PREFS.size;
-    if (p.fps !== 30 && p.fps !== 60) p.fps = 30;
-    if (!["standard", "high", "max"].includes(p.quality)) p.quality = DEFAULT_PREFS.quality;
-    if (!INTRO_OPTIONS.includes(p.introMs)) p.introMs = DEFAULT_PREFS.introMs;
-    if (!OUTRO_OPTIONS.includes(p.outroMs)) p.outroMs = DEFAULT_PREFS.outroMs;
-    if (!/^#[0-9a-f]{6}$/i.test(p.custom)) p.custom = DEFAULT_PREFS.custom;
-    p.sound = !!p.sound;
-    p.zoom = !!p.zoom;
-    p.followSides = !!p.followSides;
-    p.zoomOutEnd = !!p.zoomOutEnd;
-    if (!(p.zoomLevel in ZOOM_LEVELS)) p.zoomLevel = DEFAULT_PREFS.zoomLevel;
+    const d = DEFAULT_PREFS;
+    p.kind = oneOf(p.kind, ["video", "gif", "image"] as const, d.kind);
+    if (!PRESETS.some((x) => x.id === p.preset)) p.preset = d.preset;
+    if (!BACKGROUNDS.some((x) => x.id === p.bg)) p.bg = d.bg;
+    p.size = oneOf(p.size, ["s", "m", "l"] as const, d.size);
+    p.fps = oneOf(p.fps, [30, 60] as const, d.fps);
+    p.quality = oneOf(p.quality, ["standard", "high", "max"] as const, d.quality);
+    p.introMs = oneOf(p.introMs, INTRO_OPTIONS, d.introMs);
+    p.outroMs = oneOf(p.outroMs, OUTRO_OPTIONS, d.outroMs);
+    for (const k of ["custom", "captionColor", "captionPillColor", "endBg", "endFg", "endCtaBg", "endCtaFg"] as const) {
+      if (typeof p[k] !== "string" || !HEX.test(p[k])) p[k] = d[k];
+    }
+    for (const k of ["sound", "zoom", "followSides", "zoomOutEnd", "notif", "caption", "captionPill", "endCard", "music", "musicLoop"] as const) {
+      p[k] = !!p[k];
+    }
+    if (!(p.zoomLevel in ZOOM_LEVELS)) p.zoomLevel = d.zoomLevel;
+    p.imageFormat = oneOf(p.imageFormat, ["png", "jpeg"] as const, d.imageFormat);
+    p.imageScale = oneOf(p.imageScale, [1, 2, 3] as const, d.imageScale);
+    p.gifWidth = oneOf(p.gifWidth, GIF_WIDTHS, d.gifWidth);
+    p.gifFps = oneOf(p.gifFps, GIF_FPS, d.gifFps);
+    p.gifCapMb = oneOf(p.gifCapMb, GIF_CAPS, d.gifCapMb);
+    p.captionPos = oneOf(p.captionPos, ["top", "bottom"] as const, d.captionPos);
+    p.captionSize = oneOf(p.captionSize, ["s", "m", "l"] as const, d.captionSize);
+    p.endMs = oneOf(p.endMs, END_OPTIONS, d.endMs);
+    p.musicFadeIn = oneOf(p.musicFadeIn, FADE_IN_OPTIONS, d.musicFadeIn);
+    p.musicFadeOut = oneOf(p.musicFadeOut, FADE_OUT_OPTIONS, d.musicFadeOut);
+    p.musicVolume = typeof p.musicVolume === "number" ? Math.min(1, Math.max(0, p.musicVolume)) : d.musicVolume;
+    for (const k of ["captionText", "endHeadline", "endCta"] as const) {
+      p[k] = typeof p[k] === "string" ? p[k].slice(0, 140) : "";
+    }
     return p;
   } catch {
     return DEFAULT_PREFS;
@@ -336,10 +527,20 @@ const CODEC_NAMES: Record<PickedCodec["id"], string> = { avc: "H.264", hevc: "HE
 
 /* ---------------------------------------------------------------- helpers */
 
+const AR_DIGITS = (s: string) => s.replace(/\d/g, (d) => "٠١٢٣٤٥٦٧٨٩"[+d]);
+
 function fmtClock(ms: number, lang: Lang): string {
   const s = Math.max(0, Math.round(ms / 1000));
   const str = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-  return lang === "ar" ? str.replace(/\d/g, (d) => "٠١٢٣٤٥٦٧٨٩"[+d]) : str;
+  return lang === "ar" ? AR_DIGITS(str) : str;
+}
+
+/** m:ss.s */
+function fmtMoment(ms: number, lang: Lang): string {
+  const ds = Math.max(0, Math.floor(ms / 100));
+  const s = Math.floor(ds / 10);
+  const str = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}.${ds % 10}`;
+  return lang === "ar" ? AR_DIGITS(str) : str;
 }
 
 function fmtMB(bytes: number, lang: Lang): string {
@@ -381,6 +582,60 @@ function makeView(scenario: Scenario, st: FrameState | null, clockMs?: number): 
   };
 }
 
+/** The first incoming message, as the lock-screen notification shows it. */
+function noticeFor(scenario: Scenario, lang: Lang): (NoticeInfo & { id: string }) | null {
+  const m = scenario.messages.find((x) => x.sender === "them");
+  if (!m) return null;
+  const caption = m.text.trim();
+  const text =
+    m.type === "voice"
+      ? lang === "ar"
+        ? "🎤 رسالة صوتية"
+        : "🎤 Voice message"
+      : m.type === "image"
+        ? caption || (lang === "ar" ? "📷 صورة" : "📷 Photo")
+        : caption;
+  return {
+    id: m.id,
+    platform: scenario.platform,
+    device: scenario.device,
+    theme: scenario.theme,
+    lang,
+    name: scenario.them.name,
+    avatar: scenario.them.avatar,
+    text,
+  };
+}
+
+/** Time to show when previewing the notification intro: banner fully in. */
+const NOTIF_PEEK_MS = NOTIF.inAt + NOTIF.inMs + 400;
+
+interface LogoAsset {
+  src: string;
+  img: HTMLImageElement;
+  w: number;
+  h: number;
+}
+
+interface MusicAsset {
+  name: string;
+  buffer: AudioBuffer;
+  url: string;
+}
+
+async function loadLogo(file: File): Promise<LogoAsset> {
+  const src = await new Promise<string>((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result));
+    fr.onerror = () => reject(fr.error);
+    fr.readAsDataURL(file);
+  });
+  const img = new Image();
+  img.src = src;
+  await img.decode();
+  return { src, img, w: img.naturalWidth || 512, h: img.naturalHeight || 512 };
+}
+
 /* ------------------------------------------------------------------ stage */
 
 /**
@@ -392,14 +647,19 @@ const ExportStage = memo(function ExportStage({
   scenario,
   lang,
   rtl,
+  notice,
   controllerRef,
 }: {
   scenario: Scenario;
   lang: Lang;
   rtl: boolean;
+  notice: NoticeInfo | null;
   controllerRef: React.RefObject<StageController | null>;
 }) {
-  const [st, setSt] = useState<{ frame: FrameState | null; clock?: number }>({ frame: null });
+  const [st, setSt] = useState<{ frame: FrameState | null; clock?: number; introT: number | null }>({
+    frame: null,
+    introT: null,
+  });
   const boxRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -407,14 +667,16 @@ const ExportStage = memo(function ExportStage({
     if (!node) return;
     controllerRef.current = {
       node,
-      render: (frame, clock) => flushSync(() => setSt({ frame, clock })),
+      render: (frame, clock, scene) => flushSync(() => setSt({ frame, clock, introT: scene?.introT ?? null })),
     };
     return () => {
       controllerRef.current = null;
     };
   }, [controllerRef]);
 
-  const view = useMemo(() => makeView(scenario, st.frame, st.clock), [scenario, st]);
+  const view = useMemo(() => makeView(scenario, st.frame, st.clock), [scenario, st.frame, st.clock]);
+  const screenH = DEVICE_SIZE[scenario.device].h;
+  const showIntro = st.introT !== null && notice !== null;
 
   return (
     <div
@@ -434,8 +696,13 @@ const ExportStage = memo(function ExportStage({
           device={scenario.device}
           dir={rtl ? "rtl" : "ltr"}
           fontFamily={deviceFontFamily(scenario.device, scenario.androidFont)}
+          finish={scenario.deviceColor}
         >
-          <PlatformView scenario={scenario} playback={view} lang={lang} rtl={rtl} />
+          {/* the chat layer (transformed while the app opens out of the notification) */}
+          <div style={{ position: "absolute", inset: 0, isolation: "isolate", ...introChatStyle(showIntro ? st.introT : null, scenario.device, screenH) }}>
+            <PlatformView scenario={scenario} playback={view} lang={lang} rtl={rtl} />
+          </div>
+          {showIntro && <NotificationIntro notice={notice} t={st.introT!} device={scenario.device} />}
         </DeviceFrame>
       </div>
     </div>
@@ -462,15 +729,17 @@ function Segmented<T extends string | number>({
   onChange,
   attr,
   disabled,
+  label,
 }: {
   value: T;
-  options: { value: T; label: string }[];
+  options: { value: T; label: string; disabled?: boolean }[];
   onChange: (v: T) => void;
   attr: string;
   disabled?: boolean;
+  label?: string;
 }) {
   return (
-    <div role="radiogroup" className="flex gap-1 rounded-lg bg-muted p-1">
+    <div role="radiogroup" aria-label={label} className="flex gap-1 rounded-lg bg-muted p-1">
       {options.map((o) => {
         const active = o.value === value;
         return (
@@ -479,11 +748,11 @@ function Segmented<T extends string | number>({
             type="button"
             role="radio"
             aria-checked={active}
-            disabled={disabled}
+            disabled={disabled || o.disabled}
             {...{ [`data-export-${attr}`]: String(o.value) }}
             onClick={() => onChange(o.value)}
             className={cn(
-              "flex-1 rounded-md px-2 py-1.5 text-xs font-medium tabular-nums transition-colors disabled:opacity-50",
+              "min-w-0 flex-1 truncate rounded-md px-2 py-1.5 text-xs font-medium tabular-nums transition-colors disabled:opacity-50",
               active ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
             )}
           >
@@ -491,6 +760,15 @@ function Segmented<T extends string | number>({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="grid grid-cols-[96px_1fr] items-center gap-2">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      {children}
     </div>
   );
 }
@@ -504,6 +782,7 @@ function AspectGlyph({ ratio }: { ratio: string }) {
     <span className="flex size-5 items-center justify-center">
       <span
         className={cn("block border-[1.5px] border-current", ratio ? "rounded-[3px]" : "rounded-[4px]")}
+        // geometry depends on the preset's aspect ratio (no utility class can express it)
         style={{ width: w, height: h }}
       />
     </span>
@@ -595,6 +874,113 @@ function Switch({ on, disabled }: { on: boolean; disabled?: boolean }) {
   );
 }
 
+/** Bordered option card: a switch header and, when on, its settings. */
+function ToggleCard({
+  icon,
+  title,
+  hint,
+  on,
+  disabled,
+  attr,
+  onToggle,
+  children,
+  aside,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  hint: string;
+  on: boolean;
+  disabled?: boolean;
+  attr: string;
+  onToggle: () => void;
+  children?: React.ReactNode;
+  aside?: React.ReactNode;
+}) {
+  const active = on && !disabled;
+  return (
+    <section className="rounded-xl border border-border">
+      <div className="flex items-center gap-2 p-3">
+        <button
+          type="button"
+          role="switch"
+          aria-checked={active}
+          disabled={disabled}
+          {...{ [`data-export-${attr}`]: active ? "on" : "off" }}
+          onClick={onToggle}
+          className="flex min-w-0 flex-1 items-center gap-3 text-start disabled:opacity-60"
+        >
+          <span
+            className={cn(
+              "flex size-8 shrink-0 items-center justify-center rounded-lg",
+              active ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
+            )}
+          >
+            {icon}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-xs font-semibold">{title}</span>
+            <span className="block text-[11px] leading-snug text-muted-foreground">{hint}</span>
+          </span>
+          <Switch on={on} disabled={disabled} />
+        </button>
+        {aside}
+      </div>
+      {active && children && <div className="space-y-2.5 border-t border-border p-3">{children}</div>}
+    </section>
+  );
+}
+
+function TextField({
+  label,
+  value,
+  placeholder,
+  onChange,
+  attr,
+  dir,
+}: {
+  label: string;
+  value: string;
+  placeholder?: string;
+  onChange: (v: string) => void;
+  attr: string;
+  dir: "rtl" | "ltr";
+}) {
+  return (
+    <label className="block space-y-1">
+      <span className="text-[11px] text-muted-foreground">{label}</span>
+      <input
+        type="text"
+        value={value}
+        maxLength={140}
+        dir="auto"
+        placeholder={placeholder}
+        {...{ [`data-export-${attr}`]: "" }}
+        onChange={(e) => onChange(e.target.value)}
+        className={cn(
+          "h-9 w-full rounded-lg border border-border bg-background px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          dir === "rtl" ? "text-right" : "text-left",
+        )}
+      />
+    </label>
+  );
+}
+
+function ColorField({ label, value, onChange, attr }: { label: string; value: string; onChange: (v: string) => void; attr: string }) {
+  return (
+    <label className="flex min-w-0 items-center gap-2 rounded-lg border border-border px-2 py-1.5 focus-within:ring-2 focus-within:ring-ring">
+      <input
+        type="color"
+        value={value}
+        aria-label={label}
+        {...{ [`data-export-${attr}`]: "" }}
+        onChange={(e) => onChange(e.target.value)}
+        className="size-5 shrink-0 cursor-pointer rounded border-0 bg-transparent p-0"
+      />
+      <span className="truncate text-[11px] text-muted-foreground">{label}</span>
+    </label>
+  );
+}
+
 /** Tiny looping illustration of the auto-zoom camera (pure CSS, no JS timers). */
 function ZoomIllustration({ active }: { active: boolean }) {
   return (
@@ -608,6 +994,7 @@ function ZoomIllustration({ active }: { active: boolean }) {
       `}</style>
       <span
         className="scx-cam absolute inset-0 origin-center"
+        // the animation only runs while the option is on
         style={{ animation: active ? "scx-cam 4.2s cubic-bezier(.45,0,.2,1) infinite" : "none" }}
       >
         <span className="absolute left-[5px] top-[30px] h-[7px] w-[20px] rounded-[3px] bg-muted-foreground/45" />
@@ -619,27 +1006,71 @@ function ZoomIllustration({ active }: { active: boolean }) {
   );
 }
 
+function FileButton({
+  label,
+  accept,
+  onFile,
+  attr,
+  icon,
+}: {
+  label: string;
+  accept: string;
+  onFile: (f: File) => void;
+  attr: string;
+  icon: React.ReactNode;
+}) {
+  return (
+    <label className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-border px-2.5 text-xs font-medium hover:bg-muted focus-within:ring-2 focus-within:ring-ring">
+      {icon}
+      {label}
+      <input
+        type="file"
+        accept={accept}
+        className="sr-only"
+        {...{ [`data-export-${attr}`]: "" }}
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (f) onFile(f);
+        }}
+      />
+    </label>
+  );
+}
+
 /* ------------------------------------------------------------------ dialog */
 
 type Phase = "idle" | "rendering" | "done" | "error";
 
 interface ExportResult {
+  kind: OutputKind;
   file: File;
   url: string;
-  codec: PickedCodec;
-  audio: AudioCodec | null;
-  soundRequested: boolean;
   W: number;
   H: number;
-  fps: number;
-  durationMs: number;
   tookMs: number;
+  /** video / gif */
+  fps?: number;
+  durationMs?: number;
+  frames?: number;
+  codec?: PickedCodec;
+  audio?: AudioCodec | null;
+  soundRequested?: boolean;
+  format?: ImageFormat;
 }
 
 interface Progress {
   done: number;
   total: number;
   etaMs: number | null;
+  note?: string;
+}
+
+interface Prepared {
+  r: FrameRenderer;
+  tm: SceneTiming;
+  W: number;
+  H: number;
 }
 
 export function ExportDialog({
@@ -654,8 +1085,9 @@ export function ExportDialog({
   const locale = useLocale();
   const lang: Lang = locale === "en" ? "en" : "ar";
   const rtl = lang === "ar";
-  const c = COPY[lang];
+  const c: Copy = COPY[lang];
   const [supported] = useState(canExportVideo);
+  const [fontFamily] = useState(pageFontFamily);
 
   const [prefs, setPrefs] = useState<Prefs>(() => (typeof window === "undefined" ? DEFAULT_PREFS : loadPrefs()));
   const [phase, setPhase] = useState<Phase>("idle");
@@ -666,43 +1098,189 @@ export function ExportDialog({
   const [device, setDevice] = useState<DeviceGeometry | null>(null);
   const [previewPhone, setPreviewPhone] = useState<{ canvas: HTMLCanvasElement; scale: number } | null>(null);
   const [audioCodec, setAudioCodec] = useState<AudioCodec | null | undefined>(undefined);
+  const [logo, setLogo] = useState<LogoAsset | null>(null);
+  const [logoErr, setLogoErr] = useState(false);
+  const [music, setMusic] = useState<MusicAsset | null>(null);
+  const [musicOffset, setMusicOffset] = useState(0);
+  const [musicErr, setMusicErr] = useState(false);
+  const [musicBusy, setMusicBusy] = useState(false);
+  const [musicPlaying, setMusicPlaying] = useState(false);
+  const [stillMs, setStillMs] = useState<number | null>(null);
+  const [peek, setPeek] = useState<Peek | null>(null);
+  const [momentBusy, setMomentBusy] = useState(false);
 
   const stageRef = useRef<StageController | null>(null);
   const previewRef = useRef<HTMLCanvasElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const backdropRef = useRef<ScreenBackdrop | null>(null);
   const resultUrlRef = useRef<string | null>(null);
+  const musicUrlRef = useRef<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const stageLock = useRef<Promise<unknown>>(Promise.resolve());
+  const momentR = useRef<{ key: string; p: Prepared } | null>(null);
+
+  const kind: OutputKind = !supported && prefs.kind === "video" ? "gif" : prefs.kind;
 
   const update = useCallback((patch: Partial<Prefs>) => {
-    setPrefs((p) => {
-      const next = { ...p, ...patch };
-      savePrefs(next);
-      return next;
-    });
+    setPrefs((p) => ({ ...p, ...patch }));
   }, []);
 
+  // persist outside the state updater (it also updates the live stage store)
+  const savedOnce = useRef(false);
+  useEffect(() => {
+    if (!savedOnce.current) {
+      savedOnce.current = true;
+      return;
+    }
+    savePrefs(prefs);
+  }, [prefs]);
+
+  /* ------------------------------------------------ derived settings */
+
   const timeline = useMemo(() => buildTimeline(scenario), [scenario]);
-  const totalMs = prefs.introMs + timeline.contentMs + prefs.outroMs;
+  const notice = useMemo(() => noticeFor(scenario, lang), [scenario, lang]);
   const preset = PRESETS.find((p) => p.id === prefs.preset) ?? PRESETS[0];
   const bgDef = BACKGROUNDS.find((b) => b.id === prefs.bg) ?? BACKGROUNDS[0];
   const accent = PLATFORM_MAP[scenario.platform]?.accent ?? "#25d366";
   const paint = useMemo<PaintOptions>(() => ({ accent, custom: prefs.custom }), [accent, prefs.custom]);
-  const layout = useMemo(
-    () => computeLayout(preset, device ?? FALLBACK_DEVICE, prefs.size),
-    [preset, device, prefs.size],
+  const notifOn = prefs.notif && !!notice;
+  const captionAllowed = supportsCaption(preset);
+
+  const caption = useMemo<CaptionConfig | null>(
+    () =>
+      prefs.caption && captionAllowed && prefs.captionText.trim()
+        ? {
+            text: prefs.captionText,
+            position: prefs.captionPos,
+            size: prefs.captionSize,
+            color: prefs.captionColor,
+            pill: prefs.captionPill ? prefs.captionPillColor : null,
+            fontFamily,
+          }
+        : null,
+    [prefs.caption, captionAllowed, prefs.captionText, prefs.captionPos, prefs.captionSize, prefs.captionColor, prefs.captionPill, prefs.captionPillColor, fontFamily],
   );
+  const captionFrac = useMemo(
+    () => captionBandFraction(caption, preset.w ?? 1080, preset.h ?? 1920),
+    [caption, preset.w, preset.h],
+  );
+  const reserve = useMemo(
+    () => ({
+      reserveTop: caption?.position === "top" ? captionFrac : 0,
+      reserveBottom: caption?.position === "bottom" ? captionFrac : 0,
+    }),
+    [caption, captionFrac],
+  );
+
+  const endCard = useMemo<EndCardConfig | null>(
+    () =>
+      prefs.endCard
+        ? {
+            logo: logo?.img ?? null,
+            logoW: logo?.w ?? 0,
+            logoH: logo?.h ?? 0,
+            headline: prefs.endHeadline,
+            cta: prefs.endCta,
+            bg: prefs.endBg,
+            fg: prefs.endFg,
+            ctaBg: prefs.endCtaBg,
+            ctaFg: prefs.endCtaFg,
+            fontFamily,
+          }
+        : null,
+    [prefs.endCard, logo, prefs.endHeadline, prefs.endCta, prefs.endBg, prefs.endFg, prefs.endCtaBg, prefs.endCtaFg, fontFamily],
+  );
+
+  const camera = useMemo<CameraOptions | null>(
+    () =>
+      prefs.zoom
+        ? {
+            maxZoom: ZOOM_LEVELS[prefs.zoomLevel],
+            followSides: prefs.followSides,
+            zoomOutAtEnd: prefs.zoomOutEnd,
+            safeTop: reserve.reserveTop,
+            safeBottom: reserve.reserveBottom,
+          }
+        : null,
+    [prefs.zoom, prefs.zoomLevel, prefs.followSides, prefs.zoomOutEnd, reserve],
+  );
+
+  const layout = useMemo(
+    () => computeLayout(preset, device ?? FALLBACK_DEVICE, prefs.size, reserve),
+    [preset, device, prefs.size, reserve],
+  );
+
+  /** skip point for the notification intro (the announced message is on screen) */
+  const skipFor = useCallback(
+    (enterMs: number) => (notice ? (timeline.revealAt.get(notice.id) ?? 0) + enterMs + 40 : 0),
+    [notice, timeline],
+  );
+  const timingFor = useCallback(
+    (enterMs: number) =>
+      sceneTiming({
+        notif: notifOn,
+        skipMs: skipFor(enterMs),
+        introMs: prefs.introMs,
+        contentMs: timeline.contentMs,
+        outroMs: prefs.outroMs,
+        endMs: prefs.endCard ? prefs.endMs : 0,
+      }),
+    [notifOn, skipFor, prefs.introMs, prefs.outroMs, prefs.endCard, prefs.endMs, timeline],
+  );
+  const enterMs = resolvePlatformMotion(scenario.platform, scenario.device).enterMs;
+  const timing = useMemo(() => timingFor(enterMs), [timingFor, enterMs]);
+  const totalMs = timing.totalMs;
+  const finalMs = Math.max(0, timing.chatEnd - 1);
   const bitrate = bitrateFor(layout.W, layout.H, prefs.fps, prefs.quality);
+
+  const gifW = Math.min(prefs.gifWidth, layout.W);
+  const gifH = Math.round((gifW * layout.H) / layout.W);
+  const gifFrames = Math.max(1, Math.round((totalMs / 1000) * prefs.gifFps));
+  const gifCap = prefs.gifCapMb * 1_048_576;
 
   // Preview canvas pixel size: long side 720px (crisp on HiDPI, cheap to paint).
   const pk = 720 / Math.max(layout.W, layout.H);
   const previewW = Math.round(layout.W * pk);
   const previewH = Math.round(layout.H * pk);
 
+  /** output time shown in the preview instead of the static layout (null = layout) */
+  const momentMs =
+    kind === "image"
+      ? Math.min(stillMs ?? finalMs, totalMs - 1)
+      : peek === "intro" && notifOn
+        ? NOTIF_PEEK_MS
+        : peek === "end" && prefs.endCard
+          ? totalMs - 1
+          : null;
+
+  /** everything that changes how a frame looks (moment previews are re-built when it changes) */
+  const renderKey = JSON.stringify([
+    prefs.preset,
+    prefs.size,
+    prefs.bg,
+    prefs.custom,
+    camera,
+    caption,
+    endCard && { ...endCard, logo: logo?.src.length ?? 0 },
+    timing,
+    device?.w,
+    device?.h,
+  ]);
+
+  /* ------------------------------------------------------- lifecycle */
+
+  /** serialise everything that drives the shared off-screen stage */
+  const withStage = useCallback(<T,>(fn: () => Promise<T>): Promise<T> => {
+    const run = stageLock.current.then(fn, fn);
+    stageLock.current = run.catch(() => undefined);
+    return run;
+  }, []);
+
   // One-time: settle fonts, snapshot the finished conversation for the live
   // layout preview (this also warms snapdom's font/style caches for export).
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    void withStage(async () => {
       const ac = await pickAudioCodec();
       if (!cancelled) setAudioCodec(ac);
       await preloadPlatform(scenario.platform, scenario.device).catch(() => null);
@@ -726,7 +1304,7 @@ export function ExportDialog({
       } catch {
         if (!cancelled) setDevice(dims);
       }
-    })();
+    });
     return () => {
       cancelled = true;
     };
@@ -737,18 +1315,96 @@ export function ExportDialog({
   // Repaint the layout preview whenever a setting changes (not while rendering:
   // the renderer streams real frames into the same canvas then).
   useEffect(() => {
-    if (phase === "rendering" || phase === "done") return;
+    if (phase === "rendering" || phase === "done" || momentMs !== null) return;
     const cv = previewRef.current;
     if (!cv) return;
     backdropRef.current ??= new ScreenBackdrop();
-    paintPreview(cv, layout, bgDef, paint, previewPhone?.canvas ?? null, previewPhone?.scale ?? 1, backdropRef.current);
-  }, [layout, bgDef, paint, previewPhone, phase, previewW, previewH]);
+    paintPreview(cv, layout, bgDef, paint, previewPhone?.canvas ?? null, previewPhone?.scale ?? 1, backdropRef.current, caption);
+  }, [layout, bgDef, paint, previewPhone, phase, previewW, previewH, momentMs, caption]);
 
-  // Abort on unmount; free the result URL.
+  /** Build (or reuse) a renderer for the current settings at resolution `mul`. */
+  const prepare = useCallback(
+    async (mul: number, fps: number, maxCaptureSide?: number): Promise<Prepared> => {
+      const stage = stageRef.current;
+      if (!stage) throw new Error("generic");
+      const mod = await preloadPlatform(scenario.platform, scenario.device);
+      if (document.fonts?.ready) await document.fonts.ready;
+      stage.render(null);
+      await waitForTemplate(stage);
+      stripOuterShadow(stage);
+      const dims = measureDevice(stage);
+      const lay = computeLayout(preset, dims, prefs.size, { mul, ...reserve });
+      const tm = timingFor(mod.motion.enterMs);
+      const r = new FrameRenderer({
+        stage,
+        timeline,
+        motion: mod.motion,
+        rtl,
+        layout: lay,
+        background: bgDef,
+        paint,
+        fps,
+        timing: tm,
+        camera,
+        endCard,
+        caption,
+        maxCaptureSide,
+      });
+      await r.prepareCamera();
+      return { r, tm, W: lay.W, H: lay.H };
+    },
+    [scenario, preset, prefs.size, reserve, timingFor, timeline, rtl, bgDef, paint, camera, endCard, caption],
+  );
+
+  const dropMomentRenderer = () => {
+    momentR.current?.p.r.dispose();
+    momentR.current = null;
+  };
+
+  /** Render one output moment into the preview canvas (image export / scene previews). */
+  const renderMoment = useEffectEvent(async (ms: number, key: string, isCancelled: () => boolean) => {
+    const mul = 720 / Math.max(layout.W, layout.H);
+    if (momentR.current?.key !== key) {
+      dropMomentRenderer();
+      momentR.current = { key, p: await prepare(mul, 30) };
+    }
+    if (isCancelled()) return;
+    const { r } = momentR.current.p;
+    r.seek();
+    const frame = await r.renderAt(ms, true);
+    const cv = previewRef.current;
+    if (isCancelled() || !cv) return;
+    const ctx = cv.getContext("2d");
+    if (!ctx) return;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(frame, 0, 0, cv.width, cv.height);
+  });
+
+  useEffect(() => {
+    if (momentMs === null || phase === "rendering" || phase === "done" || !device) return;
+    let cancelled = false;
+    const id = window.setTimeout(() => {
+      setMomentBusy(true);
+      void withStage(() => renderMoment(momentMs, renderKey, () => cancelled))
+        .catch(() => undefined)
+        .finally(() => {
+          if (!cancelled) setMomentBusy(false);
+        });
+    }, 140);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(id);
+    };
+  }, [momentMs, renderKey, phase, device, withStage, previewW, previewH]);
+
+  // Abort on unmount; free URLs and renderers.
   useEffect(() => {
     return () => {
       abortRef.current?.abort();
       if (resultUrlRef.current) URL.revokeObjectURL(resultUrlRef.current);
+      if (musicUrlRef.current) URL.revokeObjectURL(musicUrlRef.current);
+      momentR.current?.p.r.dispose();
+      momentR.current = null;
     };
   }, []);
 
@@ -765,73 +1421,120 @@ export function ExportDialog({
     return () => window.removeEventListener("keydown", onKey);
   }, [close, phase]);
 
-  const runExport = async () => {
-    const stage = stageRef.current;
-    if (!stage || phase === "rendering") return;
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
-    setPhase("rendering");
-    setProgress({ done: 0, total: Math.round((totalMs / 1000) * prefs.fps), etaMs: null });
-    setErrKey("");
-    setErrDetail("");
-    if (resultUrlRef.current) URL.revokeObjectURL(resultUrlRef.current);
-    resultUrlRef.current = null;
-    setResult(null);
+  /* ------------------------------------------------------ uploads */
 
-    let renderer: FrameRenderer | null = null;
-    const started = performance.now();
+  const onLogo = async (f: File) => {
+    setLogoErr(false);
     try {
-      const mod = await preloadPlatform(scenario.platform, scenario.device);
-      if (document.fonts?.ready) await document.fonts.ready;
-      stage.render(null);
-      await waitForTemplate(stage);
-      stripOuterShadow(stage);
-      const dims = measureDevice(stage);
-      const lay = computeLayout(preset, dims, prefs.size);
-      const fps = prefs.fps;
-      const totalFrames = Math.max(1, Math.round((totalMs / 1000) * fps));
-      const br = bitrateFor(lay.W, lay.H, fps, prefs.quality);
+      if (f.size > 8 * 1024 * 1024) throw new Error("too big");
+      setLogo(await loadLogo(f));
+    } catch {
+      setLogoErr(true);
+    }
+  };
 
-      const codec = await pickVideoCodec(lay.W, lay.H, fps, br);
+  const onMusic = async (f: File) => {
+    setMusicErr(false);
+    setMusicBusy(true);
+    try {
+      const buffer = await decodeMusic(f);
+      if (musicUrlRef.current) URL.revokeObjectURL(musicUrlRef.current);
+      const url = URL.createObjectURL(f);
+      musicUrlRef.current = url;
+      setMusicPlaying(false);
+      setMusic({ name: f.name, buffer, url });
+      setMusicOffset(0);
+      if (!prefs.music) update({ music: true });
+    } catch {
+      setMusicErr(true);
+    } finally {
+      setMusicBusy(false);
+    }
+  };
+
+  const removeMusic = () => {
+    audioRef.current?.pause();
+    setMusicPlaying(false);
+    if (musicUrlRef.current) URL.revokeObjectURL(musicUrlRef.current);
+    musicUrlRef.current = null;
+    setMusic(null);
+  };
+
+  const toggleMusicPreview = () => {
+    const el = audioRef.current;
+    if (!el || !music) return;
+    if (musicPlaying) {
+      el.pause();
+      setMusicPlaying(false);
+      return;
+    }
+    el.currentTime = musicOffset;
+    el.volume = prefs.musicVolume;
+    void el.play().then(
+      () => setMusicPlaying(true),
+      () => setMusicPlaying(false),
+    );
+  };
+
+  useEffect(() => {
+    const el = audioRef.current;
+    if (el) el.volume = prefs.musicVolume;
+  }, [prefs.musicVolume]);
+
+  const musicBed: MusicBed | null =
+    music && prefs.music
+      ? {
+          buffer: music.buffer,
+          offsetSec: musicOffset,
+          volume: prefs.musicVolume,
+          fadeInMs: prefs.musicFadeIn,
+          fadeOutMs: prefs.musicFadeOut,
+          loop: prefs.musicLoop,
+        }
+      : null;
+
+  /* ------------------------------------------------------- export */
+
+  const finishResult = (res: ExportResult) => {
+    resultUrlRef.current = res.url;
+    setResult(res);
+    setPhase("done");
+    if (!isTouchDevice()) downloadVideoFile(res.file);
+  };
+
+  const runVideo = async (ctrl: AbortController, started: number) => {
+    const { r, tm, W, H } = await prepare(1, prefs.fps);
+    try {
+      const fps = prefs.fps;
+      const totalFrames = Math.max(1, Math.round((tm.totalMs / 1000) * fps));
+      const durMs = (totalFrames * 1000) / fps;
+      const br = bitrateFor(W, H, fps, prefs.quality);
+      const codec = await pickVideoCodec(W, H, fps, br);
       if (!codec) throw new Error("CODEC_UNSUPPORTED");
 
       let audio: { buffer: AudioBuffer; codec: AudioCodec } | null = null;
-      if (prefs.sound) {
+      if (prefs.sound || musicBed) {
         const ac = audioCodec ?? (await pickAudioCodec());
         if (ac) {
-          const cues = timeline.reveals.map((r) => ({
-            at: r.at + prefs.introMs,
-            kind: r.sender === "me" ? ("send" as const) : ("receive" as const),
-          }));
-          audio = { buffer: await renderSoundTrack(cues, totalMs), codec: ac };
+          const cues: SoundCue[] = [];
+          if (prefs.sound) {
+            if (tm.leadMs) cues.push({ at: NOTIF.inAt + 80, kind: "receive" });
+            for (const rv of timeline.reveals) {
+              if (tm.leadMs && rv.at <= tm.skipMs) continue;
+              cues.push({ at: outputTimeOf(tm, rv.at), kind: rv.sender === "me" ? "send" : "receive" });
+            }
+          }
+          audio = { buffer: await renderSoundTrack(cues, durMs, musicBed), codec: ac };
         }
       }
-
-      renderer = new FrameRenderer({
-        stage,
-        timeline,
-        motion: mod.motion,
-        rtl,
-        layout: lay,
-        background: bgDef,
-        paint,
-        fps,
-        introMs: prefs.introMs,
-        totalMs: (totalFrames * 1000) / fps,
-        camera: prefs.zoom
-          ? { maxZoom: ZOOM_LEVELS[prefs.zoomLevel], followSides: prefs.followSides, zoomOutAtEnd: prefs.zoomOutEnd }
-          : null,
-      });
-      const r = renderer;
-      await r.prepareCamera();
       if (ctrl.signal.aborted) throw new ExportAbortedError();
       const pv = previewRef.current;
       const pctx = pv?.getContext("2d") ?? null;
 
       let lastUi = 0;
       const blob = await exportToMp4({
-        width: lay.W,
-        height: lay.H,
+        width: W,
+        height: H,
         fps,
         totalFrames,
         bitrate: br,
@@ -857,54 +1560,209 @@ export function ExportDialog({
       });
 
       if (process.env.NODE_ENV !== "production") {
-        console.info("[export] " + JSON.stringify({
-          codec: codec.codec,
-          audio: audio?.codec ?? null,
-          size: `${lay.W}x${lay.H}@${fps}`,
-          frames: totalFrames,
-          captured: r.stats.captured,
-          reused: r.stats.reused,
-          cacheHits: r.stats.cacheHits,
-          captureMul: Number(r.captureMul.toFixed(2)),
-          zoom: prefs.zoom ? prefs.zoomLevel : "off",
-          msPerCapture: Math.round(r.stats.captureMs / Math.max(1, r.stats.captured)),
-          totalMs: Math.round(performance.now() - started),
-          bytes: blob.size,
-        }));
+        console.info(
+          "[export] " +
+            JSON.stringify({
+              codec: codec.codec,
+              audio: audio?.codec ?? null,
+              music: !!musicBed,
+              size: `${W}x${H}@${fps}`,
+              frames: totalFrames,
+              captured: r.stats.captured,
+              reused: r.stats.reused,
+              cacheHits: r.stats.cacheHits,
+              captureMul: Number(r.captureMul.toFixed(2)),
+              zoom: prefs.zoom ? prefs.zoomLevel : "off",
+              scenes: { notif: !!tm.leadMs, endCard: tm.endMs, caption: !!caption },
+              msPerCapture: Math.round(r.stats.captureMs / Math.max(1, r.stats.captured)),
+              totalMs: Math.round(performance.now() - started),
+              bytes: blob.size,
+            }),
+        );
       }
 
-      const file = createVideoFile(blob, scenario.platform, scenario.device);
-      const url = URL.createObjectURL(file);
-      resultUrlRef.current = url;
-      setResult({
+      const file = createExportFile(blob, scenario.platform, scenario.device, "mp4");
+      finishResult({
+        kind: "video",
         file,
-        url,
+        url: URL.createObjectURL(file),
         codec,
         audio: audio?.codec ?? null,
-        soundRequested: prefs.sound,
-        W: lay.W,
-        H: lay.H,
+        soundRequested: prefs.sound || !!musicBed,
+        W,
+        H,
         fps,
-        durationMs: (totalFrames * 1000) / fps,
+        frames: totalFrames,
+        durationMs: durMs,
         tookMs: performance.now() - started,
       });
-      setPhase("done");
-      if (!isTouchDevice()) downloadVideoFile(file);
-    } catch (e) {
-      if (e instanceof ExportAbortedError || ctrl.signal.aborted) {
-        setPhase("idle");
-      } else {
-        const msg = (e as Error)?.message ?? "";
-        setErrKey(c.errors[msg] ? msg : "generic");
-        setErrDetail(c.errors[msg] ? "" : msg);
-        setPhase("error");
-      }
     } finally {
-      renderer?.dispose();
-      if (abortRef.current === ctrl) abortRef.current = null;
-      // back to the static, fully revealed thread for the next preview
-      stageRef.current?.render(null);
+      r.dispose();
     }
+  };
+
+  const runGif = async (ctrl: AbortController, started: number) => {
+    const fps = prefs.gifFps;
+    const cap = gifCap;
+    let width = gifW;
+    for (let attempt = 0; ; attempt++) {
+      const { r, tm, W, H } = await prepare(width / layout.W, fps);
+      try {
+        const totalFrames = Math.max(1, Math.round((tm.totalMs / 1000) * fps));
+        // read-back surface (CPU-backed: many getImageData calls)
+        const rb = document.createElement("canvas");
+        rb.width = W;
+        rb.height = H;
+        const rctx = rb.getContext("2d", { willReadFrequently: true });
+        if (!rctx) throw new Error("CANVAS_UNAVAILABLE");
+        const grab = (src: HTMLCanvasElement) => {
+          rctx.drawImage(src, 0, 0);
+          return rctx.getImageData(0, 0, W, H).data;
+        };
+
+        // one global palette from representative moments
+        const chatSpan = tm.chatEnd - tm.leadMs;
+        const sampleAt = [
+          tm.leadMs ? NOTIF_PEEK_MS : 0,
+          ...[0.3, 0.55, 0.8].map((f) => tm.leadMs + chatSpan * f),
+          tm.chatEnd - 1,
+          ...(tm.endMs ? [tm.chatEnd + Math.min(450, tm.endMs / 3), tm.totalMs - 1] : []),
+        ];
+        const samples: Uint8ClampedArray[] = [];
+        for (const ms of sampleAt) {
+          if (ctrl.signal.aborted) throw new ExportAbortedError();
+          r.seek();
+          samples.push(grab(await r.renderAt(Math.max(0, Math.min(ms, tm.totalMs - 1)), true)));
+          await yieldToEventLoop();
+        }
+        const writer = new GifWriter(W, H, buildPalette(samples));
+        samples.length = 0;
+        r.seek();
+
+        const pv = previewRef.current;
+        const pctx = pv?.getContext("2d") ?? null;
+        let lastUi = 0;
+        let firstBytes = 0;
+        let tooBig = 0;
+        for (let i = 0; i < totalFrames; i++) {
+          if (ctrl.signal.aborted) throw new ExportAbortedError();
+          const frame = await r.frame(i);
+          const delay = Math.round(((i + 1) * 100) / fps) - Math.round((i * 100) / fps);
+          writer.addFrame(grab(frame), delay);
+          if (i === 0) firstBytes = writer.size;
+          if (i % 4 === 0) await yieldToEventLoop();
+          // project the final size early; restart smaller instead of finishing a file that's too big
+          if (attempt < 3 && i >= Math.max(12, totalFrames * 0.25)) {
+            const projected = firstBytes + ((writer.size - firstBytes) / i) * (totalFrames - 1);
+            if (projected > cap * 1.15) {
+              tooBig = projected;
+              break;
+            }
+          }
+          const now = performance.now();
+          if (now - lastUi > 120 || i === totalFrames - 1) {
+            lastUi = now;
+            if (pv && pctx) pctx.drawImage(frame, 0, 0, pv.width, pv.height);
+            const elapsed = now - started;
+            const done = i + 1;
+            const etaMs = done / totalFrames > 0.05 && elapsed > 1500 ? (elapsed / done) * (totalFrames - done) : null;
+            setProgress((p) => ({ done, total: totalFrames, etaMs, note: p.note }));
+          }
+        }
+        if (!tooBig) {
+          const bytes = writer.finish();
+          if (bytes.length > cap && attempt < 3) tooBig = bytes.length;
+          else {
+            const blob = new Blob([bytes as BlobPart], { type: "image/gif" });
+            const file = createExportFile(blob, scenario.platform, scenario.device, "gif");
+            finishResult({
+              kind: "gif",
+              file,
+              url: URL.createObjectURL(file),
+              W,
+              H,
+              fps,
+              frames: totalFrames,
+              durationMs: (totalFrames * 1000) / fps,
+              tookMs: performance.now() - started,
+            });
+            return;
+          }
+        }
+        width = Math.max(200, Math.round(width * Math.max(0.55, Math.sqrt(cap / tooBig) * 0.94)));
+        setProgress({ done: 0, total: totalFrames, etaMs: null, note: c.gifRetry });
+      } finally {
+        r.dispose();
+      }
+    }
+  };
+
+  const runImage = async (started: number) => {
+    const k = prefs.imageScale;
+    const { r, tm, W, H } = await prepare(k, 30, 4096);
+    try {
+      r.seek();
+      const at = Math.min(stillMs ?? tm.chatEnd - 1, tm.totalMs - 1);
+      const frame = await r.renderAt(Math.max(0, at), true);
+      const jpeg = prefs.imageFormat === "jpeg";
+      const blob = await new Promise<Blob | null>((res) => frame.toBlob(res, jpeg ? "image/jpeg" : "image/png", 0.92));
+      if (!blob) throw new Error("IMAGE_FAILED");
+      const file = createExportFile(blob, scenario.platform, scenario.device, jpeg ? "jpg" : "png");
+      finishResult({
+        kind: "image",
+        file,
+        url: URL.createObjectURL(file),
+        W,
+        H,
+        format: prefs.imageFormat,
+        tookMs: performance.now() - started,
+      });
+    } finally {
+      r.dispose();
+    }
+  };
+
+  const runExport = async () => {
+    const stage = stageRef.current;
+    if (!stage || phase === "rendering") return;
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    audioRef.current?.pause();
+    setMusicPlaying(false);
+    setPhase("rendering");
+    setProgress({
+      done: 0,
+      total: kind === "video" ? Math.round((totalMs / 1000) * prefs.fps) : kind === "gif" ? gifFrames : 0,
+      etaMs: null,
+    });
+    setErrKey("");
+    setErrDetail("");
+    if (resultUrlRef.current) URL.revokeObjectURL(resultUrlRef.current);
+    resultUrlRef.current = null;
+    setResult(null);
+
+    const started = performance.now();
+    await withStage(async () => {
+      dropMomentRenderer();
+      try {
+        if (kind === "video") await runVideo(ctrl, started);
+        else if (kind === "gif") await runGif(ctrl, started);
+        else await runImage(started);
+      } catch (e) {
+        if (e instanceof ExportAbortedError || ctrl.signal.aborted) {
+          setPhase("idle");
+        } else {
+          const msg = (e as Error)?.message ?? "";
+          setErrKey(c.errors[msg] ? msg : "generic");
+          setErrDetail(c.errors[msg] ? "" : msg);
+          setPhase("error");
+        }
+      } finally {
+        if (abortRef.current === ctrl) abortRef.current = null;
+        // back to the static, fully revealed thread for the next preview
+        stageRef.current?.render(null);
+      }
+    });
   };
 
   const cancel = () => abortRef.current?.abort();
@@ -924,10 +1782,33 @@ export function ExportDialog({
     }
   };
 
+  /* --------------------------------------------------------- view */
+
   const busy = phase === "rendering";
   const pct = progress.total ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : 0;
   const canShare = result ? canShareVideoFile(result.file) : false;
-  const summary = `${layout.W}×${layout.H} · ${prefs.fps} fps · ${fmtClock(totalMs, lang)}`;
+  const imgW = layout.W * prefs.imageScale;
+  const imgH = layout.H * prefs.imageScale;
+  const summary =
+    kind === "video"
+      ? `${layout.W}×${layout.H} · ${prefs.fps} fps · ${fmtClock(totalMs, lang)}`
+      : kind === "gif"
+        ? `${gifW}×${gifH} · ${prefs.gifFps} fps · ${fmtClock(totalMs, lang)}`
+        : `${imgW}×${imgH} · ${prefs.imageFormat.toUpperCase()}`;
+  const estimate =
+    kind === "video"
+      ? `~${fmtMB(estimateBytes(bitrate, totalMs, prefs.zoom) + (prefs.sound || musicBed ? (totalMs / 1000) * 16_000 : 0), lang)}`
+      : kind === "gif"
+        ? `~${fmtMB(Math.min(gifCap, estimateGifBytes(gifW, gifH, gifFrames, prefs.zoom)), lang)} · ${c.max(fmtMB(gifCap, lang))}`
+        : `~${fmtMB(imgW * imgH * (prefs.imageFormat === "png" ? 1.1 : 0.2), lang)}`;
+  const resultLabel = result
+    ? result.kind === "image"
+      ? c.download[result.format ?? "png"]
+      : c.download[result.kind]
+    : "";
+  const sec = (ms: number) => c.sec(ms / 1000);
+
+  const musicDur = music?.buffer.duration ?? 0;
 
   return (
     <div
@@ -964,34 +1845,35 @@ export function ExportDialog({
           </button>
         </div>
 
-        {!supported ? (
-          <div className="space-y-4 p-6">
-            <div className="flex gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm">
-              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" />
-              <p>{c.errors.VIDEO_UNSUPPORTED}</p>
-            </div>
-            <Button variant="outline" className="w-full" onClick={close}>
-              {c.close}
-            </Button>
-          </div>
-        ) : (
-          <div className="grid min-h-0 flex-1 overflow-y-auto md:h-[min(84dvh,680px)] md:flex-none md:grid-cols-[minmax(0,1fr)_360px] md:overflow-hidden">
-            {/* preview */}
-            <div className="relative flex h-[46dvh] flex-col bg-muted/50 p-4 md:h-auto md:min-h-0">
-              <div className="relative min-h-0 flex-1">
-                <div className="absolute inset-0 flex items-center justify-center">
+        <div className="grid min-h-0 flex-1 overflow-y-auto md:h-[min(86dvh,720px)] md:flex-none md:grid-cols-[minmax(0,1fr)_380px] md:overflow-hidden">
+          {/* preview */}
+          <div className="relative flex h-[46dvh] flex-col bg-muted/50 p-4 md:h-auto md:min-h-0">
+            <div className="relative min-h-0 flex-1">
+              <div className="absolute inset-0 flex items-center justify-center">
                 {phase === "done" && result ? (
-                  <video
-                    key={result.url}
-                    src={result.url}
-                    controls
-                    autoPlay
-                    muted
-                    loop
-                    playsInline
-                    className="max-h-full max-w-full rounded-lg bg-black shadow-lg"
-                    style={{ aspectRatio: `${result.W}/${result.H}` }}
-                  />
+                  result.kind === "video" ? (
+                    <video
+                      key={result.url}
+                      src={result.url}
+                      controls
+                      autoPlay
+                      muted
+                      loop
+                      playsInline
+                      className="max-h-full max-w-full rounded-lg bg-black shadow-lg"
+                      // the element must keep the video's exact aspect ratio
+                      style={{ aspectRatio: `${result.W}/${result.H}` }}
+                    />
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element -- a local blob URL of the export; next/image can't optimise it
+                    <img
+                      key={result.url}
+                      src={result.url}
+                      alt={c.preview}
+                      data-export-result=""
+                      className="max-h-full max-w-full rounded-lg bg-black object-contain shadow-lg"
+                    />
+                  )
                 ) : (
                   <canvas
                     ref={previewRef}
@@ -999,30 +1881,47 @@ export function ExportDialog({
                     height={previewH}
                     className={cn(
                       "max-h-full max-w-full rounded-lg shadow-lg ring-1 ring-black/5 transition-opacity",
-                      !previewPhone && "animate-pulse",
+                      (!previewPhone || momentBusy) && "animate-pulse",
                     )}
+                    // the canvas must keep the output's exact aspect ratio
                     style={{ aspectRatio: `${layout.W}/${layout.H}` }}
                   />
                 )}
-                </div>
               </div>
-              <div className="mt-3 flex items-center justify-center gap-2 text-[11px] font-medium text-muted-foreground tabular-nums" dir="ltr">
-                <span>{phase === "done" && result ? `${result.W}×${result.H} · ${result.fps} fps` : summary}</span>
-                {preset.ratio && <span className="rounded bg-background px-1.5 py-0.5 ring-1 ring-border">{preset.ratio}</span>}
-              </div>
+              {peek && momentMs !== null && kind !== "image" && phase !== "done" && phase !== "rendering" && (
+                <button
+                  type="button"
+                  onClick={() => setPeek(null)}
+                  className="absolute start-2 top-2 inline-flex items-center gap-1 rounded-full bg-background/90 px-2.5 py-1 text-[11px] font-medium shadow ring-1 ring-border"
+                >
+                  {c.showing[peek]}
+                  <X className="size-3" aria-hidden />
+                  <span className="sr-only">{c.peekBack}</span>
+                </button>
+              )}
             </div>
+            <div className="mt-3 flex items-center justify-center gap-2 text-[11px] font-medium text-muted-foreground tabular-nums" dir="ltr">
+              <span>
+                {phase === "done" && result
+                  ? `${result.W}×${result.H}${result.fps ? ` · ${result.fps} fps` : ""}`
+                  : summary}
+              </span>
+              {preset.ratio && <span className="rounded bg-background px-1.5 py-0.5 ring-1 ring-border">{preset.ratio}</span>}
+            </div>
+          </div>
 
-            {/* side panel */}
-            <div className="flex flex-col border-t border-border md:min-h-0 md:border-s md:border-t-0">
-              {phase === "rendering" ? (
-                <div className="flex flex-1 flex-col justify-center gap-5 p-6">
-                  <div className="space-y-1">
-                    <p className="flex items-center gap-2 text-sm font-semibold">
-                      <Loader2 className="size-4 animate-spin text-primary" />
-                      {c.rendering}
-                    </p>
-                    <p className="text-xs text-muted-foreground">{c.privacy}</p>
-                  </div>
+          {/* side panel */}
+          <div className="flex flex-col border-t border-border md:min-h-0 md:border-s md:border-t-0">
+            {phase === "rendering" ? (
+              <div className="flex flex-1 flex-col justify-center gap-5 p-6">
+                <div className="space-y-1">
+                  <p className="flex items-center gap-2 text-sm font-semibold">
+                    <Loader2 className="size-4 animate-spin text-primary" />
+                    {c.rendering[kind]}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{progress.note ?? c.privacy}</p>
+                </div>
+                {kind !== "image" && (
                   <div className="space-y-2">
                     <div className="flex items-end justify-between">
                       <span className="text-3xl font-semibold tabular-nums">
@@ -1042,297 +1941,757 @@ export function ExportDialog({
                     >
                       <div
                         className="h-full rounded-full bg-primary transition-[width] duration-150 ease-out"
+                        // progress width is data-driven
                         style={{ width: `${pct}%` }}
                       />
                     </div>
                     <p className="text-xs text-muted-foreground tabular-nums">{c.frameOf(progress.done, progress.total)}</p>
                   </div>
-                  <Button variant="outline" className="w-full" onClick={cancel} data-export-cancel="">
-                    {c.cancel}
-                  </Button>
+                )}
+                <Button variant="outline" className="w-full" onClick={cancel} data-export-cancel="">
+                  {c.cancel}
+                </Button>
+              </div>
+            ) : phase === "done" && result ? (
+              <div className="flex flex-1 flex-col gap-4 p-6" data-export-done={result.kind}>
+                <div className="flex items-center gap-3">
+                  <span className="flex size-9 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600">
+                    <Check className="size-5" strokeWidth={2.5} />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold">{c.done[result.kind]}</p>
+                    <p className="truncate text-xs text-muted-foreground" dir="ltr">
+                      {result.file.name}
+                    </p>
+                  </div>
                 </div>
-              ) : phase === "done" && result ? (
-                <div className="flex flex-1 flex-col gap-4 p-6" data-export-done="">
-                  <div className="flex items-center gap-3">
-                    <span className="flex size-9 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600">
-                      <Check className="size-5" strokeWidth={2.5} />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold">{c.done}</p>
-                      <p className="truncate text-xs text-muted-foreground" dir="ltr">
-                        {result.file.name}
+                <dl className="grid grid-cols-3 gap-2 text-center">
+                  {(result.kind === "video"
+                    ? [
+                        [c.duration, fmtClock(result.durationMs ?? 0, lang)],
+                        [c.size, fmtMB(result.file.size, lang)],
+                        [c.codec, `${CODEC_NAMES[result.codec!.id]}${result.audio ? ` + ${result.audio.toUpperCase()}` : ""}`],
+                      ]
+                    : result.kind === "gif"
+                      ? [
+                          [c.duration, fmtClock(result.durationMs ?? 0, lang)],
+                          [c.size, fmtMB(result.file.size, lang)],
+                          [c.dims, `${result.W}×${result.H}`],
+                        ]
+                      : [
+                          [c.dims, `${result.W}×${result.H}`],
+                          [c.size, fmtMB(result.file.size, lang)],
+                          [c.imageType, (result.format ?? "png").toUpperCase()],
+                        ]
+                  ).map(([k, v], i) => (
+                    <div key={i} className="rounded-lg bg-muted px-2 py-2">
+                      <dt className="text-[10px] text-muted-foreground">{k}</dt>
+                      <dd className="text-xs font-semibold tabular-nums" dir="ltr">
+                        {v}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+                {result.kind === "video" && result.codec && result.codec.id !== "avc" && (
+                  <p className="flex gap-2 rounded-lg bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400">
+                    <AlertTriangle className="size-4 shrink-0" />
+                    {c.codecFallback(CODEC_NAMES[result.codec.id])}
+                  </p>
+                )}
+                {result.kind === "video" && result.soundRequested && !result.audio && (
+                  <p className="rounded-lg bg-muted p-3 text-xs text-muted-foreground">{c.noAudio}</p>
+                )}
+                {!isTouchDevice() && <p className="text-xs text-muted-foreground">{c.savedHint}</p>}
+                {isTouchDevice() && <p className="text-xs text-muted-foreground">{t.exportSaveHint}</p>}
+                <div className="mt-auto space-y-2">
+                  {canShare && isTouchDevice() ? (
+                    <Button className="h-11 w-full gap-2" onClick={() => save(true)} disabled={saving}>
+                      {saving ? <Loader2 className="size-4 animate-spin" /> : <Share2 className="size-4" />}
+                      {c.share}
+                    </Button>
+                  ) : null}
+                  <Button
+                    variant={canShare && isTouchDevice() ? "outline" : "default"}
+                    className="h-11 w-full gap-2"
+                    onClick={() => save(false)}
+                  >
+                    <Download className="size-4" />
+                    {resultLabel}
+                  </Button>
+                  <div className="flex gap-2">
+                    <Button variant="outline" className="flex-1 gap-1.5" onClick={() => setPhase("idle")}>
+                      <RotateCcw className="size-4" />
+                      {c.again}
+                    </Button>
+                    <Button variant="outline" className="flex-1" onClick={close}>
+                      {c.close}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-5 p-5 md:min-h-0 md:flex-1 md:overflow-y-auto">
+                  {phase === "error" && (
+                    <div className="flex gap-2 rounded-lg bg-destructive/10 p-3 text-sm text-destructive" data-export-error="">
+                      <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+                      <p>
+                        {c.errors[errKey] ?? c.errors.generic}
+                        {errDetail && (
+                          <span className="block text-xs opacity-80" dir="ltr">
+                            {errDetail}
+                          </span>
+                        )}
                       </p>
                     </div>
-                  </div>
-                  <dl className="grid grid-cols-3 gap-2 text-center">
-                    {[
-                      [c.duration, fmtClock(result.durationMs, lang)],
-                      [c.size, fmtMB(result.file.size, lang)],
-                      ["", `${CODEC_NAMES[result.codec.id]}${result.audio ? ` + ${result.audio.toUpperCase()}` : ""}`],
-                    ].map(([k, v], i) => (
-                      <div key={i} className="rounded-lg bg-muted px-2 py-2">
-                        <dt className="text-[10px] text-muted-foreground">{k || (lang === "ar" ? "الترميز" : "Codec")}</dt>
-                        <dd className="text-xs font-semibold tabular-nums">{v}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                  {result.codec.id !== "avc" && (
-                    <p className="flex gap-2 rounded-lg bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400">
-                      <AlertTriangle className="size-4 shrink-0" />
-                      {c.codecFallback(CODEC_NAMES[result.codec.id])}
-                    </p>
                   )}
-                  {result.soundRequested && !result.audio && (
-                    <p className="rounded-lg bg-muted p-3 text-xs text-muted-foreground">{c.noAudio}</p>
-                  )}
-                  {!isTouchDevice() && <p className="text-xs text-muted-foreground">{c.savedHint}</p>}
-                  {isTouchDevice() && <p className="text-xs text-muted-foreground">{t.exportSaveHint}</p>}
-                  <div className="mt-auto space-y-2">
-                    {canShare && isTouchDevice() ? (
-                      <Button className="h-11 w-full gap-2" onClick={() => save(true)} disabled={saving}>
-                        {saving ? <Loader2 className="size-4 animate-spin" /> : <Share2 className="size-4" />}
-                        {c.share}
-                      </Button>
-                    ) : null}
-                    <Button
-                      variant={canShare && isTouchDevice() ? "outline" : "default"}
-                      className="h-11 w-full gap-2"
-                      onClick={() => save(false)}
-                    >
-                      <Download className="size-4" />
-                      {c.download}
-                    </Button>
-                    <div className="flex gap-2">
-                      <Button variant="outline" className="flex-1 gap-1.5" onClick={() => setPhase("idle")}>
-                        <RotateCcw className="size-4" />
-                        {c.again}
-                      </Button>
-                      <Button variant="outline" className="flex-1" onClick={close}>
-                        {c.close}
-                      </Button>
+
+                  <Section title={c.output}>
+                    <div role="radiogroup" aria-label={c.output} className="grid grid-cols-3 gap-1.5">
+                      {(["video", "gif", "image"] as const).map((k) => {
+                        const active = kind === k;
+                        const off = k === "video" && !supported;
+                        const Icon = k === "video" ? Film : k === "gif" ? Sparkles : ImageIcon;
+                        return (
+                          <button
+                            key={k}
+                            type="button"
+                            role="radio"
+                            aria-checked={active}
+                            disabled={off}
+                            data-export-kind={k}
+                            onClick={() => {
+                              update({ kind: k });
+                              setPeek(null);
+                            }}
+                            className={cn(
+                              "flex flex-col items-start gap-0.5 rounded-lg border px-2.5 py-2 text-start transition-colors disabled:opacity-50",
+                              active
+                                ? "border-primary bg-primary/[0.07]"
+                                : "border-border hover:border-foreground/25",
+                            )}
+                          >
+                            <span className={cn("flex items-center gap-1.5 text-xs font-semibold", active ? "text-primary" : "text-foreground")}>
+                              <Icon className="size-3.5" aria-hidden />
+                              {c.kinds[k]}
+                            </span>
+                            <span className="truncate text-[10px] text-muted-foreground">{c.kindHints[k]}</span>
+                          </button>
+                        );
+                      })}
                     </div>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <div className="space-y-5 p-5 md:min-h-0 md:flex-1 md:overflow-y-auto">
-                    {phase === "error" && (
-                      <div
-                        className="flex gap-2 rounded-lg bg-destructive/10 p-3 text-sm text-destructive"
-                        data-export-error=""
-                      >
-                        <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-                        <p>
-                          {c.errors[errKey] ?? c.errors.generic}
-                          {errDetail && <span className="block text-xs opacity-80" dir="ltr">{errDetail}</span>}
-                        </p>
-                      </div>
-                    )}
+                    {!supported && <p className="text-[11px] text-muted-foreground">{c.videoOff}</p>}
+                  </Section>
 
-                    <Section title={c.format}>
-                      <div className="grid grid-cols-2 gap-1.5">
-                        {PRESETS.map((p) => {
-                          const active = p.id === prefs.preset;
-                          return (
-                            <button
-                              key={p.id}
-                              type="button"
-                              data-export-preset={p.id}
-                              aria-pressed={active}
-                              onClick={() => update({ preset: p.id })}
-                              className={cn(
-                                "flex items-center gap-2.5 rounded-lg border px-2.5 py-2 text-start transition-colors",
-                                p.id === "device" && "col-span-2",
-                                active
-                                  ? "border-primary bg-primary/[0.07] text-foreground"
-                                  : "border-border text-muted-foreground hover:border-foreground/25 hover:text-foreground",
-                              )}
-                            >
-                              <span className={cn(active ? "text-primary" : "")}>
-                                <AspectGlyph ratio={p.ratio} />
+                  <Section title={c.format}>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {PRESETS.map((p) => {
+                        const active = p.id === prefs.preset;
+                        return (
+                          <button
+                            key={p.id}
+                            type="button"
+                            data-export-preset={p.id}
+                            aria-pressed={active}
+                            onClick={() => update({ preset: p.id })}
+                            className={cn(
+                              "flex items-center gap-2.5 rounded-lg border px-2.5 py-2 text-start transition-colors",
+                              p.id === "device" && "col-span-2",
+                              active
+                                ? "border-primary bg-primary/[0.07] text-foreground"
+                                : "border-border text-muted-foreground hover:border-foreground/25 hover:text-foreground",
+                            )}
+                          >
+                            <span className={cn(active ? "text-primary" : "")}>
+                              <AspectGlyph ratio={p.ratio} />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="flex items-baseline justify-between gap-1">
+                                <span className="truncate text-xs font-semibold text-foreground">{c.presets[p.id].name}</span>
+                                {p.ratio && (
+                                  <span className="text-[10px] tabular-nums text-muted-foreground" dir="ltr">
+                                    {p.ratio}
+                                  </span>
+                                )}
                               </span>
-                              <span className="min-w-0 flex-1">
-                                <span className="flex items-baseline justify-between gap-1">
-                                  <span className="truncate text-xs font-semibold text-foreground">{c.presets[p.id].name}</span>
-                                  {p.ratio && (
-                                    <span className="text-[10px] tabular-nums text-muted-foreground" dir="ltr">
-                                      {p.ratio}
-                                    </span>
-                                  )}
-                                </span>
-                                <span className="block truncate text-[10px] text-muted-foreground">
-                                  {c.presets[p.id].hint}
-                                </span>
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
+                              <span className="block truncate text-[10px] text-muted-foreground">{c.presets[p.id].hint}</span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </Section>
+
+                  {preset.w !== null && (
+                    <Section title={c.phoneSize}>
+                      <Segmented
+                        attr="size"
+                        label={c.phoneSize}
+                        value={prefs.size}
+                        onChange={(v) => update({ size: v })}
+                        options={(["s", "m", "l"] as PhoneSize[]).map((v) => ({ value: v, label: c.sizes[v] }))}
+                      />
                     </Section>
+                  )}
 
-                    {preset.w !== null && (
-                      <Section title={c.phoneSize}>
-                        <Segmented
-                          attr="size"
-                          value={prefs.size}
-                          onChange={(v) => update({ size: v })}
-                          options={(["s", "m", "l"] as PhoneSize[]).map((v) => ({ value: v, label: c.sizes[v] }))}
-                        />
-                      </Section>
-                    )}
-
-                    <section className="space-y-2.5 rounded-xl border border-border p-3">
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={prefs.zoom}
-                        data-export-zoom={prefs.zoom ? "on" : "off"}
-                        onClick={() => update({ zoom: !prefs.zoom })}
-                        className="flex w-full items-center gap-3 text-start"
-                      >
-                        <ZoomIllustration active={prefs.zoom} />
-                        <span className="min-w-0 flex-1">
-                          <span className="block text-xs font-semibold">{c.zoom}</span>
-                          <span className="block text-[11px] leading-snug text-muted-foreground">{c.zoomHint}</span>
-                        </span>
-                        <Switch on={prefs.zoom} />
-                      </button>
-                      {prefs.zoom && (
-                        <div className="space-y-2">
-                          <Segmented
-                            attr="zoomlevel"
-                            value={prefs.zoomLevel}
-                            onChange={(v) => update({ zoomLevel: v })}
-                            options={(["subtle", "medium", "strong"] as ZoomIntensity[]).map((v) => ({ value: v, label: c.zoomLevels[v] }))}
-                          />
-                          <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-                            {(
-                              [
-                                ["followSides", c.followSides],
-                                ["zoomOutEnd", c.zoomOutEnd],
-                              ] as const
-                            ).map(([key, label]) => (
-                              <label key={key} className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground">
-                                <input
-                                  type="checkbox"
-                                  className="size-3.5 accent-[var(--primary)]"
-                                  checked={prefs[key]}
-                                  data-export-opt={key}
-                                  onChange={(e) => update({ [key]: e.target.checked })}
-                                />
-                                {label}
-                              </label>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </section>
-
-                    <Section title={c.background} aside={<span className="text-[11px] text-muted-foreground">{c.bgs[prefs.bg]}</span>}>
-                      <div className="grid grid-cols-5 gap-2">
-                        {BACKGROUNDS.map((b) => (
-                          <BackgroundSwatch
-                            key={b.id}
-                            id={b.id}
-                            paint={paint}
-                            phone={previewPhone?.canvas ?? null}
-                            active={prefs.bg === b.id}
-                            label={b.id === "custom" ? c.pickColor : c.bgs[b.id]}
-                            onSelect={() => update({ bg: b.id })}
-                            onCustom={(hex) => update({ bg: "custom", custom: hex })}
-                          />
-                        ))}
-                      </div>
-                    </Section>
-
-                    <Section title={c.timing}>
+                  <section className="space-y-2.5 rounded-xl border border-border p-3">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={prefs.zoom}
+                      data-export-zoom={prefs.zoom ? "on" : "off"}
+                      onClick={() => update({ zoom: !prefs.zoom })}
+                      className="flex w-full items-center gap-3 text-start"
+                    >
+                      <ZoomIllustration active={prefs.zoom} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-xs font-semibold">{c.zoom}</span>
+                        <span className="block text-[11px] leading-snug text-muted-foreground">{c.zoomHint}</span>
+                      </span>
+                      <Switch on={prefs.zoom} />
+                    </button>
+                    {prefs.zoom && (
                       <div className="space-y-2">
-                        {(
-                          [
-                            [c.fps, <Segmented
-                              key="fps"
+                        <Segmented
+                          attr="zoomlevel"
+                          label={c.zoom}
+                          value={prefs.zoomLevel}
+                          onChange={(v) => update({ zoomLevel: v })}
+                          options={(["subtle", "medium", "strong"] as ZoomIntensity[]).map((v) => ({ value: v, label: c.zoomLevels[v] }))}
+                        />
+                        <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                          {(
+                            [
+                              ["followSides", c.followSides],
+                              ["zoomOutEnd", c.zoomOutEnd],
+                            ] as const
+                          ).map(([key, label]) => (
+                            <label key={key} className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground">
+                              <input
+                                type="checkbox"
+                                className="size-3.5 accent-[var(--primary)]"
+                                checked={prefs[key]}
+                                data-export-opt={key}
+                                onChange={(e) => update({ [key]: e.target.checked })}
+                              />
+                              {label}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </section>
+
+                  <Section title={c.background} aside={<span className="text-[11px] text-muted-foreground">{c.bgs[prefs.bg]}</span>}>
+                    <div className="grid grid-cols-5 gap-2">
+                      {BACKGROUNDS.map((b) => (
+                        <BackgroundSwatch
+                          key={b.id}
+                          id={b.id}
+                          paint={paint}
+                          phone={previewPhone?.canvas ?? null}
+                          active={prefs.bg === b.id}
+                          label={b.id === "custom" ? c.pickColor : c.bgs[b.id]}
+                          onSelect={() => update({ bg: b.id })}
+                          onCustom={(hex) => update({ bg: "custom", custom: hex })}
+                        />
+                      ))}
+                    </div>
+                  </Section>
+
+                  <Section title={c.scenes}>
+                    <div className="space-y-2">
+                      <ToggleCard
+                        icon={<BellRing className="size-4" />}
+                        title={c.notif}
+                        hint={notice ? c.notifHint : c.notifNone}
+                        on={prefs.notif}
+                        disabled={!notice}
+                        attr="notif"
+                        onToggle={() => {
+                          const on = !prefs.notif;
+                          update({ notif: on });
+                          setPeek(on ? "intro" : null);
+                        }}
+                        aside={
+                          notifOn && kind !== "image" ? (
+                            <PeekButton active={peek === "intro"} label={c.peek} onClick={() => setPeek(peek === "intro" ? null : "intro")} attr="intro" />
+                          ) : null
+                        }
+                      />
+
+                      <ToggleCard
+                        icon={<Captions className="size-4" />}
+                        title={c.caption}
+                        hint={captionAllowed ? c.captionHint : c.captionOnlyTall}
+                        on={prefs.caption}
+                        disabled={!captionAllowed}
+                        attr="caption"
+                        onToggle={() =>
+                          update({
+                            caption: !prefs.caption,
+                            ...(!prefs.caption && !prefs.captionText.trim() ? { captionText: c.captionDefault } : {}),
+                          })
+                        }
+                      >
+                        <TextField
+                          label={c.captionText}
+                          value={prefs.captionText}
+                          placeholder={c.captionDefault}
+                          onChange={(v) => update({ captionText: v })}
+                          attr="caption-text"
+                          dir={rtl ? "rtl" : "ltr"}
+                        />
+                        <Row label={c.position}>
+                          <Segmented
+                            attr="caption-pos"
+                            label={c.position}
+                            value={prefs.captionPos}
+                            onChange={(v) => update({ captionPos: v })}
+                            options={(["top", "bottom"] as const).map((v) => ({ value: v, label: c.positions[v] }))}
+                          />
+                        </Row>
+                        <Row label={c.textSize}>
+                          <Segmented
+                            attr="caption-size"
+                            label={c.textSize}
+                            value={prefs.captionSize}
+                            onChange={(v) => update({ captionSize: v })}
+                            options={(["s", "m", "l"] as const).map((v) => ({ value: v, label: c.sizes[v] }))}
+                          />
+                        </Row>
+                        <div className="grid grid-cols-2 gap-2">
+                          <ColorField label={c.textColor} value={prefs.captionColor} onChange={(v) => update({ captionColor: v })} attr="caption-color" />
+                          {prefs.captionPill ? (
+                            <ColorField label={c.pillColor} value={prefs.captionPillColor} onChange={(v) => update({ captionPillColor: v })} attr="caption-pill-color" />
+                          ) : (
+                            <span />
+                          )}
+                        </div>
+                        <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground">
+                          <input
+                            type="checkbox"
+                            className="size-3.5 accent-[var(--primary)]"
+                            checked={prefs.captionPill}
+                            data-export-opt="captionPill"
+                            onChange={(e) => update({ captionPill: e.target.checked })}
+                          />
+                          {c.pill}
+                        </label>
+                      </ToggleCard>
+
+                      <ToggleCard
+                        icon={<Sparkles className="size-4" />}
+                        title={c.endCard}
+                        hint={c.endHint}
+                        on={prefs.endCard}
+                        attr="endcard"
+                        onToggle={() => {
+                          const on = !prefs.endCard;
+                          update({
+                            endCard: on,
+                            ...(on && !prefs.endHeadline.trim() && !prefs.endCta.trim()
+                              ? { endHeadline: c.headlineDefault, endCta: c.ctaDefault }
+                              : {}),
+                          });
+                          setPeek(on ? "end" : null);
+                        }}
+                        aside={
+                          prefs.endCard && kind !== "image" ? (
+                            <PeekButton active={peek === "end"} label={c.peek} onClick={() => setPeek(peek === "end" ? null : "end")} attr="end" />
+                          ) : null
+                        }
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="w-[88px] shrink-0 text-xs text-muted-foreground">{c.logo}</span>
+                          {logo && (
+                            // eslint-disable-next-line @next/next/no-img-element -- local data URL of the uploaded logo
+                            <img src={logo.src} alt="" className="size-8 rounded-md bg-muted object-contain ring-1 ring-border" />
+                          )}
+                          <FileButton
+                            label={logo ? c.replaceLogo : c.uploadLogo}
+                            accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif"
+                            onFile={(f) => void onLogo(f)}
+                            attr="logo-file"
+                            icon={<Upload className="size-3.5" aria-hidden />}
+                          />
+                          {logo && (
+                            <button type="button" onClick={() => setLogo(null)} className="text-[11px] text-muted-foreground underline-offset-2 hover:underline">
+                              {c.removeLogo}
+                            </button>
+                          )}
+                        </div>
+                        {logoErr && <p className="text-[11px] text-destructive">{c.logoError}</p>}
+                        <TextField
+                          label={c.headline}
+                          value={prefs.endHeadline}
+                          placeholder={c.headlineDefault}
+                          onChange={(v) => update({ endHeadline: v })}
+                          attr="headline"
+                          dir={rtl ? "rtl" : "ltr"}
+                        />
+                        <TextField
+                          label={c.cta}
+                          value={prefs.endCta}
+                          placeholder={c.ctaDefault}
+                          onChange={(v) => update({ endCta: v })}
+                          attr="cta"
+                          dir={rtl ? "rtl" : "ltr"}
+                        />
+                        <div className="grid grid-cols-2 gap-2">
+                          <ColorField label={c.colors.bg} value={prefs.endBg} onChange={(v) => update({ endBg: v })} attr="end-bg" />
+                          <ColorField label={c.colors.fg} value={prefs.endFg} onChange={(v) => update({ endFg: v })} attr="end-fg" />
+                          <ColorField label={c.colors.ctaBg} value={prefs.endCtaBg} onChange={(v) => update({ endCtaBg: v })} attr="end-cta-bg" />
+                          <ColorField label={c.colors.ctaFg} value={prefs.endCtaFg} onChange={(v) => update({ endCtaFg: v })} attr="end-cta-fg" />
+                        </div>
+                        {kind !== "image" && (
+                          <Row label={c.endLength}>
+                            <Segmented
+                              attr="endms"
+                              label={c.endLength}
+                              value={prefs.endMs}
+                              onChange={(v) => update({ endMs: v })}
+                              options={END_OPTIONS.map((v) => ({ value: v, label: sec(v) }))}
+                            />
+                          </Row>
+                        )}
+                      </ToggleCard>
+                    </div>
+                  </Section>
+
+                  {kind === "image" && (
+                    <Section title={c.imageSettings}>
+                      <div className="space-y-2">
+                        <Row label={c.imageType}>
+                          <Segmented
+                            attr="imgformat"
+                            label={c.imageType}
+                            value={prefs.imageFormat}
+                            onChange={(v) => update({ imageFormat: v })}
+                            options={[
+                              { value: "png" as const, label: "PNG" },
+                              { value: "jpeg" as const, label: "JPEG" },
+                            ]}
+                          />
+                        </Row>
+                        <Row label={c.resolution}>
+                          <Segmented
+                            attr="imgscale"
+                            label={c.resolution}
+                            value={prefs.imageScale}
+                            onChange={(v) => update({ imageScale: v })}
+                            options={([1, 2, 3] as const).map((v) => ({ value: v, label: `${v}×` }))}
+                          />
+                        </Row>
+                        <div className="space-y-1.5 rounded-lg border border-border p-2.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <label htmlFor="export-moment" className="text-xs text-muted-foreground">
+                              {c.moment}
+                            </label>
+                            <span className="text-[11px] font-medium tabular-nums">{fmtMoment(stillMs ?? finalMs, lang)}</span>
+                          </div>
+                          <input
+                            id="export-moment"
+                            type="range"
+                            min={0}
+                            max={Math.max(1, totalMs - 1)}
+                            step={10}
+                            value={Math.min(stillMs ?? finalMs, totalMs - 1)}
+                            data-export-moment=""
+                            onChange={(e) => setStillMs(Number(e.target.value))}
+                            className="w-full accent-[var(--primary)]"
+                            dir="ltr"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setStillMs(null)}
+                            aria-pressed={stillMs === null}
+                            data-export-final=""
+                            className={cn(
+                              "rounded-md px-2 py-1 text-[11px] font-medium ring-1",
+                              stillMs === null ? "bg-primary/10 text-primary ring-primary/30" : "text-muted-foreground ring-border hover:text-foreground",
+                            )}
+                          >
+                            {c.finalFrame}
+                          </button>
+                        </div>
+                      </div>
+                    </Section>
+                  )}
+
+                  {kind === "gif" && (
+                    <Section title={c.gifSettings} aside={<span className="text-[11px] text-muted-foreground">{c.gifHint}</span>}>
+                      <div className="space-y-2">
+                        <Row label={c.gifWidth}>
+                          <Segmented
+                            attr="gifwidth"
+                            label={c.gifWidth}
+                            value={prefs.gifWidth}
+                            onChange={(v) => update({ gifWidth: v })}
+                            options={GIF_WIDTHS.map((v) => ({ value: v, label: lang === "ar" ? AR_DIGITS(String(v)) : String(v) }))}
+                          />
+                        </Row>
+                        <Row label={c.gifFps}>
+                          <Segmented
+                            attr="giffps"
+                            label={c.gifFps}
+                            value={prefs.gifFps}
+                            onChange={(v) => update({ gifFps: v })}
+                            options={GIF_FPS.map((v) => ({ value: v, label: lang === "ar" ? AR_DIGITS(String(v)) : String(v) }))}
+                          />
+                        </Row>
+                        <Row label={c.gifCap}>
+                          <Segmented
+                            attr="gifcap"
+                            label={c.gifCap}
+                            value={prefs.gifCapMb}
+                            onChange={(v) => update({ gifCapMb: v })}
+                            options={GIF_CAPS.map((v) => ({ value: v, label: fmtMB(v * 1_048_576, lang) }))}
+                          />
+                        </Row>
+                        <Row label={c.intro}>
+                          <Segmented
+                            attr="intro"
+                            label={c.intro}
+                            value={prefs.introMs}
+                            onChange={(v) => update({ introMs: v })}
+                            options={INTRO_OPTIONS.map((v) => ({ value: v, label: sec(v) }))}
+                          />
+                        </Row>
+                        <Row label={c.outro}>
+                          <Segmented
+                            attr="outro"
+                            label={c.outro}
+                            value={prefs.outroMs}
+                            onChange={(v) => update({ outroMs: v })}
+                            options={OUTRO_OPTIONS.map((v) => ({ value: v, label: sec(v) }))}
+                          />
+                        </Row>
+                      </div>
+                    </Section>
+                  )}
+
+                  {kind === "video" && (
+                    <>
+                      <Section title={c.timing}>
+                        <div className="space-y-2">
+                          <Row label={c.fps}>
+                            <Segmented
                               attr="fps"
+                              label={c.fps}
                               value={prefs.fps}
                               onChange={(v) => update({ fps: v })}
                               options={[
                                 { value: 30 as const, label: lang === "ar" ? "٣٠" : "30" },
                                 { value: 60 as const, label: lang === "ar" ? "٦٠" : "60" },
                               ]}
-                            />],
-                            [c.quality, <Segmented
-                              key="quality"
+                            />
+                          </Row>
+                          <Row label={c.quality}>
+                            <Segmented
                               attr="quality"
+                              label={c.quality}
                               value={prefs.quality}
                               onChange={(v) => update({ quality: v })}
                               options={(["standard", "high", "max"] as Quality[]).map((v) => ({ value: v, label: c.qualities[v] }))}
-                            />],
-                            [c.intro, <Segmented
-                              key="intro"
+                            />
+                          </Row>
+                          <Row label={c.intro}>
+                            <Segmented
                               attr="intro"
+                              label={c.intro}
                               value={prefs.introMs}
                               onChange={(v) => update({ introMs: v })}
-                              options={INTRO_OPTIONS.map((v) => ({ value: v, label: c.sec(v / 1000) }))}
-                            />],
-                            [c.outro, <Segmented
-                              key="outro"
+                              options={INTRO_OPTIONS.map((v) => ({ value: v, label: sec(v) }))}
+                            />
+                          </Row>
+                          <Row label={c.outro}>
+                            <Segmented
                               attr="outro"
+                              label={c.outro}
                               value={prefs.outroMs}
                               onChange={(v) => update({ outroMs: v })}
-                              options={OUTRO_OPTIONS.map((v) => ({ value: v, label: c.sec(v / 1000) }))}
-                            />],
-                          ] as [string, React.ReactNode][]
-                        ).map(([label, control]) => (
-                          <div key={label} className="grid grid-cols-[96px_1fr] items-center gap-2">
-                            <span className="text-xs text-muted-foreground">{label}</span>
-                            {control}
-                          </div>
-                        ))}
-                      </div>
-                    </Section>
+                              options={OUTRO_OPTIONS.map((v) => ({ value: v, label: sec(v) }))}
+                            />
+                          </Row>
+                        </div>
+                      </Section>
 
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={prefs.sound && !!audioCodec}
-                      disabled={audioCodec === null}
-                      data-export-sound={prefs.sound ? "on" : "off"}
-                      onClick={() => update({ sound: !prefs.sound })}
-                      className="flex w-full items-center gap-3 rounded-lg border border-border px-3 py-2.5 text-start transition-colors hover:bg-muted/60 disabled:opacity-60"
-                    >
-                      {prefs.sound && audioCodec ? (
-                        <Volume2 className="size-4 text-primary" />
-                      ) : (
-                        <VolumeX className="size-4 text-muted-foreground" />
-                      )}
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-xs font-semibold">{c.sound}</span>
-                        <span className="block text-[11px] text-muted-foreground">
-                          {audioCodec === null ? c.soundUnsupported : c.soundHint}
-                        </span>
-                      </span>
-                      <Switch on={prefs.sound && !!audioCodec} />
-                    </button>
-                  </div>
+                      <Section title={c.audio}>
+                        <div className="space-y-2">
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={prefs.sound && !!audioCodec}
+                            disabled={audioCodec === null}
+                            data-export-sound={prefs.sound ? "on" : "off"}
+                            onClick={() => update({ sound: !prefs.sound })}
+                            className="flex w-full items-center gap-3 rounded-xl border border-border px-3 py-2.5 text-start transition-colors hover:bg-muted/60 disabled:opacity-60"
+                          >
+                            {prefs.sound && audioCodec ? (
+                              <Volume2 className="size-4 text-primary" />
+                            ) : (
+                              <VolumeX className="size-4 text-muted-foreground" />
+                            )}
+                            <span className="min-w-0 flex-1">
+                              <span className="block text-xs font-semibold">{c.sound}</span>
+                              <span className="block text-[11px] text-muted-foreground">
+                                {audioCodec === null ? c.soundUnsupported : c.soundHint}
+                              </span>
+                            </span>
+                            <Switch on={prefs.sound && !!audioCodec} />
+                          </button>
 
-                  <div className="sticky bottom-0 space-y-2 border-t border-border bg-background p-4 md:static">
-                    <div className="flex items-center justify-between text-[11px] text-muted-foreground tabular-nums">
-                      <span dir="ltr">{summary}</span>
-                      <span>~{fmtMB(estimateBytes(bitrate, totalMs, prefs.zoom), lang)}</span>
-                    </div>
-                    <Button className="h-11 w-full gap-2 text-sm" onClick={runExport} disabled={!device} data-export-start="">
-                      {device ? <Download className="size-4" /> : <Loader2 className="size-4 animate-spin" />}
-                      {c.start}
-                    </Button>
-                    <p className="text-center text-[11px] text-muted-foreground">{c.privacy}</p>
+                          <ToggleCard
+                            icon={<Music className="size-4" />}
+                            title={c.music}
+                            hint={audioCodec === null ? c.soundUnsupported : music ? music.name : c.musicHint}
+                            on={prefs.music && !!music}
+                            disabled={audioCodec === null || !music}
+                            attr="music"
+                            onToggle={() => update({ music: !prefs.music })}
+                            aside={
+                              audioCodec === null ? null : (
+                                <FileButton
+                                  label={music ? c.replaceMusic : c.chooseMusic}
+                                  accept="audio/mpeg,audio/mp4,audio/x-m4a,audio/aac,audio/wav,audio/x-wav,audio/ogg,.mp3,.m4a,.wav,.ogg"
+                                  onFile={(f) => void onMusic(f)}
+                                  attr="music-file"
+                                  icon={musicBusy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Upload className="size-3.5" aria-hidden />}
+                                />
+                              )
+                            }
+                          >
+                            {music && (
+                              <>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={toggleMusicPreview}
+                                    aria-label={musicPlaying ? c.stop : c.play}
+                                    className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground"
+                                  >
+                                    {musicPlaying ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
+                                  </button>
+                                  <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground" dir="ltr">
+                                    {music.name} · {fmtClock(musicDur * 1000, "en")}
+                                  </span>
+                                  <button type="button" onClick={removeMusic} className="text-[11px] text-muted-foreground underline-offset-2 hover:underline">
+                                    {c.removeMusic}
+                                  </button>
+                                </div>
+                                <label className="block space-y-1">
+                                  <span className="flex justify-between text-[11px] text-muted-foreground">
+                                    {c.trimStart}
+                                    <span className="tabular-nums">{fmtMoment(musicOffset * 1000, lang)}</span>
+                                  </span>
+                                  <input
+                                    type="range"
+                                    min={0}
+                                    max={Math.max(0, Math.floor((musicDur - 0.5) * 10) / 10)}
+                                    step={0.1}
+                                    value={musicOffset}
+                                    data-export-music-trim=""
+                                    onChange={(e) => setMusicOffset(Number(e.target.value))}
+                                    className="w-full accent-[var(--primary)]"
+                                    dir="ltr"
+                                  />
+                                </label>
+                                <label className="block space-y-1">
+                                  <span className="flex justify-between text-[11px] text-muted-foreground">
+                                    {c.volume}
+                                    <span className="tabular-nums">
+                                      {lang === "ar" ? `${Math.round(prefs.musicVolume * 100).toLocaleString("ar-EG")}٪` : `${Math.round(prefs.musicVolume * 100)}%`}
+                                    </span>
+                                  </span>
+                                  <input
+                                    type="range"
+                                    min={0}
+                                    max={1}
+                                    step={0.05}
+                                    value={prefs.musicVolume}
+                                    data-export-music-volume=""
+                                    onChange={(e) => update({ musicVolume: Number(e.target.value) })}
+                                    className="w-full accent-[var(--primary)]"
+                                    dir="ltr"
+                                  />
+                                </label>
+                                <Row label={c.fadeIn}>
+                                  <Segmented
+                                    attr="fadein"
+                                    label={c.fadeIn}
+                                    value={prefs.musicFadeIn}
+                                    onChange={(v) => update({ musicFadeIn: v })}
+                                    options={FADE_IN_OPTIONS.map((v) => ({ value: v, label: sec(v) }))}
+                                  />
+                                </Row>
+                                <Row label={c.fadeOut}>
+                                  <Segmented
+                                    attr="fadeout"
+                                    label={c.fadeOut}
+                                    value={prefs.musicFadeOut}
+                                    onChange={(v) => update({ musicFadeOut: v })}
+                                    options={FADE_OUT_OPTIONS.map((v) => ({ value: v, label: sec(v) }))}
+                                  />
+                                </Row>
+                                <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground">
+                                  <input
+                                    type="checkbox"
+                                    className="size-3.5 accent-[var(--primary)]"
+                                    checked={prefs.musicLoop}
+                                    data-export-opt="musicLoop"
+                                    onChange={(e) => update({ musicLoop: e.target.checked })}
+                                  />
+                                  {c.loop}
+                                </label>
+                              </>
+                            )}
+                          </ToggleCard>
+                          {musicErr && <p className="text-[11px] text-destructive">{c.musicError}</p>}
+                          {music && (
+                            <audio ref={audioRef} src={music.url} preload="auto" onEnded={() => setMusicPlaying(false)} className="hidden" />
+                          )}
+                        </div>
+                      </Section>
+                    </>
+                  )}
+                </div>
+
+                <div className="sticky bottom-0 space-y-2 border-t border-border bg-background p-4 md:static">
+                  <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground tabular-nums">
+                    <span dir="ltr">{summary}</span>
+                    <span data-export-estimate="">{estimate}</span>
                   </div>
-                </>
-              )}
-            </div>
+                  <Button className="h-11 w-full gap-2 text-sm" onClick={runExport} disabled={!device} data-export-start="">
+                    {device ? <Download className="size-4" /> : <Loader2 className="size-4 animate-spin" />}
+                    {c.start[kind]}
+                  </Button>
+                  <p className="text-center text-[11px] text-muted-foreground">{c.privacy}</p>
+                </div>
+              </>
+            )}
           </div>
-        )}
+        </div>
       </div>
 
-      {supported && <ExportStage scenario={scenario} lang={lang} rtl={rtl} controllerRef={stageRef} />}
+      <ExportStage scenario={scenario} lang={lang} rtl={rtl} notice={notice} controllerRef={stageRef} />
     </div>
+  );
+}
+
+function PeekButton({ active, label, onClick, attr }: { active: boolean; label: string; onClick: () => void; attr: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      data-export-peek={attr}
+      className={cn(
+        "shrink-0 rounded-md px-2 py-1 text-[11px] font-medium ring-1",
+        active ? "bg-primary/10 text-primary ring-primary/30" : "text-muted-foreground ring-border hover:text-foreground",
+      )}
+    >
+      {label}
+    </button>
   );
 }

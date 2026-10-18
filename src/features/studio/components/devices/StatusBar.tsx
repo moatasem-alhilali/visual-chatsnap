@@ -6,6 +6,7 @@ import { useLocale } from "next-intl";
 import { deviceFontFamily } from "../../data/fonts";
 import { useStudioStore } from "../../store";
 import { DEFAULT_STATUS_BAR } from "../../types";
+import { vSb } from "./__verify"; // TEMP-VERIFY
 import type { Device } from "../../types";
 import { batteryLevel, SamsungStatusBar, statusTime } from "./SamsungStatusBar";
 
@@ -157,7 +158,7 @@ export function StatusBar({
   background?: string;
   time?: string;
 }) {
-  const sb = useStudioStore((s) => s.scenario.statusBar) ?? DEFAULT_STATUS_BAR;
+  const sb = vSb(useStudioStore((s) => s.scenario.statusBar) ?? DEFAULT_STATUS_BAR); // TEMP-VERIFY
   const locale = useLocale();
   const color = tint === "light" ? "#ffffff" : "#000000";
 

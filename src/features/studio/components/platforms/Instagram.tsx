@@ -67,7 +67,7 @@
  *    https://www.trymypost.com/instagram/chat
  */
 
-import { Fragment, useCallback, useEffect, useLayoutEffect, type CSSProperties } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react";
 
 import type { Message, Person } from "../../types";
 import { Avatar, dirOf, SystemBottomBar, useChatScroll } from "../shared";
@@ -379,6 +379,12 @@ export const instagramIosMotion: PlatformMotion = {
   },
 };
 
+/** The composer grows up to this many lines, then scrolls inside. */
+const IGI_DRAFT_LINES = 5;
+
+/** iOS text caret blink period (on half / off half). */
+const IGI_CARET_MS = 1000;
+
 /** Typing dots: a 1.2s wave, each dot 0.15s behind the previous one. */
 const IGI_DOT_MS = 1200;
 function igiDot(phase: number): { opacity: number; y: number } {
@@ -412,6 +418,8 @@ function buildKeyframes(): string {
   css += `@keyframes ig-ios-dot{${dot}}.ig-ios-dot{animation:ig-ios-dot ${IGI_DOT_MS}ms linear infinite}`;
   css += `@keyframes ig-ios-fade{from{opacity:0}to{opacity:1}}.ig-ios-fade{animation:ig-ios-fade 220ms ease-out both}`;
   css += `@keyframes ig-ios-typing-in{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:scale(1)}}.ig-ios-typing-in{animation:ig-ios-typing-in 260ms cubic-bezier(.2,.9,.3,1) both}`;
+  // UIKit caret: solid while keys land (the element is re-keyed per keystroke), then ~1s blink
+  css += `@keyframes ig-ios-caret{0%,50%{opacity:1}50.01%,100%{opacity:0}}.ig-ios-caret{animation:ig-ios-caret ${IGI_CARET_MS}ms step-end infinite;animation-delay:${IGI_CARET_MS / 2}ms}`;
   return css;
 }
 const IGI_CSS = buildKeyframes();
@@ -523,6 +531,143 @@ function IgiTyping({ person, pal, clockMs, rtl }: { person: Person; pal: IosPale
   );
 }
 
+/* ----------------------- reactions + replies ------------------------ */
+
+/** Reaction pill: hangs 18pt below the bubble, overlapping its bottom edge by 6pt. */
+const IGI_REACT = { h: 26, overlap: 7, inset: 10, border: 2 } as const;
+
+/**
+ * Instagram reaction: the emoji in a small incoming-grey pill with a 2pt
+ * canvas-coloured ring, tucked under the bubble's outer (screen-edge) bottom
+ * corner. One reactor in a 1:1 thread → no count.
+ */
+function IgiReaction({ emoji, pal, mine }: { emoji: string; pal: IosPalette; mine: boolean }) {
+  return (
+    <div
+      className="relative z-[1] flex"
+      style={{
+        marginTop: -(IGI_REACT.overlap + IOS.groupGap),
+        [mine ? "marginInlineEnd" : "marginInlineStart"]: IGI_REACT.inset,
+      }}
+    >
+      <span
+        dir="ltr"
+        className="flex items-center justify-center"
+        style={{
+          height: IGI_REACT.h,
+          minWidth: IGI_REACT.h,
+          padding: "0 4px",
+          boxSizing: "border-box",
+          borderRadius: IGI_REACT.h / 2,
+          border: `${IGI_REACT.border}px solid ${pal.bg}`,
+          background: pal.inBubble,
+          fontSize: 15,
+          lineHeight: "18px",
+        }}
+      >
+        {emoji}
+      </span>
+    </div>
+  );
+}
+
+function IgiMicSmall() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" className="shrink-0">
+      <rect x="8.5" y="2" width="7" height="12" rx="3.5" />
+      <path d="M5 10.8a7 7 0 0 0 14 0M12 18v3.6" />
+    </svg>
+  );
+}
+
+/**
+ * Quoted reply, Instagram style: a 12pt secondary label ("You replied to
+ * Khalid" / "Replied to you"), then the original as a smaller, muted bubble
+ * (14/18, two lines max) next to a 3pt rounded rail on the screen-edge side,
+ * then the reply bubble itself 4pt below.
+ */
+function IgiReplyQuote({
+  target,
+  mine,
+  pal,
+  s,
+  themName,
+}: {
+  target: Message;
+  mine: boolean;
+  pal: IosPalette;
+  s: (typeof IGI_STR)[Lang];
+  themName: string;
+}) {
+  const label = mine
+    ? target.sender === "me"
+      ? s.youRepliedSelf
+      : s.youRepliedTo(themName)
+    : target.sender === "me"
+      ? s.repliedToYou
+      : s.repliedSelf;
+  const targetMine = target.sender === "me";
+  const radius = 18;
+
+  let quote: ReactNode;
+  if (target.type === "image") {
+    quote = (
+      <div className="shrink-0 overflow-hidden" style={{ width: 96, height: 128, borderRadius: 14, background: pal.imgPlaceholder, opacity: 0.7 }}>
+        {target.imageSrc ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={target.imageSrc} alt="" draggable={false} className="block h-full w-full object-cover" />
+        ) : (
+          <div className="flex h-full items-center justify-center">
+            <ImageGlyph color={pal.sub} />
+          </div>
+        )}
+      </div>
+    );
+  } else {
+    const isVoice = target.type === "voice";
+    const text = isVoice ? s.voiceMessage : target.text;
+    quote = (
+      <div
+        className="min-w-0"
+        style={{
+          borderRadius: radius,
+          padding: "7px 12px",
+          background: targetMine ? IGI_BOTTOM : pal.inBubble,
+          opacity: targetMine ? 0.5 : 1,
+          color: targetMine ? "#ffffff" : pal.sub,
+        }}
+      >
+        <div
+          dir={isVoice ? undefined : dirOf(text)}
+          className={isVoice ? "flex items-center gap-1" : "line-clamp-2 whitespace-pre-wrap break-words"}
+          style={{ fontSize: 14, lineHeight: "18px", textAlign: "start" }}
+        >
+          {isVoice && <IgiMicSmall />}
+          {text}
+        </div>
+      </div>
+    );
+  }
+
+  const rail = <span className="shrink-0 self-stretch" style={{ width: 3, borderRadius: 2, background: pal.rail }} />;
+
+  return (
+    <div className={`flex min-w-0 flex-col ${mine ? "items-end" : "items-start"}`} style={{ marginBottom: 2, maxWidth: "100%" }}>
+      <div
+        className="max-w-full truncate"
+        style={{ fontSize: 12, lineHeight: "16px", color: pal.sub, marginBottom: 4, paddingInline: 4, textAlign: "start" }}
+      >
+        {label}
+      </div>
+      <div className="flex min-w-0 max-w-full" style={{ gap: 6 }}>
+        {!mine && rail}
+        {quote}
+        {mine && rail}
+      </div>
+    </div>
+  );
+}
+
 /* ------------------------------ thread ------------------------------ */
 
 export function Instagram({ scenario, playback, lang, rtl }: PlatformProps) {
@@ -561,13 +706,36 @@ export function Instagram({ scenario, playback, lang, rtl }: PlatformProps) {
   useLayoutEffect(() => {
     paint();
   });
+  /* Keep the newest message pinned above the composer while it grows with a
+     multi-line draft (UIKit keeps the bottom inset anchored). */
+  const pinned = useRef(true);
+  const onScroll = useCallback(() => {
+    const root = scrollRef.current;
+    if (root) pinned.current = root.scrollHeight - root.scrollTop - root.clientHeight < 32;
+    paint();
+  }, [scrollRef, paint]);
   useEffect(() => {
     const root = scrollRef.current;
     if (!root || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => paint());
+    let lastH = root.clientHeight;
+    const ro = new ResizeObserver(() => {
+      if (root.clientHeight !== lastH) {
+        lastH = root.clientHeight;
+        if (pinned.current) root.scrollTop = root.scrollHeight;
+      }
+      paint();
+    });
     ro.observe(root);
     return () => ro.disconnect();
   }, [paint, scrollRef]);
+
+  const byId = new Map(messages.map((m) => [m.id, m] as const));
+  /** the earlier message this one quotes (nothing when it is missing / not yet shown) */
+  const targetOf = (m: Message | undefined): Message | undefined =>
+    m?.replyToId ? byId.get(m.replyToId) : undefined;
+
+  const draft = playback.draft;
+  const caretOn = exporting ? clockMs % IGI_CARET_MS < IGI_CARET_MS / 2 : true;
 
   const last = messages[messages.length - 1];
   const receipt = last && last.sender === "me" ? (playback.statusOf(last) === "read" ? s.seen : s.sent) : null;
@@ -626,7 +794,7 @@ export function Instagram({ scenario, playback, lang, rtl }: PlatformProps) {
       {/* Thread */}
       <div
         ref={scrollRef}
-        onScroll={paint}
+        onScroll={onScroll}
         className="rcss-scroll relative min-h-0 flex-1 overflow-y-auto"
         style={{ paddingInline: IOS.bodyPadX, paddingBottom: 10 }}
       >
@@ -663,9 +831,12 @@ export function Instagram({ scenario, playback, lang, rtl }: PlatformProps) {
             const onRight = mine ? !rtl : rtl;
             const sep = needsSeparator(messages, i);
             const g = groupInfo(messages, i);
-            const firstOfGroup = g.firstOfGroup || sep;
+            const target = targetOf(m);
+            // a quoted reply opens a new visual block: it breaks the corner join on both sides
+            const firstOfGroup = g.firstOfGroup || sep || !!target;
             const nextSep = i + 1 < messages.length && needsSeparator(messages, i + 1);
-            const lastOfGroup = g.lastOfGroup || nextSep;
+            const lastOfGroup = g.lastOfGroup || nextSep || !!targetOf(messages[i + 1]);
+            const reaction = m.reaction?.trim();
 
             const hasImage = m.type === "image";
             const caption = hasImage ? m.text.trim() : "";
@@ -698,10 +869,13 @@ export function Instagram({ scenario, playback, lang, rtl }: PlatformProps) {
                   data-mid={m.id}
                   data-sender={m.sender}
                   className={`flex items-end ${mine ? "justify-end" : "justify-start"} ${enter}`}
-                  style={{ marginTop: firstOfGroup ? (sep ? 0 : IOS.senderGap) : IOS.groupGap, gap: IOS.avatarGap }}
+                  style={{
+                    marginTop: firstOfGroup ? (sep ? 0 : IOS.senderGap) : IOS.groupGap,
+                    gap: IOS.avatarGap,
+                  }}
                 >
                   {!mine && (
-                    <div className="shrink-0" style={{ width: IOS.inAvatar }}>
+                    <div className="shrink-0" style={{ width: IOS.inAvatar, marginBottom: reaction ? IGI_REACT.h - IGI_REACT.overlap : 0 }}>
                       {lastOfGroup && <Avatar person={scenario.them} size={IOS.inAvatar} />}
                     </div>
                   )}
@@ -709,6 +883,7 @@ export function Instagram({ scenario, playback, lang, rtl }: PlatformProps) {
                     className={`flex min-w-0 flex-col ${mine ? "items-end" : "items-start"}`}
                     style={{ maxWidth: IOS.maxW, gap: IOS.groupGap }}
                   >
+                    {target && <IgiReplyQuote target={target} mine={mine} pal={pal} s={s} themName={scenario.them.name} />}
                     {segs.map((seg, k) => {
                       const joinedAbove = k > 0 || !firstOfGroup;
                       const joinedBelow = k < segs.length - 1 || !lastOfGroup;
@@ -772,6 +947,7 @@ export function Instagram({ scenario, playback, lang, rtl }: PlatformProps) {
                         </div>
                       );
                     })}
+                    {reaction && <IgiReaction emoji={reaction} pal={pal} mine={mine} />}
                   </div>
                 </div>
               </Fragment>
@@ -790,9 +966,18 @@ export function Instagram({ scenario, playback, lang, rtl }: PlatformProps) {
 
       {/* Composer */}
       <div className="shrink-0" style={{ padding: "6px 12px 14px" }}>
+        {/* The pill grows line by line with a draft (radius stays 22pt, camera
+            disc and "Send" stay on the bottom row); mic/gallery/sticker/+ give
+            way to the theme-coloured "Send" text button while there is text. */}
         <div
-          className="flex items-center"
-          style={{ background: pal.field, height: IOS.composerH, borderRadius: IOS.composerH / 2, paddingInlineStart: 4, paddingInlineEnd: 14 }}
+          className="flex items-end"
+          style={{
+            background: pal.field,
+            minHeight: IOS.composerH,
+            borderRadius: IOS.composerH / 2,
+            padding: (IOS.composerH - IOS.camera) / 2,
+            paddingInlineEnd: draft ? 16 : 14,
+          }}
         >
           <div
             className="flex shrink-0 items-center justify-center rounded-full"
@@ -800,15 +985,63 @@ export function Instagram({ scenario, playback, lang, rtl }: PlatformProps) {
           >
             <IgiCamera />
           </div>
-          <span className="min-w-0 flex-1 truncate" style={{ marginInlineStart: 10, fontSize: 16, color: pal.sub, textAlign: "start" }}>
-            {s.message}
-          </span>
-          <div className="flex shrink-0 items-center" style={{ gap: 14, color: pal.fg }}>
-            <IgiMic size={IOS.composerIcon} />
-            <IgiGallery size={IOS.composerIcon} />
-            <IgiSticker size={IOS.composerIcon} />
-            <IgiPlus size={IOS.composerIcon} />
-          </div>
+          {draft ? (
+            <>
+              <div
+                className="flex min-w-0 flex-1 flex-col justify-end overflow-hidden"
+                style={{
+                  marginInlineStart: 10,
+                  paddingBlock: (IOS.camera - IOS.lh) / 2,
+                  maxHeight: IOS.lh * IGI_DRAFT_LINES + (IOS.camera - IOS.lh),
+                }}
+              >
+                <div
+                  dir={dirOf(draft.text)}
+                  className="whitespace-pre-wrap break-words"
+                  style={{ fontSize: IOS.text, lineHeight: `${IOS.lh}px`, letterSpacing: -0.1, color: pal.fg, textAlign: "start" }}
+                >
+                  {draft.text}
+                  <span
+                    key={draft.text.length}
+                    aria-hidden
+                    className={exporting ? "" : "ig-ios-caret"}
+                    style={{
+                      display: "inline-block",
+                      width: 2,
+                      height: 20,
+                      marginInlineStart: 1,
+                      marginInlineEnd: -3,
+                      verticalAlign: -4,
+                      borderRadius: 1,
+                      background: IGI_BOTTOM,
+                      opacity: caretOn ? 1 : 0,
+                    }}
+                  />
+                </div>
+              </div>
+              <span
+                className="flex shrink-0 items-center"
+                style={{ height: IOS.camera, marginInlineStart: 12, fontSize: 16, fontWeight: 600, color: IGI_BOTTOM }}
+              >
+                {s.send}
+              </span>
+            </>
+          ) : (
+            <>
+              <span
+                className="flex min-w-0 flex-1 items-center truncate"
+                style={{ height: IOS.camera, marginInlineStart: 10, fontSize: 16, color: pal.sub, textAlign: "start" }}
+              >
+                {s.message}
+              </span>
+              <div className="flex shrink-0 items-center" style={{ height: IOS.camera, gap: 14, color: pal.fg }}>
+                <IgiMic size={IOS.composerIcon} />
+                <IgiGallery size={IOS.composerIcon} />
+                <IgiSticker size={IOS.composerIcon} />
+                <IgiPlus size={IOS.composerIcon} />
+              </div>
+            </>
+          )}
         </div>
       </div>
 

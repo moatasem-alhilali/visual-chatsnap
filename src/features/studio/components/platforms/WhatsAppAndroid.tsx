@@ -117,6 +117,22 @@ interface AndroidPalette {
   scrollIcon: string;
   nav: string;
   navFg: string;
+  /** EditText caret (accent green) */
+  caret: string;
+  /** quoted-reply block fill inside an incoming / outgoing bubble */
+  quoteIn: string;
+  quoteOut: string;
+  /** quoted reply: side bar + name colour for "You" / the contact */
+  quoteYouBar: string;
+  quoteYouName: string;
+  quoteThemBar: string;
+  quoteThemName: string;
+  quoteSnippet: string;
+  quoteThumb: string;
+  /** reaction pill: fill, separating ring (wallpaper), shadow */
+  pill: string;
+  pillRing: string;
+  pillShadow: string;
 }
 
 /* ======================================================================
@@ -135,16 +151,22 @@ const META_FS = 11.5;
    Localised strings the shared CHROME map does not carry
    ====================================================================== */
 
-const STR: Record<Lang, { e2e: string; more: string; placeholder: string }> = {
+const STR: Record<Lang, { e2e: string; more: string; placeholder: string; you: string; photo: string; voice: string }> = {
   en: {
     e2e: "Messages and calls are end-to-end encrypted. Only people in this chat can read, listen to, or share them.",
     more: "Learn more",
     placeholder: "Message",
+    you: "You",
+    photo: "Photo",
+    voice: "Voice message",
   },
   ar: {
     e2e: "الرسائل والمكالمات مشفرة تمامًا بين الطرفين. يمكن فقط للأشخاص في هذه الدردشة قراءتها أو الاستماع إليها أو مشاركتها.",
     more: "معرفة المزيد",
     placeholder: "مراسلة",
+    you: "أنت",
+    photo: "صورة",
+    voice: "رسالة صوتية",
   },
 };
 
@@ -199,6 +221,8 @@ function typingDot(t: number, i: number): { opacity: number; transform: string }
 const STYLE = `
 ${ENTER_KEYFRAMES}
 .wa-android-enter{animation:wa-android-enter ${ENTER_MS}ms linear both}
+@keyframes wa-android-caret{0%,49.9%{opacity:1}50%,100%{opacity:0}}
+.wa-android-caret{animation:wa-android-caret 1000ms linear infinite}
 @keyframes wa-android-typing{0%{opacity:.4;transform:translateY(0)}12.5%{opacity:.7;transform:translateY(-1px)}25%{opacity:1;transform:translateY(-2px)}37.5%{opacity:.7;transform:translateY(-1px)}50%,100%{opacity:.4;transform:translateY(0)}}
 .wa-android-down{display:none}[data-up="1"]>.wa-android-down{display:flex}
 .wa-android-typing-dot{animation:wa-android-typing ${TYPING_PERIOD}ms ease-in-out infinite}
@@ -300,6 +324,18 @@ const LIGHT: AndroidPalette = {
   scrollIcon: "#5b6368",
   nav: "#f7f8fa",
   navFg: "#3b4045",
+  caret: "#1daa61",
+  quoteIn: "rgba(11,20,26,0.05)",
+  quoteOut: "rgba(11,20,26,0.045)",
+  quoteYouBar: "#1daa61",
+  quoteYouName: "#15603e",
+  quoteThemBar: "#7f66ff",
+  quoteThemName: "#5e47de",
+  quoteSnippet: "rgba(0,0,0,0.6)",
+  quoteThumb: "#dcdedf",
+  pill: "#ffffff",
+  pillRing: "#f5f2ec",
+  pillShadow: "0 1px 1px rgba(11,20,26,0.12)",
 };
 
 const DARK: AndroidPalette = {
@@ -340,6 +376,18 @@ const DARK: AndroidPalette = {
   scrollIcon: "#adb5b9",
   nav: "#000000",
   navFg: "#e9edef",
+  caret: "#21c063",
+  quoteIn: "rgba(0,0,0,0.22)",
+  quoteOut: "rgba(0,0,0,0.2)",
+  quoteYouBar: "#21c063",
+  quoteYouName: "#21c063",
+  quoteThemBar: "#a791ff",
+  quoteThemName: "#a791ff",
+  quoteSnippet: "rgba(255,255,255,0.6)",
+  quoteThumb: "#2a3236",
+  pill: "#20272b",
+  pillRing: "#081010",
+  pillShadow: "none",
 };
 
 /** WhatsApp's single / double check glyphs (16×10.6 box). */
@@ -427,6 +475,11 @@ const P = {
     "M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5c0-1.38 1.12-2.5 2.5-2.5s2.5 1.12 2.5 2.5v10.5c0 .55-.45 1-1 1s-1-.45-1-1V6H10v9.5c0 1.38 1.12 2.5 2.5 2.5s2.5-1.12 2.5-2.5V5c0-2.21-1.79-4-4-4S7 2.79 7 5v12.5c0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5V6h-1.5z",
   camera:
     "M14.12 4l1.83 2H20v12H4V6h4.05l1.83-2h4.24M15 2H9L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2zm-3 7c1.65 0 3 1.35 3 3s-1.35 3-3 3-3-1.35-3-3 1.35-3 3-3m0-2c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5z",
+  // Material "send" (rounded), auto-mirrored in RTL like the app
+  send: "M3.4 20.4l17.45-7.48c.81-.35.81-1.49 0-1.84L3.4 3.6c-.66-.29-1.39.2-1.39.91L2 9.12c0 .5.37.93.87.99L17 12 2.87 13.88c-.5.07-.87.5-.87 1l.01 4.61c0 .71.73 1.2 1.39.91z",
+  cameraFill:
+    "M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4zM9 2 7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z",
+  micFill: "M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15a.998.998 0 0 0-.98-.85c-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08a6.993 6.993 0 0 0 5.91-5.78c.1-.6-.39-1.14-1-1.14z",
   mic: "M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z",
   play: "M7.2 4.6v14.8c0 .9.98 1.45 1.75.98l11.6-7.4a1.15 1.15 0 0 0 0-1.96L8.95 3.62A1.15 1.15 0 0 0 7.2 4.6z",
   doubleDown: "M18 6.41 16.59 5 12 9.58 7.41 5 6 6.41l6 6zm0 6L16.59 11 12 15.58 7.41 11 6 12.41l6 6z",
@@ -485,6 +538,122 @@ function Tail({ side, color }: { side: "left" | "right"; color: string }) {
   );
 }
 
+/* Reaction pill (measured on WABetaInfo Android captures): ~30×27dp including a
+   2dp ring in the wallpaper colour, hangs ~23dp under the bubble (4dp overlap),
+   10dp in from the bubble's own outer edge. */
+const PILL_H = 27;
+const PILL_OVERLAP = 4;
+const PILL_INSET = 10;
+const QUOTE_R = RADIUS - 4; // concentric with the bubble (4dp inset)
+
+/** Quoted-reply block at the top of a reply bubble (bar | name / one-line snippet | thumb). */
+function AndroidQuote({
+  target,
+  p,
+  inMine,
+  s,
+  themName,
+  uiDir,
+}: {
+  target: Message;
+  p: AndroidPalette;
+  inMine: boolean;
+  s: (typeof STR)[Lang];
+  themName: string;
+  uiDir: "rtl" | "ltr";
+}) {
+  const fromMe = target.sender === "me";
+  const isImg = target.type === "image";
+  const caption = target.text.replace(/\s+/g, " ").trim();
+  let snippet: ReactNode;
+  let snipDir: "rtl" | "ltr" = uiDir;
+  const icon = (d: string) => (
+    <svg width="16" height="16" viewBox="0 0 24 24" style={{ display: "inline-block", verticalAlign: "-3px", marginInlineEnd: 3 }}>
+      <path d={d} fill={p.quoteSnippet} />
+    </svg>
+  );
+  if (target.type === "voice") {
+    snippet = (
+      <>
+        {icon(P.micFill)}
+        {`${s.voice} (${target.voiceDuration || "0:07"})`}
+      </>
+    );
+  } else if (isImg) {
+    snipDir = caption ? dirOf(caption) : uiDir;
+    snippet = (
+      <>
+        {icon(P.cameraFill)}
+        {caption || s.photo}
+      </>
+    );
+  } else {
+    snipDir = dirOf(caption);
+    snippet = caption;
+  }
+  return (
+    <div
+      dir={uiDir}
+      className="relative flex overflow-hidden"
+      style={{ background: inMine ? p.quoteOut : p.quoteIn, borderRadius: QUOTE_R, minWidth: 0 }}
+    >
+      <span style={{ width: 4, background: fromMe ? p.quoteYouBar : p.quoteThemBar, flexShrink: 0 }} />
+      <div className="min-w-0 flex-1" style={{ padding: "6px 0 7px", paddingInline: "9px 10px" }}>
+        <div
+          className="truncate"
+          dir="auto"
+          style={{ fontSize: 14, lineHeight: "20px", fontWeight: 500, color: fromMe ? p.quoteYouName : p.quoteThemName, textAlign: "start" }}
+        >
+          {fromMe ? s.you : themName}
+        </div>
+        <div className="truncate" dir={snipDir} style={{ fontSize: 14, lineHeight: "20px", color: p.quoteSnippet, textAlign: "start" }}>
+          {snippet}
+        </div>
+      </div>
+      {isImg && (
+        <div className="relative shrink-0 overflow-hidden" style={{ width: 53, alignSelf: "stretch", background: p.quoteThumb }}>
+          {target.imageSrc && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={target.imageSrc}
+              alt=""
+              draggable={false}
+              className="absolute inset-0"
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Reaction pill hanging off the bubble's bottom outer corner. */
+function AndroidReaction({ emoji, p, onRight }: { emoji: string; p: AndroidPalette; onRight: boolean }) {
+  return (
+    <span
+      className="absolute flex items-center justify-center"
+      style={{
+        bottom: -(PILL_H - PILL_OVERLAP),
+        [onRight ? "right" : "left"]: PILL_INSET,
+        height: PILL_H,
+        minWidth: 30,
+        padding: "0 6px",
+        boxSizing: "border-box",
+        borderRadius: PILL_H / 2,
+        border: `2px solid ${p.pillRing}`,
+        background: p.pill,
+        boxShadow: p.pillShadow,
+        fontSize: 15,
+        lineHeight: "20px",
+        zIndex: 1,
+      }}
+    >
+      {emoji}
+    </span>
+  );
+}
+
 /* ======================================================================
    Screen
    ====================================================================== */
@@ -507,12 +676,21 @@ export function WhatsAppAndroid({ scenario, playback, lang, rtl }: PlatformProps
     const el = scrollRef.current;
     const host = el?.parentElement;
     if (!el || !host) return;
+    // Keep the list pinned to the newest message while the composer grows or
+    // shrinks with a multi-line draft (the list viewport changes height).
+    let pinned = true;
     const check = () => {
-      host.setAttribute("data-up", el.scrollHeight - el.scrollTop - el.clientHeight > 160 ? "1" : "0");
+      const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+      pinned = gap < 40;
+      host.setAttribute("data-up", gap > 160 ? "1" : "0");
+    };
+    const onResize = () => {
+      if (pinned) el.scrollTop = el.scrollHeight;
+      check();
     };
     check();
     el.addEventListener("scroll", check, { passive: true });
-    const ro = new ResizeObserver(check);
+    const ro = new ResizeObserver(onResize);
     ro.observe(el);
     if (el.firstElementChild) ro.observe(el.firstElementChild);
     return () => {
@@ -529,6 +707,13 @@ export function WhatsAppAndroid({ scenario, playback, lang, rtl }: PlatformProps
   const subtitle = presenceText(typing, scenario.presence, scenario.lastSeenText, c.online, c.typing);
   const lastSender = messages.length ? messages[messages.length - 1].sender : null;
   const typingStartsGroup = lastSender !== "them";
+  const byId = new Map(scenario.messages.map((m) => [m.id, m] as const));
+
+  // compose typing: the draft replaces the placeholder; once there is text the
+  // camera icon leaves, the clip slides to the end and the mic FAB turns into send
+  const draft = playback.draft;
+  const hasText = !!draft && draft.text.length > 0;
+  const draftDir = draft && draft.text ? dirOf(draft.text) : uiDir;
 
   return (
     <div className="flex h-full w-full flex-col" style={{ background: p.bar, color: p.text }}>
@@ -637,6 +822,9 @@ export function WhatsAppAndroid({ scenario, playback, lang, rtl }: PlatformProps
                   status={playback.statusOf(m)}
                   person={m.sender === "me" ? scenario.me : scenario.them}
                   live={live}
+                  quote={m.replyToId ? (byId.get(m.replyToId) ?? null) : null}
+                  s={s}
+                  themName={scenario.them.name}
                 />
               );
             })}
@@ -708,38 +896,73 @@ export function WhatsAppAndroid({ scenario, playback, lang, rtl }: PlatformProps
           </button>
         )}
 
-        {/* Composer: floats over the wallpaper */}
+        {/* Composer: floats over the wallpaper; the field grows to 6 lines, then scrolls */}
         <div className="flex shrink-0 items-end" style={{ paddingInlineStart: 5, paddingInlineEnd: 4.5, paddingBottom: 5.5, paddingTop: 2, gap: 4.5 }}>
           <div
-            className="relative flex flex-1 items-center"
-            style={{ height: 48, borderRadius: 24, background: p.field, boxShadow: p.fieldShadow }}
+            className="relative flex flex-1 items-end"
+            style={{ minHeight: 48, borderRadius: 24, background: p.field, boxShadow: p.fieldShadow }}
           >
-            <div className="flex shrink-0 items-center justify-center" style={{ width: 24, marginInlineStart: 10 }}>
+            <div className="flex shrink-0 items-center justify-center" style={{ width: 24, height: 48, marginInlineStart: 10 }}>
               <StickerSmiley color={p.composerIcon} />
             </div>
-            <span
-              className="min-w-0 flex-1 truncate"
-              style={{ fontSize: 18, lineHeight: "24px", color: p.placeholder, paddingInlineStart: 14 }}
+            <div
+              className="flex min-w-0 flex-1 flex-col justify-end overflow-hidden"
+              style={{ maxHeight: 6 * 22 + 26, padding: "13px 0", paddingInlineStart: 14 }}
             >
-              {s.placeholder}
-            </span>
-            {/* attach centred 72.5 and camera 24.5 from the field's end */}
-            <div className="flex shrink-0 items-center" style={{ gap: 24, marginInlineEnd: 12.5 }}>
+              {draft ? (
+                <div
+                  dir={draftDir}
+                  className="whitespace-pre-wrap break-words"
+                  style={{ fontSize: 18, lineHeight: "22px", color: p.text, textAlign: "start" }}
+                >
+                  {draft.text}
+                  <span
+                    // restart the blink on every keystroke (Android keeps the cursor solid while typing)
+                    key={draft.text.length}
+                    className={clock === undefined ? "wa-android-caret" : undefined}
+                    style={{
+                      display: "inline-block",
+                      width: 2,
+                      height: 22,
+                      marginInline: "1px -3px",
+                      verticalAlign: "-5px",
+                      background: p.caret,
+                      // export frames only hold drafts mid-typing / in the short pre-send hold: solid cursor
+                      opacity: clock === undefined ? undefined : 1,
+                    }}
+                  />
+                </div>
+              ) : (
+                <span className="truncate" style={{ fontSize: 18, lineHeight: "22px", color: p.placeholder }}>
+                  {s.placeholder}
+                </span>
+              )}
+            </div>
+            {/* empty: clip + camera centred 72.5 / 24.5 from the field end; typing: only the clip, at the end */}
+            <div className="flex shrink-0 items-center" style={{ height: 48, gap: 24, marginInlineStart: 12, marginInlineEnd: 12.5 }}>
               <Svg>
                 <path d={P.attach} fill={p.composerIcon} />
               </Svg>
-              <Svg>
-                <path d={P.camera} fill={p.composerIcon} />
-              </Svg>
+              {!hasText && (
+                <Svg>
+                  <path d={P.camera} fill={p.composerIcon} />
+                </Svg>
+              )}
             </div>
           </div>
           <div
             className="flex shrink-0 items-center justify-center rounded-full"
             style={{ width: 48, height: 48, background: p.fab, boxShadow: dark ? "none" : "0 1px 2px rgba(11,20,26,0.18)" }}
           >
-            <Svg>
-              <path d={P.mic} fill={p.fabIcon} />
-            </Svg>
+            {hasText ? (
+              <Svg size={23} style={{ transform: rtl ? "scaleX(-1)" : undefined, marginInlineStart: 2 }}>
+                <path d={P.send} fill={p.fabIcon} />
+              </Svg>
+            ) : (
+              <Svg>
+                <path d={P.mic} fill={p.fabIcon} />
+              </Svg>
+            )}
           </div>
         </div>
       </div>
@@ -763,6 +986,9 @@ function AndroidRow({
   status,
   person,
   live,
+  quote,
+  s,
+  themName,
 }: {
   m: Message;
   p: AndroidPalette;
@@ -773,13 +999,19 @@ function AndroidRow({
   status: DeliveryStatus;
   person: Person;
   live: boolean;
+  quote: Message | null;
+  s: (typeof STR)[Lang];
+  themName: string;
 }) {
   const mine = m.sender === "me";
   const onRight = mine ? !rtl : rtl;
   const bg = mine ? p.outBubble : p.inBubble;
   const caption = m.type === "image" ? m.text.trim() : "";
   const textDir = dirOf(m.text);
-  const emojiCount = m.type === "text" ? bigEmojiCount(m.text) : 0;
+  // a reply always gets a bubble (the quote lives inside it)
+  const emojiCount = m.type === "text" && !quote ? bigEmojiCount(m.text) : 0;
+  const reaction = m.reaction?.trim() || "";
+  const quoteEl = quote ? <AndroidQuote target={quote} p={p} inMine={mine} s={s} themName={themName} uiDir={uiDir} /> : null;
 
   const meta = (overlay: boolean) => (
     <span
@@ -831,20 +1063,23 @@ function AndroidRow({
     content = (
       <div className="relative" dir={uiDir} style={{ background: bg, boxShadow: p.shadow, ...radius, width: "100%" }}>
         {tail && <Tail side={onRight ? "right" : "left"} color={bg} />}
+        {quoteEl && <div style={{ padding: "4px 4px 0" }}>{quoteEl}</div>}
         <AndroidVoice m={m} p={p} mine={mine} status={status} person={person} meta={meta(false)} />
       </div>
     );
   } else if (m.type === "image") {
     const W = 262;
-    const imgRadius: CSSProperties = caption
-      ? { borderTopLeftRadius: RADIUS, borderTopRightRadius: RADIUS }
-      : { borderRadius: RADIUS };
+    // a photo reply: quote on top, the photo inset 4dp below it
+    const r = quote ? QUOTE_R : RADIUS;
+    const imgRadius: CSSProperties = caption ? { borderTopLeftRadius: r, borderTopRightRadius: r } : { borderRadius: r };
+    if (quote) Object.assign(imgRadius, { margin: caption ? "4px 4px 0" : 4 });
     content = (
       <div
         className="relative overflow-hidden"
         dir={caption ? textDir : uiDir}
         style={{ width: W, maxWidth: "100%", background: bg, boxShadow: p.shadow, borderRadius: RADIUS }}
       >
+        {quoteEl && <div style={{ padding: "4px 4px 0" }}>{quoteEl}</div>}
         <div className="relative overflow-hidden" style={imgRadius}>
           {m.imageSrc ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -894,6 +1129,8 @@ function AndroidRow({
         style={{ background: bg, color: p.text, boxShadow: p.shadow, padding: "9px 12px 10px", ...radius }}
       >
         {tail && <Tail side={onRight ? "right" : "left"} color={bg} />}
+        {/* quoted reply: 4dp in from the bubble edges, 8dp above the text */}
+        {quoteEl && <div style={{ margin: "-5px -8px 8px" }}>{quoteEl}</div>}
         <span className="whitespace-pre-wrap break-words" style={{ fontSize: 16, lineHeight: "21px" }}>
           {m.text}
         </span>
@@ -915,10 +1152,16 @@ function AndroidRow({
         paddingInlineStart: mine ? FAR : EDGE,
         paddingInlineEnd: mine ? EDGE : FAR,
         marginTop: firstOfGroup ? GAP_BETWEEN : GAP_IN_GROUP,
+        // the reaction pill hangs under the bubble and pushes the next row down
+        paddingBottom: reaction ? PILL_H - PILL_OVERLAP : 0,
       }}
     >
-      <div style={{ maxWidth: "100%", width: m.type === "voice" ? "100%" : undefined, display: "flex", justifyContent: mine ? "flex-end" : "flex-start" }}>
+      <div
+        className="relative"
+        style={{ maxWidth: "100%", width: m.type === "voice" ? "100%" : undefined, display: "flex", justifyContent: mine ? "flex-end" : "flex-start" }}
+      >
         {content}
+        {reaction && <AndroidReaction emoji={reaction} p={p} onRight={onRight} />}
       </div>
     </div>
   );

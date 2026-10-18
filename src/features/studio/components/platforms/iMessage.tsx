@@ -53,6 +53,18 @@
  *  - Composer [B][C]: resting bar inset 27.5pt from both edges and 27pt above the
  *    screen bottom. 40pt glass "+" circle, 12pt gap, 40pt glass capsule with the
  *    "iMessage" placeholder (17pt) and a waveform glyph (audio message).
+ *  - Tapbacks [F]: 32pt disc (+1.5pt background ring) centred 3pt inside the
+ *    bubble's inner top corner and 11pt above it; "thought" circles 8pt / 4pt at
+ *    (+10.4, +14.4) / (+18.4, +23.2) trailing down and outward. Mine = blue,
+ *    theirs = incoming grey; the emoji itself sits in the disc.
+ *  - Inline reply [F]: the parent re-drawn at 0.7 scale as an outlined bubble
+ *    (secondary text, tail kept), "N Replies" 13pt semibold systemBlue under it
+ *    and under the original message, a 2pt systemGray4 thread line from the
+ *    quote's tail to the reply. REPLY_COUNT ar: "رد واحد", "ردان", "%@ ردود" [E].
+ *  - Compose [B][F]: field grows in 22pt lines (max 6), 2pt systemBlue caret,
+ *    the waveform turns into a 32pt tinted-glass blue disc with arrow.up.
+ *  [F] support.apple.com/guide/iphone/iph018d3c336 ("React with Tapbacks", iOS 26),
+ *      asset ipcdn-web.apple.com/assets/v2/web/c472aee5-d184-482a-866a-b7a5d7200d13
  *  - Scroll edges: soft fades under the floating header and composer (Liquid Glass
  *    scroll-edge effect, drawn as gradients so the snapdom exporter matches).
  *  - Motion: outgoing bubbles rise from the input field (≈58pt) on a lightly damped
@@ -88,6 +100,10 @@ interface Palette {
   inText: string;
   typingDot: string;
   photoFill: string;
+  /** inline-reply quote outline + thread connector */
+  quoteStroke: string;
+  thread: string;
+  caret: string;
 }
 
 const LIGHT: Palette = {
@@ -103,6 +119,9 @@ const LIGHT: Palette = {
   inText: "#000000",
   typingDot: "#8e8e93",
   photoFill: "#f2f2f7",
+  quoteStroke: "#d1d1d6",
+  thread: "#d1d1d6",
+  caret: "#0088ff",
 };
 
 const DARK: Palette = {
@@ -118,6 +137,9 @@ const DARK: Palette = {
   inText: "#ffffff",
   typingDot: "#8d8d93",
   photoFill: "#1c1c1e",
+  quoteStroke: "#3a3a3c",
+  thread: "#3a3a3c",
+  caret: "#0091ff",
 };
 
 /** Screen-fixed outgoing gradient (top of display → bottom), fitted to [B]. */
@@ -139,13 +161,42 @@ function glass(dark: boolean): CSSProperties {
       };
 }
 
-/** Strings the shared chrome map doesn't carry, verified against iOS 26 ChatKit [E]. */
-const LOCAL: Record<
-  Lang,
-  { service: string; placeholder: string; today: string; delivered: string; read: string; keep: string }
-> = {
-  en: { service: "iMessage", placeholder: "iMessage", today: "Today", delivered: "Delivered", read: "Read", keep: "Keep" },
-  ar: { service: "iMessage", placeholder: "iMessage", today: "اليوم", delivered: "تم التسليم", read: "تمت القراءة", keep: "احتفاظ" },
+/** Strings the shared chrome map doesn't carry, verified against iOS 26/27 ChatKit [E]. */
+interface LocalStrings {
+  service: string;
+  placeholder: string;
+  today: string;
+  delivered: string;
+  read: string;
+  keep: string;
+  /** REPLY_COUNT plural (ChatKit.loctable) */
+  replies: (n: number) => string;
+  audio: string;
+  photo: string;
+}
+const LOCAL: Record<Lang, LocalStrings> = {
+  en: {
+    service: "iMessage",
+    placeholder: "iMessage",
+    today: "Today",
+    delivered: "Delivered",
+    read: "Read",
+    keep: "Keep",
+    replies: (n) => (n === 1 ? "1 Reply" : `${n} Replies`),
+    audio: "Audio Message",
+    photo: "Photo",
+  },
+  ar: {
+    service: "iMessage",
+    placeholder: "iMessage",
+    today: "اليوم",
+    delivered: "تم التسليم",
+    read: "تمت القراءة",
+    keep: "احتفاظ",
+    replies: (n) => (n === 1 ? "رد واحد" : n === 2 ? "ردان" : n <= 10 ? `${n} ردود` : `${n} رد`),
+    audio: "رسالة صوتية",
+    photo: "صورة",
+  },
 };
 
 /* metrics (pt) */
@@ -217,6 +268,18 @@ export const imessageIosMotion: PlatformMotion = {
   },
 };
 
+/** Caret blink (UIKit: ~0.5s visible, ~0.5s hidden, soft edges). */
+const CARET_PERIOD = 1000;
+const CARET_ON = 0.5;
+const CARET_FADE = 0.08;
+function caretOpacity(ms: number): number {
+  const x = (((ms % CARET_PERIOD) + CARET_PERIOD) % CARET_PERIOD) / CARET_PERIOD;
+  if (x <= CARET_ON) return 1;
+  if (x <= CARET_ON + CARET_FADE) return 1 - (x - CARET_ON) / CARET_FADE;
+  if (x <= 1 - CARET_FADE) return 0;
+  return (x - (1 - CARET_FADE)) / CARET_FADE;
+}
+
 function keyframes(name: string, frame: (p: number) => { opacity: number; transform: string }, steps = 24): string {
   let out = `@keyframes ${name}{`;
   for (let i = 0; i <= steps; i++) {
@@ -238,6 +301,15 @@ const STYLE = [
   ".imsg-ios-anim-fade{animation:imsg-ios-fade 260ms ease-out both}",
   // typing dots: sequential darkening, like the real indicator
   "@keyframes imsg-ios-dot{0%,100%{opacity:.35}22%{opacity:1}44%{opacity:.35}}",
+  // UITextView caret: on 0.5s, off 0.5s with short fades
+  `@keyframes imsg-ios-caret{0%,${CARET_ON * 100}%{opacity:1}${(CARET_ON + CARET_FADE) * 100}%,${(1 - CARET_FADE) * 100}%{opacity:0}100%{opacity:1}}`,
+  `.imsg-ios-caret{animation:imsg-ios-caret ${CARET_PERIOD}ms linear infinite}`,
+  // send button / tapback spring in
+  keyframes("imsg-ios-pop", (p) => {
+    const s = springP(p, 0.34, 0.62, 22);
+    return { opacity: Math.min(1, p / 0.25), transform: `scale(${(0.4 + 0.6 * s).toFixed(4)})` };
+  }, 16),
+  ".imsg-ios-anim-pop{animation:imsg-ios-pop 340ms linear both}",
   // screen-fixed outgoing gradient
   `.imsg-ios-out-fill{background:${OUT_FALLBACK}}`,
   // export frames: same gradient, positioned from JS (see useLayoutEffect in IMessage)
@@ -316,6 +388,15 @@ function WaveformGlyph({ color }: { color: string }) {
           strokeLinecap="round"
         />
       ))}
+    </svg>
+  );
+}
+
+/** SF Symbol "arrow.up" (bold), the send glyph. Never mirrors. */
+function ArrowUpGlyph() {
+  return (
+    <svg width="16" height="18" viewBox="0 0 16 18" fill="none">
+      <path d="M8 16.4V2.4M1.9 8.3 8 2.2l6.1 6.1" stroke="#ffffff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -650,6 +731,300 @@ function TypingBubble({
   );
 }
 
+/* ------------------------------ composer ------------------------------ */
+
+const FIELD_LINE = 22;
+const FIELD_MAX_LINES = 6;
+const SEND_D = 32;
+const SEND_INSET = 4;
+
+/** UITextView insertion point: 2pt systemBlue bar. */
+function Caret({ p, clockMs }: { p: Palette; clockMs?: number }) {
+  return (
+    <span
+      aria-hidden
+      className={clockMs === undefined ? "imsg-ios-caret" : undefined}
+      style={{
+        display: "inline-block",
+        width: 2,
+        height: 20.5,
+        borderRadius: 1,
+        background: p.caret,
+        verticalAlign: -4.5,
+        marginInline: 0.5,
+        opacity: clockMs === undefined ? undefined : caretOpacity(clockMs),
+      }}
+    />
+  );
+}
+
+/** iOS 26 send button: tinted (blue) Liquid Glass disc with a bold arrow.up. */
+function SendButton({ dark, pop }: { dark: boolean; pop: boolean }) {
+  return (
+    <span
+      className={`flex shrink-0 items-center justify-center rounded-full ${pop ? "imsg-ios-anim-pop" : ""}`}
+      style={{
+        width: SEND_D,
+        height: SEND_D,
+        marginBlock: (COMPOSER_H - SEND_D) / 2,
+        marginInlineStart: 8,
+        background: dark
+          ? "linear-gradient(180deg, #2ea4ff 0%, #0091ff 55%, #0089f5 100%)"
+          : "linear-gradient(180deg, #33a3ff 0%, #0088ff 55%, #0080f2 100%)",
+        boxShadow:
+          "inset 0 0.75px 0.5px rgba(255,255,255,0.45), inset 0 -0.5px 1px rgba(0,40,120,0.18), 0 1px 3px rgba(0,110,255,0.22)",
+      }}
+    >
+      <ArrowUpGlyph />
+    </span>
+  );
+}
+
+/* ------------------------------ tapbacks ------------------------------ */
+
+/**
+ * iOS 18+/26 emoji Tapback, measured on Apple's iOS 26 guide image
+ * (support.apple.com/guide/iphone/iph018d3c336, asset c472aee5…, 1.105 px/pt):
+ * a 32pt disc (+1.5pt background ring) centred 3pt inside the bubble's inner
+ * edge and 11pt above its top, with two "thought" circles (8pt, 4pt) trailing
+ * down and outward. My Tapback is blue, theirs uses the incoming grey.
+ */
+const TAP_D = 32;
+const TAP_RING = 1.5;
+const TAP_BOX = 64;
+/** extra space a Tapback claims above its bubble */
+const TAP_SPACE = 24;
+
+function Tapback({ emoji, byMe, side, p }: { emoji: string; byMe: boolean; side: "left" | "right"; p: Palette }) {
+  const fill = byMe ? p.blue : p.inBubble;
+  const c = TAP_BOX / 2;
+  const sx = side === "right" ? 1 : -1;
+  const discs = [
+    { x: c, y: c, r: TAP_D / 2 },
+    { x: c + 10.4 * sx, y: c + 14.4, r: 4.1 },
+    { x: c + 18.4 * sx, y: c + 23.2, r: 2.05 },
+  ];
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none absolute z-10"
+      style={{ width: TAP_BOX, height: TAP_BOX, top: -11 - c, [side]: 3 - c } as CSSProperties}
+    >
+      <svg width={TAP_BOX} height={TAP_BOX} viewBox={`0 0 ${TAP_BOX} ${TAP_BOX}`} className="absolute inset-0 overflow-visible">
+        {discs.map((d, i) => (
+          <circle key={`r${i}`} cx={d.x} cy={d.y} r={d.r + TAP_RING} fill={p.bg} />
+        ))}
+        {discs.map((d, i) => (
+          <circle key={`f${i}`} cx={d.x} cy={d.y} r={d.r} fill={fill} />
+        ))}
+      </svg>
+      <span
+        className="absolute flex items-center justify-center"
+        style={{ left: c - TAP_D / 2, top: c - TAP_D / 2, width: TAP_D, height: TAP_D, fontSize: 19, lineHeight: 1 }}
+      >
+        {emoji}
+      </span>
+    </div>
+  );
+}
+
+/* ---------------------------- inline replies ---------------------------- */
+
+/**
+ * The parent of an inline reply, drawn as the parent bubble at 0.7 scale with
+ * a hairline outline and secondary text (iOS 26 guide image c472aee5…: the
+ * quote capsule is 0.67–0.70 of the full bubble, tail included), followed by
+ * the blue "N Replies" count, then the reply itself. A thread line runs from
+ * the quote's tail to the reply.
+ */
+const Q = 0.7;
+
+function ReplyQuote({ parent, p, l, tail }: { parent: Message; p: Palette; l: LocalStrings; tail: "left" | "right" }) {
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const measure = () => {
+      const w = el.offsetWidth;
+      const h = el.offsetHeight;
+      setSize((prev) => (prev && prev.w === w && prev.h === h ? prev : { w, h }));
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const isImage = parent.type === "image" && !!parent.imageSrc;
+  const text =
+    parent.type === "voice" ? l.audio : parent.type === "image" ? parent.text.trim() || l.photo : parent.text.trim();
+  const r = RADIUS * Q;
+
+  return (
+    <div className="relative" style={{ paddingBottom: TAIL_DROP * Q }}>
+      {size && (
+        <svg
+          aria-hidden
+          className="absolute overflow-visible"
+          style={{ left: 0, top: 0 }}
+          width={size.w}
+          height={size.h + TAIL_DROP * Q}
+          viewBox={`0 0 ${size.w / Q} ${(size.h + TAIL_DROP * Q) / Q}`}
+        >
+          <path
+            d={outlinePath(size.w / Q, size.h / Q, RADIUS, tail)}
+            fill="none"
+            stroke={p.quoteStroke}
+            strokeWidth={1}
+            vectorEffect="non-scaling-stroke"
+          />
+        </svg>
+      )}
+      <div ref={boxRef} className="relative flex items-center" style={{ maxWidth: Math.round(MAX_W * Q), borderRadius: r }}>
+        {isImage ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={parent.imageSrc ?? undefined}
+            alt=""
+            draggable={false}
+            className="block"
+            style={{ width: Math.round(IMG_W * Q * 0.5), height: Math.round(IMG_W * Q * 0.5 * 0.75), objectFit: "cover", borderRadius: r, opacity: 0.85 }}
+          />
+        ) : (
+          <div style={{ padding: `${(PAD_Y * Q).toFixed(2)}px ${(PAD_X * Q).toFixed(2)}px` }}>
+            <p
+              dir={dirOf(text)}
+              className="overflow-hidden break-words"
+              style={{
+                color: p.secondary,
+                fontSize: 17 * Q,
+                lineHeight: `${(LINE * Q).toFixed(2)}px`,
+                letterSpacing: "-0.08px",
+                margin: 0,
+                display: "-webkit-box",
+                WebkitBoxOrient: "vertical",
+                WebkitLineClamp: 2,
+              }}
+            >
+              {text}
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RepliesLabel({ n, p, l, inset, marginTop }: { n: number; p: Palette; l: LocalStrings; inset: number; marginTop: number }) {
+  return (
+    <div
+      style={{
+        color: p.blue,
+        fontSize: 13,
+        lineHeight: "16px",
+        fontWeight: 600,
+        letterSpacing: "-0.08px",
+        marginTop,
+        paddingInline: inset,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {l.replies(n)}
+    </div>
+  );
+}
+
+/** Quote + count + reply, with the measured thread connector behind them. */
+function ReplyThread({
+  parent,
+  replies,
+  mine,
+  p,
+  l,
+  rtl,
+  extraTop,
+  children,
+}: {
+  parent: Message;
+  replies: number;
+  mine: boolean;
+  p: Palette;
+  l: LocalStrings;
+  rtl: boolean;
+  extraTop: number;
+  children: ReactNode;
+}) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const quoteRef = useRef<HTMLDivElement>(null);
+  const bubbleRef = useRef<HTMLDivElement>(null);
+  const [path, setPath] = useState<string | null>(null);
+  const parentMine = parent.sender === "me";
+  const quoteRight = parentMine ? !rtl : rtl;
+
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    const q = quoteRef.current;
+    const b = bubbleRef.current;
+    if (!root || !q || !b) return;
+    const measure = () => {
+      const rb = root.getBoundingClientRect();
+      const k = rb.width / (root.offsetWidth || 1) || 1;
+      const qb = q.getBoundingClientRect();
+      const bb = b.getBoundingClientRect();
+      const L = (x: number) => (x - rb.left) / k;
+      const T = (y: number) => (y - rb.top) / k;
+      // the quote's tail tip: 6.3pt in from its edge, at the bottom of its box
+      const x0 = quoteRight ? L(qb.right) - 6.3 : L(qb.left) + 6.3;
+      const y0 = T(qb.bottom) - 0.5;
+      const bl = L(bb.left);
+      const br = L(bb.right);
+      const bt = T(bb.top);
+      const yMid = bt + Math.min((bb.height / k) / 2, 20);
+      const f = (n: number) => n.toFixed(1);
+      let d: string;
+      if (x0 >= bl - 1 && x0 <= br + 1) {
+        d = `M${f(x0)} ${f(y0)} V${f(bt)}`;
+      } else {
+        const dir = bl > x0 ? 1 : -1;
+        const xEnd = dir > 0 ? bl : br;
+        const rr = 11;
+        d = `M${f(x0)} ${f(y0)} V${f(yMid - rr)} Q${f(x0)} ${f(yMid)} ${f(x0 + dir * rr)} ${f(yMid)} H${f(xEnd)}`;
+      }
+      setPath((prev) => (prev === d ? prev : d));
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(root);
+    return () => ro.disconnect();
+  }, [quoteRight]);
+
+  return (
+    <div ref={rootRef} className="relative flex w-full flex-col">
+      {path && (
+        <svg aria-hidden className="pointer-events-none absolute inset-0 overflow-visible" width="100%" height="100%">
+          <path d={path} fill="none" stroke={p.thread} strokeWidth={2} strokeLinecap="round" />
+        </svg>
+      )}
+      <div ref={quoteRef} className="relative" style={{ alignSelf: parentMine ? "flex-end" : "flex-start" }}>
+        <ReplyQuote parent={parent} p={p} l={l} tail={quoteRight ? "right" : "left"} />
+      </div>
+      <div style={{ alignSelf: parentMine ? "flex-end" : "flex-start" }}>
+        <RepliesLabel n={replies} p={p} l={l} inset={16} marginTop={2} />
+      </div>
+      <div
+        ref={bubbleRef}
+        className="relative flex flex-col"
+        style={{ alignSelf: mine ? "flex-end" : "flex-start", alignItems: mine ? "flex-end" : "flex-start", marginTop: 6 + extraTop }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
 /* ------------------------------ helpers ------------------------------ */
 
 /** Minutes since midnight from a typed clock ("10:41", "9:05 PM"), or null. */
@@ -691,7 +1066,29 @@ export function IMessage({ scenario, playback, lang, rtl }: PlatformProps) {
   const l = LOCAL[lang];
   const { messages, typing, clockMs } = playback;
   const live = playback.isLive;
-  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}`);
+  const draft = playback.draft;
+  const draftText = draft?.text ?? "";
+  const draftHasText = draftText.length > 0;
+
+  // The field grows with the draft; the transcript's bottom inset follows it.
+  const composerRef = useRef<HTMLDivElement>(null);
+  const [composerH, setComposerH] = useState(COMPOSER_H);
+  useLayoutEffect(() => {
+    const el = composerRef.current;
+    if (!el) return;
+    const measure = () => {
+      const h = el.offsetHeight;
+      if (h) setComposerH((prev) => (prev === h ? prev : h));
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [draftText]);
+  const grow = Math.max(0, composerH - COMPOSER_H);
+
+  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}-${grow}`);
   const rootRef = useRef<HTMLDivElement>(null);
   const typingRef = useRef<HTMLDivElement>(null);
   const typingSince = useRef<number | undefined>(undefined);
@@ -747,6 +1144,14 @@ export function IMessage({ scenario, playback, lang, rtl }: PlatformProps) {
 
   const stampTime = clock(scenario.messages[0]?.time || "9:41");
 
+  // inline replies on screen, per parent id
+  const replyCount = new Map<string, number>();
+  for (const m of messages) {
+    if (m.replyToId && m.replyToId !== m.id && messages.some((x) => x.id === m.replyToId)) {
+      replyCount.set(m.replyToId, (replyCount.get(m.replyToId) ?? 0) + 1);
+    }
+  }
+
   const rows: ReactNode[] = [];
   let prevHadReceipt = false;
   messages.forEach((m, i) => {
@@ -785,8 +1190,13 @@ export function IMessage({ scenario, playback, lang, rtl }: PlatformProps) {
     const imageEndsRun = m.type === "image" && !!next && next.sender === m.sender && next.type !== "image";
     const tailOn = lastOfGroup || imageEndsRun;
 
-    const textBubble = (tail: boolean) => (
+    // Tapback on the bubble's inner top corner (the one facing the screen centre).
+    const tap = m.reaction ? <Tapback emoji={m.reaction} byMe={!mine} side={onRight ? "left" : "right"} p={p} /> : null;
+    const parent = m.replyToId ? messages.find((x) => x.id === m.replyToId && x.id !== m.id) : undefined;
+
+    const textBubble = (tail: boolean, withTap: boolean) => (
       <div className="relative" style={{ maxWidth: MAX_W, minWidth: 40, color: mine ? "#ffffff" : p.inText }}>
+        {withTap && tap}
         <BubbleFill mine={mine} color={p.inBubble} tail={tail ? side : null} />
         <p
           dir={dirOf(m.text)}
@@ -806,28 +1216,66 @@ export function IMessage({ scenario, playback, lang, rtl }: PlatformProps) {
 
     let content: ReactNode;
     if (m.type === "voice") {
-      content = <VoiceBubble m={m} mine={mine} p={p} tail={lastOfGroup ? side : null} />;
+      content = (
+        <div className="relative">
+          {tap}
+          <VoiceBubble m={m} mine={mine} p={p} tail={lastOfGroup ? side : null} />
+        </div>
+      );
     } else if (m.type === "image") {
       content = (
         <>
-          <ImageBubble src={m.imageSrc} p={p} tail={hasText || tailOn ? side : null} />
-          {hasText && <div style={{ marginTop: GAP_GROUP }}>{textBubble(lastOfGroup)}</div>}
+          <div className="relative">
+            {tap}
+            <ImageBubble src={m.imageSrc} p={p} tail={hasText || tailOn ? side : null} />
+          </div>
+          {hasText && <div style={{ marginTop: GAP_GROUP }}>{textBubble(lastOfGroup, false)}</div>}
         </>
       );
     } else if (emojis) {
       const fs = JUMBO_SIZE[emojis];
       content = (
-        <div dir="ltr" style={{ fontSize: fs, lineHeight: `${Math.round(fs * 1.17)}px`, padding: "0 1px" }}>
+        <div className="relative" dir="ltr" style={{ fontSize: fs, lineHeight: `${Math.round(fs * 1.17)}px`, padding: "0 1px" }}>
+          {tap}
           {m.text.trim()}
         </div>
       );
     } else {
-      content = textBubble(lastOfGroup);
+      content = textBubble(lastOfGroup, true);
+    }
+
+    const replies = replyCount.get(m.id) ?? 0;
+    // the original message carries the blue "N Replies" count under it
+    const bubbleTail = m.type === "image" ? hasText ? lastOfGroup : tailOn : lastOfGroup;
+    if (replies > 0) {
+      content = (
+        <>
+          {content}
+          <RepliesLabel n={replies} p={p} l={l} inset={20} marginTop={(bubbleTail ? TAIL_DROP : 0) + 3} />
+        </>
+      );
+    }
+    if (parent) {
+      content = (
+        <ReplyThread
+          parent={parent}
+          replies={replyCount.get(parent.id) ?? 1}
+          mine={mine}
+          p={p}
+          l={l}
+          rtl={rtl}
+          extraTop={tap ? TAP_SPACE : 0}
+        >
+          {content}
+        </ReplyThread>
+      );
     }
 
     let marginTop = 0;
     if (stamp) marginTop = 9.5;
     else if (i > 0) marginTop = prevHadReceipt ? GAP_AFTER_RECEIPT : firstOfGroup ? GAP_SENDER : GAP_GROUP;
+    if (tap && !parent) marginTop += TAP_SPACE;
+    if (parent) marginTop = Math.max(marginTop, GAP_SENDER);
 
     rows.push(
       <div
@@ -888,7 +1336,7 @@ export function IMessage({ scenario, playback, lang, rtl }: PlatformProps) {
 
       {/* ------------------------------ body ------------------------------ */}
       <div ref={scrollRef} className="rcss-scroll absolute inset-0 overflow-y-auto">
-        <div style={{ paddingTop: STAMP_TOP, paddingBottom: BODY_BOTTOM }}>
+        <div style={{ paddingTop: STAMP_TOP, paddingBottom: BODY_BOTTOM + grow }}>
           {/* Service + time stamp */}
           <div
             className="text-center"
@@ -973,15 +1421,16 @@ export function IMessage({ scenario, playback, lang, rtl }: PlatformProps) {
       <div
         className="pointer-events-none absolute inset-x-0 bottom-0 z-10"
         style={{
-          height: BODY_BOTTOM - 4,
-          background: `linear-gradient(to top, ${p.bg} 0px, ${p.bgA(0.92)} ${COMPOSER_BOTTOM + 12}px, ${p.bgA(0.75)} ${COMPOSER_BOTTOM + COMPOSER_H}px, ${p.bgA(0)} ${BODY_BOTTOM - 4}px)`,
+          height: BODY_BOTTOM - 4 + grow,
+          background: `linear-gradient(to top, ${p.bg} 0px, ${p.bgA(0.92)} ${COMPOSER_BOTTOM + 12}px, ${p.bgA(0.75)} ${COMPOSER_BOTTOM + COMPOSER_H + grow}px, ${p.bgA(0)} ${BODY_BOTTOM - 4 + grow}px)`,
         }}
       />
 
       {/* ---------------------------- composer ---------------------------- */}
       <div
-        className="pointer-events-none absolute z-20 flex items-center"
-        style={{ insetInline: COMPOSER_SIDE, bottom: COMPOSER_BOTTOM, height: COMPOSER_H, gap: 12 }}
+        ref={composerRef}
+        className="pointer-events-none absolute z-20 flex items-end"
+        style={{ insetInline: COMPOSER_SIDE, bottom: COMPOSER_BOTTOM, minHeight: COMPOSER_H, gap: 12 }}
       >
         <div
           className="flex shrink-0 items-center justify-center rounded-full"
@@ -990,22 +1439,55 @@ export function IMessage({ scenario, playback, lang, rtl }: PlatformProps) {
           <PlusGlyph color={p.label} />
         </div>
         <div
-          className="flex h-full flex-1 items-center rounded-full"
-          style={{ ...glass(dark), paddingInlineStart: 15, paddingInlineEnd: 12 }}
+          className="flex min-w-0 flex-1 items-end"
+          style={{
+            ...glass(dark),
+            borderRadius: COMPOSER_H / 2,
+            minHeight: COMPOSER_H,
+            paddingInlineStart: 15,
+            paddingInlineEnd: draftHasText ? SEND_INSET : 12,
+          }}
         >
-          <span
-            className="flex-1"
-            dir="ltr"
-            style={{
-              color: p.placeholder,
-              fontSize: 17,
-              letterSpacing: "-0.43px",
-              textAlign: rtl ? "right" : "left",
-            }}
+          <div
+            className="flex min-w-0 flex-1 flex-col justify-end overflow-hidden"
+            style={{ maxHeight: FIELD_LINE * FIELD_MAX_LINES + 18, paddingBlock: 9 }}
           >
-            {l.placeholder}
-          </span>
-          <WaveformGlyph color={p.glyph} />
+            {draft ? (
+              <p
+                dir={draftHasText ? dirOf(draftText) : rtl ? "rtl" : "ltr"}
+                className="whitespace-pre-wrap break-words"
+                style={{ color: p.label, fontSize: 17, lineHeight: `${FIELD_LINE}px`, letterSpacing: "-0.43px", margin: 0 }}
+              >
+                {draftText}
+                <Caret p={p} clockMs={clockMs} />
+                {!draftHasText && (
+                  <span dir="ltr" style={{ color: p.placeholder, marginInlineStart: 1 }}>
+                    {l.placeholder}
+                  </span>
+                )}
+              </p>
+            ) : (
+              <span
+                dir="ltr"
+                style={{
+                  color: p.placeholder,
+                  fontSize: 17,
+                  lineHeight: `${FIELD_LINE}px`,
+                  letterSpacing: "-0.43px",
+                  textAlign: rtl ? "right" : "left",
+                }}
+              >
+                {l.placeholder}
+              </span>
+            )}
+          </div>
+          {draftHasText ? (
+            <SendButton dark={dark} pop={live && !exporting} />
+          ) : (
+            <span className="flex shrink-0 items-center" style={{ height: COMPOSER_H, marginInlineStart: 8 }}>
+              <WaveformGlyph color={p.glyph} />
+            </span>
+          )}
         </div>
       </div>
 

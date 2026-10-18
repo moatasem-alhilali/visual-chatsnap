@@ -36,6 +36,15 @@
  * (async/71799.*.js, async/99682.*.js, /explore?lang=ar): online dot #1DD765,
  * time separators after >5 min of silence (3e5 ms) showing the clock only.
  * Arabic chrome strings follow the TikTok Android template for consistency.
+ * Replies / reactions — TikTok's own DM client (tiktok.com async chunks 64027/99682, emotion
+ * labels DivChatItemSenderNameContainer, DivRefTextContent, DivRefMediaContent,
+ * DivReactionContainer, SpanReactionEmoji + keys guided_reply_youReplied "You replied:",
+ * chat_optimize_repliedToYou "Replied to you:"): head text 12 tertiary on the sender side,
+ * quoted card UIShapeNeutral4 / UIText3, 8×12 padding, 2-line clamp, photo → 8pt-radius
+ * thumbnail, stacked above the reply bubble; reaction emoji 16 in an 18pt box inside a
+ * fully-rounded pill — drawn here as a badge hooked onto the bubble's sender-side corner.
+ * Compose typing: chips row hides, sticker/photo/mic → 34pt cyan send disc with a white up
+ * arrow, 2pt cyan caret (UIKit 530ms blink), pill grows to 5 lines.
  * Font: TikTok Sans (`--font-tiktok-sans`) before the device stack.
  */
 
@@ -90,6 +99,11 @@ interface TtPalette {
   chip: string;
   line: string;
   imgPlaceholder: string;
+  /** quoted-reply card (TUX UIShapeNeutral4 over the canvas) and its text (UIText3) */
+  quote: string;
+  quoteText: string;
+  /** reaction badge fill */
+  react: string;
 }
 
 function ttPalette(dark: boolean): TtPalette {
@@ -105,6 +119,9 @@ function ttPalette(dark: boolean): TtPalette {
         chip: "#262626",
         line: "#2a2a2a",
         imgPlaceholder: "#262626",
+        quote: "#282828",
+        quoteText: "#8a8a8a",
+        react: "#333333",
       }
     : {
         bg: "#f5f5f5",
@@ -117,12 +134,54 @@ function ttPalette(dark: boolean): TtPalette {
         chip: "#e9e9e9",
         line: "#d8d8d8",
         imgPlaceholder: "#e9e9e9",
+        quote: "#e8e8e9",
+        quoteText: "#86878b",
+        react: "#ffffff",
       };
 }
 
-const TT_STR: Record<Lang, { activeNow: string; message: string; seen: string; sent: string; nudge: string; sharePost: string }> = {
-  en: { activeNow: "Active now", message: "Message...", seen: "Seen", sent: "Sent", nudge: "Nudge", sharePost: "Share post" },
-  ar: { activeNow: "نشط الآن", message: "رسالة...", seen: "تمت المشاهدة", sent: "تم الإرسال", nudge: "نكزة", sharePost: "مشاركة منشور" },
+interface TtStrings {
+  activeNow: string;
+  message: string;
+  seen: string;
+  sent: string;
+  nudge: string;
+  sharePost: string;
+  /** quoted-reply head text (1:1 chat keys guided_reply_youReplied / chat_optimize_repliedToYou / …Themself) */
+  youReplied: string;
+  repliedToYou: string;
+  repliedToThemselves: string;
+  voice: string;
+  photo: string;
+}
+
+const TT_STR: Record<Lang, TtStrings> = {
+  en: {
+    activeNow: "Active now",
+    message: "Message...",
+    seen: "Seen",
+    sent: "Sent",
+    nudge: "Nudge",
+    sharePost: "Share post",
+    youReplied: "You replied:",
+    repliedToYou: "Replied to you:",
+    repliedToThemselves: "Replied to themselves",
+    voice: "Voice message",
+    photo: "Photo",
+  },
+  ar: {
+    activeNow: "نشط الآن",
+    message: "رسالة...",
+    seen: "تمت المشاهدة",
+    sent: "تم الإرسال",
+    nudge: "نكزة",
+    sharePost: "مشاركة منشور",
+    youReplied: "لقد رددت:",
+    repliedToYou: "ردّ عليك:",
+    repliedToThemselves: "ردّ على نفسه",
+    voice: "رسالة صوتية",
+    photo: "صورة",
+  },
 };
 
 /* ------------------------------- icons ------------------------------ */
@@ -168,26 +227,38 @@ function TtCamera() {
   );
 }
 
+/** Sticker: round face with two dot eyes (no mouth) and a peeled bottom-end corner (2025 render). */
 function TtSticker() {
   return (
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21.5 12.6A9.5 9.5 0 1 0 12.6 21.5" />
-      <path d="M21.5 12.6c-4.6 0-8.9 3.4-8.9 8.9" />
-      <circle cx="8.6" cy="9.4" r="1.3" fill="currentColor" stroke="none" />
-      <circle cx="15.2" cy="9.4" r="1.3" fill="currentColor" stroke="none" />
-      <path d="M7.9 14.2c.9 1.2 2 1.9 3.4 2" />
+      <path d="M20.9 13.2A9.4 9.4 0 1 0 13.2 20.9" />
+      <path d="M13.2 20.9c3.9-.8 6.9-3.8 7.7-7.7" />
+      <path d="M13.2 20.9c-.9-4.4 3.3-8.6 7.7-7.7" />
+      <circle cx="8.7" cy="9.6" r="1.35" fill="currentColor" stroke="none" />
+      <circle cx="14.5" cy="9.6" r="1.35" fill="currentColor" stroke="none" />
     </svg>
   );
 }
 
+/** Photo: rounded square, solid sun dot, one ridge running into the bottom-end corner. */
 function TtPhoto() {
   return (
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2.6" y="2.6" width="18.8" height="18.8" rx="3.2" />
-      <path d="M2.9 18.6 9 12.4l4.2 4.2" />
-      <path d="M12 15.4l2.7-2.7 6.4 6.4" />
-      <path d="M16.6 5.6v3.6M14.8 7.4h3.6" />
+      <rect x="3" y="3" width="18" height="18" rx="3.4" />
+      <circle cx="15.8" cy="8.2" r="2.1" fill="currentColor" stroke="none" />
+      <path d="M3.4 17.4 7.3 13.5c.6-.6 1.5-.6 2.1 0l7.4 7.3" />
     </svg>
+  );
+}
+
+/** Send (replaces sticker / photo / mic once text is entered): cyan disc, white up arrow. */
+function TtSend({ size }: { size: number }) {
+  return (
+    <span className="flex shrink-0 items-center justify-center rounded-full" style={{ width: size, height: size, background: TT_CYAN }}>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M12 19.5V5M5.6 11.2 12 4.8l6.4 6.4" />
+      </svg>
+    </span>
   );
 }
 
@@ -228,7 +299,10 @@ function TtTail({ color, onRight }: { color: string; onRight: boolean }) {
       viewBox="0 0 6 7"
       aria-hidden
       className="pointer-events-none absolute"
-      style={{ bottom: 0, ...(onRight ? { right: -4.6 } : { left: -4.6, transform: "scaleX(-1)" }) }}
+      style={{
+        bottom: 0,
+        ...(onRight ? { right: -4.6 } : { left: -4.6, transform: "scaleX(-1)" }),
+      }}
     >
       <path d="M0 0C.5 3.4 2.2 5.6 5.2 6.4c.5.1.5.6 0 .6H0Z" fill={color} />
     </svg>
@@ -263,6 +337,7 @@ export const tiktokIosMotion: PlatformMotion = {
 };
 
 const TT_DOT_MS = 1200;
+const TT_CARET_MS = 530;
 function ttDot(phase: number): number {
   const t = ((phase % 1) + 1) % 1;
   const k = t < 0.5 ? Math.sin((t / 0.5) * Math.PI) : 0;
@@ -288,6 +363,8 @@ function buildCss(): string {
   for (let i = 0; i <= 20; i++) dot += `${i * 5}%{opacity:${ttDot(i / 20).toFixed(3)}}`;
   css += `@keyframes tt-ios-dot{${dot}}.tt-ios-dot{animation:tt-ios-dot ${TT_DOT_MS}ms linear infinite}`;
   css += `@keyframes tt-ios-fade{from{opacity:0}to{opacity:1}}.tt-ios-fade{animation:tt-ios-fade 200ms ease-out both}`;
+  // UIKit caret: 0.53s on / 0.53s off, hard steps
+  css += `@keyframes tt-ios-caret{0%,49.99%{opacity:1}50%,100%{opacity:0}}.tt-ios-caret{animation:tt-ios-caret ${TT_CARET_MS * 2}ms linear infinite}`;
   return css;
 }
 const TT_CSS = buildCss();
@@ -337,8 +414,18 @@ function cornersFor(onRight: boolean, joinedAbove: boolean, joinedBelow: boolean
   const top = joinedAbove ? TT.joined : r;
   const bottom = tail ? 0 : joinedBelow ? TT.joined : r;
   return onRight
-    ? { borderTopLeftRadius: r, borderBottomLeftRadius: r, borderTopRightRadius: top, borderBottomRightRadius: bottom }
-    : { borderTopRightRadius: r, borderBottomRightRadius: r, borderTopLeftRadius: top, borderBottomLeftRadius: bottom };
+    ? {
+        borderTopLeftRadius: r,
+        borderBottomLeftRadius: r,
+        borderTopRightRadius: top,
+        borderBottomRightRadius: bottom,
+      }
+    : {
+        borderTopRightRadius: r,
+        borderBottomRightRadius: r,
+        borderTopLeftRadius: top,
+        borderBottomLeftRadius: bottom,
+      };
 }
 
 const AR_LATIN: Record<string, string> = {
@@ -385,7 +472,15 @@ function TtVoice({ mine, fg, inBubble, duration }: { mine: boolean; fg: string; 
           <span key={i} style={{ width: 2, height: h, borderRadius: 1, background: ink }} />
         ))}
       </span>
-      <span className="shrink-0 tabular-nums" style={{ marginInlineStart: 9, fontSize: 14, lineHeight: "18px", color: ink }}>
+      <span
+        className="shrink-0 tabular-nums"
+        style={{
+          marginInlineStart: 9,
+          fontSize: 14,
+          lineHeight: "18px",
+          color: ink,
+        }}
+      >
         {duration ?? "0:08"}
       </span>
     </div>
@@ -432,10 +527,193 @@ function TtChip({ bg, children, width }: { bg: string; children: ReactNode; widt
   return (
     <span
       className="flex shrink-0 items-center justify-center whitespace-nowrap"
-      style={{ height: TT.chipH, borderRadius: TT.chipH / 2, background: bg, width, paddingInline: width ? 0 : 12, gap: 4, fontSize: 14 }}
+      style={{
+        height: TT.chipH,
+        borderRadius: TT.chipH / 2,
+        background: bg,
+        width,
+        paddingInline: width ? 0 : 12,
+        gap: 4,
+        fontSize: 14,
+      }}
     >
       {children}
     </span>
+  );
+}
+
+/**
+ * Quoted reply — TikTok's own DM client (tiktok.com bundle, DivChatItemSenderNameContainer /
+ * DivRefTextContent / DivRefMediaContent): a 12pt tertiary head text ("You replied:" /
+ * "Replied to you:") aligned to the sender side, then the quoted message as a grey card
+ * (UIShapeNeutral4, UIText3, 8×12 padding, 2-line clamp) — or a small thumbnail for a photo —
+ * stacked ABOVE the reply bubble, 4pt apart.
+ */
+function TtQuote({ target, pal, s, mine }: { target: Message; pal: TtPalette; s: TtStrings; mine: boolean }) {
+  const head = mine ? s.youReplied : target.sender === "me" ? s.repliedToYou : s.repliedToThemselves;
+  const snippet = target.type === "voice" ? s.voice : target.type === "image" ? target.text.trim() || s.photo : target.text;
+  return (
+    <div className={`flex flex-col ${mine ? "items-end" : "items-start"}`} style={{ gap: 4, marginBottom: 4, maxWidth: "100%" }}>
+      <div
+        className="truncate"
+        style={{
+          maxWidth: "100%",
+          fontSize: 12,
+          lineHeight: "15px",
+          color: pal.sub,
+          paddingInline: 2,
+        }}
+      >
+        {head}
+      </div>
+      {target.type === "image" && target.imageSrc ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={target.imageSrc} alt="" draggable={false} className="block object-cover" style={{ width: 60, height: 80, borderRadius: 8 }} />
+      ) : (
+        <div
+          style={{
+            maxWidth: 238,
+            borderRadius: 12,
+            padding: "8px 12px",
+            background: pal.quote,
+            color: pal.quoteText,
+          }}
+        >
+          <div
+            dir={dirOf(snippet)}
+            className="overflow-hidden break-words"
+            style={{
+              fontSize: 14,
+              lineHeight: "18px",
+              textAlign: "start",
+              display: "-webkit-box",
+              WebkitBoxOrient: "vertical",
+              WebkitLineClamp: 2,
+            }}
+          >
+            {target.type === "voice" && <span aria-hidden>🎤 </span>}
+            {target.type === "image" && <span aria-hidden>📷 </span>}
+            {snippet}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Reaction: the emoji in a small round badge hooked onto the sender-side bottom corner of the
+ * reacted bubble, overlapping it by 8pt and ringed in the canvas colour (2pt) so it reads as
+ * cut out of the bubble; the row then gets 14pt of extra room underneath.
+ */
+const TT_REACT_H = 22;
+const TT_REACT_DROP = 14;
+function TtReaction({ emoji, pal, onRight }: { emoji: string; pal: TtPalette; onRight: boolean }) {
+  return (
+    <span
+      className="pointer-events-none absolute z-[1] flex items-center justify-center"
+      style={{
+        bottom: -TT_REACT_DROP,
+        ...(onRight ? { right: 8 } : { left: 8 }),
+        height: TT_REACT_H,
+        minWidth: 28,
+        paddingInline: 5,
+        borderRadius: TT_REACT_H / 2,
+        background: pal.react,
+        boxShadow: `0 0 0 2px ${pal.bg}, 0 1px 3px 2px rgba(0,0,0,0.06)`,
+        fontSize: 13,
+        lineHeight: "16px",
+      }}
+    >
+      {emoji}
+    </span>
+  );
+}
+
+/**
+ * Composer pill. Empty: camera disc + "Message..." + sticker / photo / mic. With a draft the
+ * three glyphs give way to the cyan send disc, the text takes the field in the normal text
+ * colour with a cyan caret, and the pill grows line by line (up to 5 lines, then the oldest
+ * lines scroll away under the top edge) while the discs stay pinned to the bottom.
+ */
+function TtComposer({ pal, s, draft, clockMs }: { pal: TtPalette; s: TtStrings; draft: string | null; clockMs?: number }) {
+  const caretOn = clockMs === undefined ? null : Math.floor(clockMs / TT_CARET_MS) % 2 === 0;
+  const lines = 5;
+  return (
+    <div
+      className="flex items-end"
+      style={{
+        background: pal.pill,
+        minHeight: TT.pillH,
+        borderRadius: TT.pillH / 2,
+        padding: 4,
+        paddingInlineEnd: draft !== null ? 4 : 12,
+      }}
+    >
+      <span className="flex shrink-0 items-center justify-center rounded-full" style={{ width: TT.camera, height: TT.camera, background: TT_CYAN }}>
+        <TtCamera />
+      </span>
+      {draft !== null ? (
+        <div
+          className="flex min-w-0 flex-1 flex-col justify-end overflow-hidden"
+          style={{
+            marginInlineStart: 12,
+            marginInlineEnd: 10,
+            paddingBlock: 6.5,
+            maxHeight: lines * 21 + 13,
+          }}
+        >
+          <div
+            dir={dirOf(draft)}
+            className="whitespace-pre-wrap break-words"
+            style={{
+              fontSize: 16,
+              lineHeight: "21px",
+              color: pal.fg,
+              textAlign: "start",
+            }}
+          >
+            {draft}
+            <span
+              aria-hidden
+              className={caretOn === null ? "tt-ios-caret" : undefined}
+              style={{
+                display: "inline-block",
+                width: 2,
+                height: 20,
+                marginBottom: -4,
+                marginInlineStart: 1,
+                borderRadius: 1,
+                background: TT_CYAN,
+                ...(caretOn === null ? {} : { opacity: caretOn ? 1 : 0 }),
+              }}
+            />
+          </div>
+        </div>
+      ) : (
+        <span
+          className="min-w-0 flex-1 truncate self-center"
+          style={{
+            marginInlineStart: 12,
+            fontSize: 16,
+            lineHeight: "21px",
+            color: pal.placeholder,
+            textAlign: "start",
+          }}
+        >
+          {s.message}
+        </span>
+      )}
+      {draft !== null ? (
+        <TtSend size={TT.camera} />
+      ) : (
+        <div className="flex shrink-0 items-center self-center" style={{ gap: 14.5, color: pal.fg }}>
+          <TtSticker />
+          <TtPhoto />
+          <TtMic />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -449,7 +727,7 @@ export function TikTok({ scenario, playback, lang, rtl }: PlatformProps) {
   const live = playback.isLive;
   const exporting = clockMs !== undefined;
   const showTyping = typing || (!live && !exporting && scenario.presence === "typing");
-  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${showTyping}`);
+  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${showTyping}-${playback.draft ? Math.floor(playback.draft.text.length / 24) : "-"}`);
 
   const last = messages[messages.length - 1];
   const receipt = last && last.sender === "me" ? (playback.statusOf(last) === "read" ? s.seen : s.sent) : null;
@@ -458,6 +736,15 @@ export function TikTok({ scenario, playback, lang, rtl }: PlatformProps) {
   const subtitle = active ? s.activeNow : scenario.lastSeenText;
   const dirKey = rtl ? "rtl" : "ltr";
   const fontFamily = `var(--font-tiktok-sans), ${deviceFontFamily(scenario.device, scenario.androidFont)}`;
+  const draft = playback.draft ? playback.draft.text : null;
+
+  /** the earlier on-screen message a row quotes (nothing when it is missing) */
+  const quoteOf = (i: number): Message | undefined => {
+    const id = messages[i]?.replyToId;
+    if (!id) return undefined;
+    const j = messages.findIndex((x) => x.id === id);
+    return j >= 0 && j < i ? messages[j] : undefined;
+  };
 
   return (
     <div className="flex h-full w-full flex-col" style={{ background: pal.bg, color: pal.fg, fontFamily }}>
@@ -467,12 +754,24 @@ export function TikTok({ scenario, playback, lang, rtl }: PlatformProps) {
       {/* Header */}
       <div
         className="flex shrink-0 items-center"
-        style={{ height: TT.headerH, paddingInlineStart: 10, paddingInlineEnd: 15, borderBottom: `0.5px solid ${pal.line}` }}
+        style={{
+          height: TT.headerH,
+          paddingInlineStart: 10,
+          paddingInlineEnd: 15,
+          borderBottom: `0.5px solid ${pal.line}`,
+        }}
       >
         <span className="flex shrink-0 items-center justify-center" style={{ width: 24, height: 44 }}>
           <TtChevron color={pal.fg} />
         </span>
-        <div className="relative shrink-0" style={{ width: TT.headerAvatar, height: TT.headerAvatar, marginInlineStart: 16 }}>
+        <div
+          className="relative shrink-0"
+          style={{
+            width: TT.headerAvatar,
+            height: TT.headerAvatar,
+            marginInlineStart: 16,
+          }}
+        >
           <Avatar person={scenario.them} size={TT.headerAvatar} />
           {active && (
             <span
@@ -490,11 +789,28 @@ export function TikTok({ scenario, playback, lang, rtl }: PlatformProps) {
           )}
         </div>
         <div className="min-w-0 flex-1" style={{ marginInlineStart: 9 }}>
-          <div className="truncate" dir="auto" style={{ fontSize: TT.nameSize, lineHeight: "21px", fontWeight: 600, textAlign: "start" }}>
+          <div
+            className="truncate"
+            dir="auto"
+            style={{
+              fontSize: TT.nameSize,
+              lineHeight: "21px",
+              fontWeight: 600,
+              textAlign: "start",
+            }}
+          >
             {scenario.them.name}
           </div>
           {subtitle && (
-            <div className="truncate" style={{ fontSize: TT.subSize, lineHeight: "15px", color: pal.sub, textAlign: "start" }}>
+            <div
+              className="truncate"
+              style={{
+                fontSize: TT.subSize,
+                lineHeight: "15px",
+                color: pal.sub,
+                textAlign: "start",
+              }}
+            >
               {subtitle}
             </div>
           )}
@@ -507,18 +823,31 @@ export function TikTok({ scenario, playback, lang, rtl }: PlatformProps) {
       </div>
 
       {/* Thread */}
-      <div
-        ref={scrollRef}
-        className="rcss-scroll relative min-h-0 flex-1 overflow-y-auto"
-        style={{ paddingInline: TT.rowInset, paddingBottom: 12 }}
-      >
+      <div ref={scrollRef} className="rcss-scroll relative min-h-0 flex-1 overflow-y-auto" style={{ paddingInline: TT.rowInset, paddingBottom: 12 }}>
         {/* Profile intro that opens every TikTok chat */}
         <div className="flex flex-col items-center text-center" style={{ paddingTop: 20, paddingBottom: 16 }}>
           <Avatar person={scenario.them} size={92} />
-          <div className="max-w-full truncate" dir="auto" style={{ marginTop: 14, fontSize: 21, lineHeight: "26px", fontWeight: 700 }}>
+          <div
+            className="max-w-full truncate"
+            dir="auto"
+            style={{
+              marginTop: 14,
+              fontSize: 21,
+              lineHeight: "26px",
+              fontWeight: 700,
+            }}
+          >
             {scenario.them.name}
           </div>
-          <div dir="ltr" style={{ marginTop: 2, fontSize: 15, lineHeight: "21px", color: pal.handle }}>
+          <div
+            dir="ltr"
+            style={{
+              marginTop: 2,
+              fontSize: 15,
+              lineHeight: "21px",
+              color: pal.handle,
+            }}
+          >
             @{ttHandle(scenario.them)}
           </div>
         </div>
@@ -529,9 +858,12 @@ export function TikTok({ scenario, playback, lang, rtl }: PlatformProps) {
             const onRight = mine ? !rtl : rtl;
             const sep = needsSeparator(messages, i);
             const g = groupInfo(messages, i);
-            const firstOfGroup = g.firstOfGroup || sep;
+            const quote = quoteOf(i);
+            // a quote block breaks the run: the reply starts fresh and the bubble above closes it
+            const firstOfGroup = g.firstOfGroup || sep || !!quote;
             const nextSep = i + 1 < messages.length && needsSeparator(messages, i + 1);
-            const lastOfGroup = g.lastOfGroup || nextSep;
+            const lastOfGroup = g.lastOfGroup || nextSep || (i + 1 < messages.length && !!quoteOf(i + 1));
+            const reaction = m.reaction?.trim() || null;
 
             const hasImage = m.type === "image";
             const caption = hasImage ? m.text.trim() : "";
@@ -553,7 +885,13 @@ export function TikTok({ scenario, playback, lang, rtl }: PlatformProps) {
                 {sep && (
                   <div
                     className={`text-center ${live ? "tt-ios-fade" : ""}`}
-                    style={{ paddingTop: i === 0 ? 4 : 16, paddingBottom: 2, fontSize: 12, lineHeight: "15px", color: pal.sub }}
+                    style={{
+                      paddingTop: i === 0 ? 4 : 16,
+                      paddingBottom: 2,
+                      fontSize: 12,
+                      lineHeight: "15px",
+                      color: pal.sub,
+                    }}
                   >
                     <span dir="ltr">{m.time}</span>
                   </div>
@@ -562,7 +900,11 @@ export function TikTok({ scenario, playback, lang, rtl }: PlatformProps) {
                   data-mid={m.id}
                   data-sender={m.sender}
                   className={`flex items-end ${mine ? "justify-end" : "justify-start"} ${enter}`}
-                  style={{ marginTop: firstOfGroup ? TT.senderGap : TT.groupGap, gap: TT.avatarGap }}
+                  style={{
+                    marginTop: firstOfGroup ? TT.senderGap : TT.groupGap,
+                    marginBottom: reaction ? TT_REACT_DROP : 0,
+                    gap: TT.avatarGap,
+                  }}
                 >
                   {!mine && (
                     <div className="shrink-0" style={{ width: TT.avatar }}>
@@ -570,32 +912,49 @@ export function TikTok({ scenario, playback, lang, rtl }: PlatformProps) {
                     </div>
                   )}
                   <div className={`flex min-w-0 flex-col ${mine ? "items-end" : "items-start"}`} style={{ maxWidth: TT.maxW, gap: TT.groupGap }}>
+                    {quote && <TtQuote target={quote} pal={pal} s={s} mine={mine} />}
                     {segs.map((seg, k) => {
                       const joinedAbove = k > 0 || !firstOfGroup;
                       const joinedBelow = k < segs.length - 1 || !lastOfGroup;
                       const tail = !joinedBelow;
+                      const badge = reaction && k === segs.length - 1 ? <TtReaction emoji={reaction} pal={pal} onRight={onRight} /> : null;
                       if (seg === "emoji") {
                         return (
-                          <div key={seg} dir="ltr" style={{ fontSize: jumbo === 1 ? 44 : 36, lineHeight: jumbo === 1 ? "50px" : "42px" }}>
+                          <div
+                            key={seg}
+                            dir="ltr"
+                            className="relative"
+                            style={{
+                              fontSize: jumbo === 1 ? 44 : 36,
+                              lineHeight: jumbo === 1 ? "50px" : "42px",
+                            }}
+                          >
                             {m.text.trim()}
+                            {badge}
                           </div>
                         );
                       }
                       if (seg === "image") {
                         return (
-                          <div
-                            key={seg}
-                            className="overflow-hidden"
-                            style={{ ...cornersFor(onRight, joinedAbove, joinedBelow, false, TT.imgRadius), width: TT.imgW, background: pal.imgPlaceholder }}
-                          >
-                            {m.imageSrc ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img src={m.imageSrc} alt="" draggable={false} className="block w-full object-cover" style={{ maxHeight: 320 }} />
-                            ) : (
-                              <div className="flex items-center justify-center" style={{ height: 260 }}>
-                                <ImageGlyph color={pal.sub} />
-                              </div>
-                            )}
+                          <div key={seg} className="relative">
+                            <div
+                              className="overflow-hidden"
+                              style={{
+                                ...cornersFor(onRight, joinedAbove, joinedBelow, false, TT.imgRadius),
+                                width: TT.imgW,
+                                background: pal.imgPlaceholder,
+                              }}
+                            >
+                              {m.imageSrc ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={m.imageSrc} alt="" draggable={false} className="block w-full object-cover" style={{ maxHeight: 320 }} />
+                              ) : (
+                                <div className="flex items-center justify-center" style={{ height: 260 }}>
+                                  <ImageGlyph color={pal.sub} />
+                                </div>
+                              )}
+                            </div>
+                            {badge}
                           </div>
                         );
                       }
@@ -619,12 +978,17 @@ export function TikTok({ scenario, playback, lang, rtl }: PlatformProps) {
                             <div
                               dir={dirOf(text)}
                               className="whitespace-pre-wrap break-words"
-                              style={{ fontSize: TT.text, lineHeight: `${TT.lh}px`, textAlign: "start" }}
+                              style={{
+                                fontSize: TT.text,
+                                lineHeight: `${TT.lh}px`,
+                                textAlign: "start",
+                              }}
                             >
                               {text}
                             </div>
                           )}
                           {tail && <TtTail color={fill} onRight={onRight} />}
+                          {badge}
                         </div>
                       );
                     })}
@@ -644,45 +1008,32 @@ export function TikTok({ scenario, playback, lang, rtl }: PlatformProps) {
         </div>
       </div>
 
-      {/* Quick replies */}
-      <div className="flex shrink-0 overflow-hidden" style={{ gap: 8, paddingInlineStart: TT.rowInset, paddingTop: 2 }}>
-        <TtChip bg={pal.chip} width={50}>
-          <span style={{ fontSize: 16 }}>❤️</span>
-        </TtChip>
-        <TtChip bg={pal.chip} width={50}>
-          <span style={{ fontSize: 16 }}>😂</span>
-        </TtChip>
-        <TtChip bg={pal.chip} width={50}>
-          <span style={{ fontSize: 16 }}>👍</span>
-        </TtChip>
-        <TtChip bg={pal.chip}>
-          <span style={{ fontSize: 16 }}>👆</span>
-          {s.nudge}
-        </TtChip>
-        <TtChip bg={pal.chip}>
-          <TtShareTile />
-          {s.sharePost}
-        </TtChip>
-      </div>
+      {/* Quick replies — TikTok drops the row while you are typing */}
+      {draft === null && (
+        <div className="flex shrink-0 overflow-hidden" style={{ gap: 8, paddingInlineStart: TT.rowInset, paddingTop: 2 }}>
+          <TtChip bg={pal.chip} width={50}>
+            <span style={{ fontSize: 16 }}>❤️</span>
+          </TtChip>
+          <TtChip bg={pal.chip} width={50}>
+            <span style={{ fontSize: 16 }}>😂</span>
+          </TtChip>
+          <TtChip bg={pal.chip} width={50}>
+            <span style={{ fontSize: 16 }}>👍</span>
+          </TtChip>
+          <TtChip bg={pal.chip}>
+            <span style={{ fontSize: 16 }}>👆</span>
+            {s.nudge}
+          </TtChip>
+          <TtChip bg={pal.chip}>
+            <TtShareTile />
+            {s.sharePost}
+          </TtChip>
+        </div>
+      )}
 
       {/* Composer */}
       <div className="shrink-0" style={{ padding: `8px ${TT.rowInset}px 22px` }}>
-        <div
-          className="flex items-center"
-          style={{ background: pal.pill, height: TT.pillH, borderRadius: TT.pillH / 2, paddingInlineStart: 4, paddingInlineEnd: 12 }}
-        >
-          <span className="flex shrink-0 items-center justify-center rounded-full" style={{ width: TT.camera, height: TT.camera, background: TT_CYAN }}>
-            <TtCamera />
-          </span>
-          <span className="min-w-0 flex-1 truncate" style={{ marginInlineStart: 12, fontSize: 16, color: pal.placeholder, textAlign: "start" }}>
-            {s.message}
-          </span>
-          <div className="flex shrink-0 items-center" style={{ gap: 14.5, color: pal.fg }}>
-            <TtSticker />
-            <TtPhoto />
-            <TtMic />
-          </div>
-        </div>
+        <TtComposer pal={pal} s={s} draft={draft} clockMs={clockMs} />
       </div>
 
       <SystemBottomBar device={scenario.device} bg={pal.bg} fg={dark ? "#ffffff" : "#000000"} />

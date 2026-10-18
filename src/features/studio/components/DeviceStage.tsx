@@ -46,7 +46,7 @@ export function DeviceStage({
         // rounded like the phone body, so the zoomed crop keeps the phone silhouette
         style={{ width: outer.w, height: outer.h, borderRadius: DEVICE_SPEC[scenario.device].outerRadius }}
       >
-        <DeviceFrame device={scenario.device} dir={rtl ? "rtl" : "ltr"} fontFamily={fontFamily}>
+        <DeviceFrame device={scenario.device} dir={rtl ? "rtl" : "ltr"} fontFamily={fontFamily} finish={scenario.deviceColor}>
           <PlatformView scenario={scenario} playback={playback} lang={lang} rtl={rtl} />
         </DeviceFrame>
       </CameraRig>

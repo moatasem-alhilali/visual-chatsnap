@@ -38,6 +38,17 @@
  *  - Dark ("Dark Blue" theme): surface #1E2835, incoming #2C3846, outgoing #36507A.
  *  - Motion: sent bubble rises ~18 pt from the composer and settles (280 ms decel);
  *    received bubble fades and grows from its avatar-side top corner.
+ *  - Reactions (1-on-1): no badge on the bubble; the like disc beside the message
+ *    carries the reaction. A like turns the outline heart into a solid red heart,
+ *    any other reaction (😂 😮 😢 😡 👍 …) replaces the heart with that emoji
+ *    (help center "Tap the heart next to a message", long-tap for more reactions;
+ *    viber.com/en/blog/2025-02-17/whats-new-on-rakuten-viber/).
+ *  - Replies: quote at the top of the replying bubble: 2 pt purple bar, quoted sender
+ *    (purple semibold 14, "You" for mine), one-line grey snippet, 36 pt thumbnail for
+ *    a photo ("Photo"), mic + "Voice message" for a voice note.
+ *  - Compose typing: text + purple caret replace "Message…", the field grows to 5 lines
+ *    (bottom-anchored), the gallery shortcut hides (smiley stays) and the gradient mic
+ *    disc becomes the send disc (white paper plane, mirrored in Arabic).
  */
 
 import type { CSSProperties, ReactNode } from "react";

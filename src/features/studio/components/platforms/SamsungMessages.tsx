@@ -36,11 +36,17 @@
  *     https://eu.community.samsung.com/t5/galaxy-z-fold-z-flip/one-ui-7-messed-up-emoji-rcs/m-p/12505394
  *   - One UI surfaces: light app bg #F1F1F1 / cards #FDFDFD (S26 Messages
  *     contacts screenshot); dark bg #000000 / cards #171717, accent #0381FE.
+ *   - RCS reactions (One UI 7+/8): the emoji in a small raised chip hanging off
+ *     the bubble's bottom corner nearest the screen centre (24 dp, surface fill,
+ *     soft shadow). Replies: quoted block at the top of the bubble (tinted
+ *     12 dp box, 3 dp bar, bold sender + one-line snippet, thumbnail for photos).
+ *     Typing: the field grows to 5 lines, accent caret, the voice button turns
+ *     into the blue (#167EFA) send circle.
  *   - Header presence: Samsung Messages has none (no online / last seen); the
  *     "typing" state is only the dots bubble inside the thread.
  */
 
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 import type { DeliveryStatus, Message, Person } from "../../types";
 import { dirOf, SystemBottomBar, useChatScroll } from "../shared";
@@ -71,6 +77,14 @@ interface Palette {
   imgEmpty: string;
   imgEmptyIcon: string;
   navFg: string;
+  /** reaction badge */
+  chip: string;
+  chipShadow: string;
+  /** quoted-reply block inside incoming / outgoing bubbles */
+  quoteIn: string;
+  quoteOut: string;
+  quoteBarIn: string;
+  caret: string;
 }
 
 const LIGHT: Palette = {
@@ -94,6 +108,12 @@ const LIGHT: Palette = {
   imgEmpty: "#e4e4e4",
   imgEmptyIcon: "#a8a8a8",
   navFg: "#3d3d3d",
+  chip: "#ffffff",
+  chipShadow: "0 0 0 0.5px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.16)",
+  quoteIn: "rgba(0,0,0,0.06)",
+  quoteOut: "rgba(255,255,255,0.2)",
+  quoteBarIn: "#167efa",
+  caret: "#167efa",
 };
 
 const DARK: Palette = {
@@ -117,12 +137,37 @@ const DARK: Palette = {
   imgEmpty: "#262626",
   imgEmptyIcon: "#5e5e5e",
   navFg: "#e6e6e6",
+  chip: "#2e2e2e",
+  chipShadow: "0 0 0 0.5px rgba(255,255,255,0.06), 0 1px 4px rgba(0,0,0,0.6)",
+  quoteIn: "rgba(255,255,255,0.08)",
+  quoteOut: "rgba(255,255,255,0.2)",
+  quoteBarIn: "#3e95ff",
+  caret: "#3e95ff",
 };
 
 /** Strings Samsung Messages uses that CHROME lacks or words differently. */
-const SM: Record<Lang, { placeholder: string; delivered: string; read: string; locale: string }> = {
-  en: { placeholder: "Enter chat message", delivered: "Delivered", read: "Read", locale: "en-US" },
-  ar: { placeholder: "أدخل رسالة دردشة", delivered: CHROME.ar.delivered, read: CHROME.ar.read, locale: "ar-u-nu-arab" },
+const SM: Record<
+  Lang,
+  { placeholder: string; delivered: string; read: string; locale: string; you: string; voice: string; photo: string }
+> = {
+  en: {
+    placeholder: "Enter chat message",
+    delivered: "Delivered",
+    read: "Read",
+    locale: "en-US",
+    you: "You",
+    voice: "🎤 Voice message",
+    photo: "📷 Photo",
+  },
+  ar: {
+    placeholder: "أدخل رسالة دردشة",
+    delivered: CHROME.ar.delivered,
+    read: CHROME.ar.read,
+    locale: "ar-u-nu-arab",
+    you: "أنت",
+    voice: "🎤 رسالة صوتية",
+    photo: "📷 صورة",
+  },
 };
 
 const RADIUS = 20;
@@ -183,11 +228,19 @@ function dotState(t: number): { opacity: number; transform: string } {
   return { opacity: 0.35 + 0.65 * s, transform: `scale(${0.8 + 0.2 * s})` };
 }
 
+/** Android TextView cursor: 500 ms on / 500 ms off, hard edges. */
+const CARET_BLINK = 500;
+const caretOn = (ms: number) => Math.floor(ms / CARET_BLINK) % 2 === 0;
+
 const KEYFRAMES = `
 @keyframes sm-msg-in{from{opacity:0;transform:translateY(14px) scale(.94)}to{opacity:1;transform:none}}
 @keyframes sm-dot{0%,60%,100%{opacity:.35;transform:scale(.8)}30%{opacity:1;transform:scale(1)}}
+@keyframes sm-caret{0%,49.9%{opacity:1}50%,100%{opacity:0}}
+@keyframes sm-send-in{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:none}}
 .sm-anim-in{animation:sm-msg-in ${ENTER_MS}ms cubic-bezier(0.33,1,0.68,1) both}
 .sm-dot{animation:sm-dot ${DOT_CYCLE}ms ease-in-out infinite}
+.sm-caret{animation:sm-caret ${CARET_BLINK * 2}ms linear infinite}
+.sm-send-in{animation:sm-send-in 200ms cubic-bezier(0.33,1,0.68,1) both}
 `;
 
 /* ------------------------------- glyphs ------------------------------- */
@@ -244,6 +297,24 @@ function VoiceWave({ color }: { color: string }) {
       {bars.map(([x, y1, y2]) => (
         <line key={x} x1={x} x2={x} y1={y1} y2={y2} stroke={color} strokeWidth="1.7" strokeLinecap="round" />
       ))}
+    </svg>
+  );
+}
+
+/** One UI send glyph (paper plane pointing to the reading direction; auto-mirrored in RTL). */
+function SendGlyph({ rtl }: { rtl: boolean }) {
+  return (
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      style={{ display: "block", transform: rtl ? "scaleX(-1)" : undefined }}
+    >
+      <path
+        d="M4.4 4.2c-.5-.24-1.05.25-.86.77L6.1 12l-2.56 7.03c-.19.52.36 1.01.86.77l15.6-7.2c.5-.23.5-.97 0-1.2z"
+        fill="#ffffff"
+      />
+      <path d="M6.1 12h6.4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
     </svg>
   );
 }
@@ -330,7 +401,28 @@ export function SamsungMessages({ scenario, playback, lang, rtl }: PlatformProps
   const exporting = clockMs !== undefined;
   const live = playback.isLive && !exporting;
   const showTyping = typing || (!playback.isLive && !exporting && scenario.presence === "typing");
-  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${showTyping}`);
+  const draft = playback.draft;
+  const draftText = draft?.text ?? "";
+  const draftHasText = draftText.length > 0;
+
+  // The input grows with the draft and pushes the thread up; keep it pinned to the bottom.
+  const composerRef = useRef<HTMLDivElement>(null);
+  const [composerH, setComposerH] = useState(0);
+  useLayoutEffect(() => {
+    const el = composerRef.current;
+    if (!el) return;
+    const measure = () => {
+      const h = el.offsetHeight;
+      setComposerH((prev) => (prev === h ? prev : h));
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [draftText]);
+
+  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${showTyping}-${composerH}`);
   const [today] = useState(() => new Date());
 
   const last = messages[messages.length - 1];
@@ -374,6 +466,7 @@ export function SamsungMessages({ scenario, playback, lang, rtl }: PlatformProps
                 them={scenario.them}
                 live={live}
                 isFirst={i === 0}
+                parent={m.replyToId ? messages.find((x) => x.id === m.replyToId && x.id !== m.id) : undefined}
               />
             );
           })}
@@ -425,25 +518,67 @@ export function SamsungMessages({ scenario, playback, lang, rtl }: PlatformProps
         </div>
       </div>
 
-      {/* Composer */}
-      <div className="flex shrink-0 items-center" style={{ height: 58, padding: "0 8px 0 6px", background: p.bg }}>
+      {/* Composer: grows up to 5 lines; the voice button becomes the blue send button once text is entered */}
+      <div
+        ref={composerRef}
+        className="flex shrink-0 items-end"
+        style={{ minHeight: 58, padding: "9px 8px 9px 6px", background: p.bg }}
+      >
         <div className="flex shrink-0 items-center justify-center" style={{ width: 40, height: 40 }}>
           <span style={{ display: "block", transform: rtl ? "scaleX(-1)" : undefined }}>
             <Chevron dir="right" color={p.fieldIcon} />
           </span>
         </div>
         <div
-          className="flex min-w-0 flex-1 items-center rounded-full"
-          style={{ height: 38, background: p.field, paddingInlineStart: 16, paddingInlineEnd: 10, marginInlineStart: 2 }}
+          className="flex min-w-0 flex-1 items-end"
+          style={{
+            minHeight: 38,
+            marginBlock: 1,
+            borderRadius: 19,
+            background: p.field,
+            paddingInlineStart: 16,
+            paddingInlineEnd: 10,
+            marginInlineStart: 2,
+          }}
         >
-          <span className="min-w-0 flex-1 truncate" style={{ fontSize: 16, color: p.placeholder }}>
-            {s.placeholder}
+          <div
+            className="flex min-w-0 flex-1 flex-col justify-end overflow-hidden"
+            style={{ maxHeight: FIELD_LINE * 5 + 17, paddingBlock: 8.5 }}
+          >
+            {draft ? (
+              <div
+                dir={draftHasText ? dirOf(draftText) : rtl ? "rtl" : "ltr"}
+                className="whitespace-pre-wrap break-words"
+                style={{ fontSize: 16, lineHeight: `${FIELD_LINE}px`, color: p.ink }}
+              >
+                {draftText}
+                <SamsungCaret p={p} clockMs={clockMs} />
+                {!draftHasText && <span style={{ color: p.placeholder }}>{s.placeholder}</span>}
+              </div>
+            ) : (
+              <span className="min-w-0 truncate" style={{ fontSize: 16, lineHeight: `${FIELD_LINE}px`, color: p.placeholder }}>
+                {s.placeholder}
+              </span>
+            )}
+          </div>
+          <span className="flex shrink-0 items-center" style={{ height: 38 }}>
+            <StickerIcon color={p.fieldIcon} />
           </span>
-          <StickerIcon color={p.fieldIcon} />
         </div>
-        <div className="flex shrink-0 items-center justify-center" style={{ width: 44, height: 40, marginInlineStart: 4 }}>
-          <VoiceWave color={p.fieldIcon} />
-        </div>
+        {draftHasText ? (
+          <div className="flex shrink-0 items-center justify-center" style={{ width: 44, height: 40, marginInlineStart: 4 }}>
+            <span
+              className={`flex items-center justify-center rounded-full ${live ? "sm-send-in" : ""}`}
+              style={{ width: 40, height: 40, background: p.outBubble, color: p.outBubble }}
+            >
+              <SendGlyph rtl={rtl} />
+            </span>
+          </div>
+        ) : (
+          <div className="flex shrink-0 items-center justify-center" style={{ width: 44, height: 40, marginInlineStart: 4 }}>
+            <VoiceWave color={p.fieldIcon} />
+          </div>
+        )}
       </div>
 
       <SystemBottomBar device="android" bg={p.bg} fg={p.navFg} />
@@ -451,7 +586,97 @@ export function SamsungMessages({ scenario, playback, lang, rtl }: PlatformProps
   );
 }
 
+/* ------------------------------- composer ------------------------------- */
+
+const FIELD_LINE = 21;
+
+/** Android EditText cursor: 2dp accent bar. */
+function SamsungCaret({ p, clockMs }: { p: Palette; clockMs?: number }) {
+  return (
+    <span
+      aria-hidden
+      className={clockMs === undefined ? "sm-caret" : undefined}
+      style={{
+        display: "inline-block",
+        width: 2,
+        height: 19,
+        background: p.caret,
+        verticalAlign: -4,
+        marginInline: 0.5,
+        opacity: clockMs === undefined ? undefined : caretOn(clockMs) ? 1 : 0,
+      }}
+    />
+  );
+}
+
 /* ------------------------------- rows ------------------------------- */
+
+/** RCS reaction badge: a small raised chip hanging off the bubble's bottom inner corner. */
+function ReactionChip({ emoji, p, side }: { emoji: string; p: Palette; side: "left" | "right" }) {
+  return (
+    <span
+      aria-hidden
+      className="absolute z-10 flex items-center justify-center rounded-full"
+      style={{
+        bottom: -REACT_HANG,
+        [side]: 10,
+        height: 24,
+        minWidth: 24,
+        padding: "0 5px",
+        background: p.chip,
+        boxShadow: `0 0 0 1.5px ${p.bg}, ${p.chipShadow}`,
+        fontSize: 14,
+        lineHeight: 1,
+      }}
+    >
+      {emoji}
+    </span>
+  );
+}
+const REACT_HANG = 15;
+
+/** Quoted message block at the top of a reply bubble. */
+function ReplyQuote({ parent, mine, p, lang, them }: { parent: Message; mine: boolean; p: Palette; lang: Lang; them: Person }) {
+  const s = SM[lang];
+  const name = parent.sender === "me" ? s.you : them.name;
+  const snippet =
+    parent.type === "voice" ? s.voice : parent.type === "image" ? parent.text.trim() || s.photo : parent.text.trim();
+  const thumb = parent.type === "image" && parent.imageSrc ? parent.imageSrc : null;
+  return (
+    <div
+      className="flex items-stretch"
+      style={{
+        background: mine ? p.quoteOut : p.quoteIn,
+        borderRadius: 12,
+        margin: "-3px -7px 6px",
+        padding: "6px 10px 6px 8px",
+        gap: 8,
+      }}
+    >
+      <span className="shrink-0" style={{ width: 3, borderRadius: 2, background: mine ? "#ffffff" : p.quoteBarIn }} />
+      <div className="min-w-0 flex-1">
+        <div
+          className="truncate"
+          dir={dirOf(name)}
+          style={{ fontSize: 13, lineHeight: "17px", fontWeight: 700, color: mine ? "#ffffff" : p.quoteBarIn }}
+        >
+          {name}
+        </div>
+        <div
+          className="truncate"
+          dir={dirOf(snippet)}
+          style={{ fontSize: 13, lineHeight: "17px", opacity: mine ? 0.85 : 0.7 }}
+        >
+          {snippet}
+        </div>
+      </div>
+      {thumb && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={thumb} alt="" draggable={false} className="shrink-0 object-cover" style={{ width: 34, height: 34, borderRadius: 8 }} />
+      )}
+    </div>
+  );
+}
 
 function Meta({
   m,
@@ -498,6 +723,7 @@ function Row({
   them,
   live,
   isFirst,
+  parent,
 }: {
   m: Message;
   p: Palette;
@@ -509,6 +735,7 @@ function Row({
   them: Person;
   live: boolean;
   isFirst: boolean;
+  parent?: Message;
 }) {
   const mine = m.sender === "me";
   const onRight = mine ? !rtl : rtl;
@@ -517,6 +744,9 @@ function Row({
   const caption = m.type === "image" ? m.text.trim() : "";
   const emoji = m.type === "text" ? emojiCount(m.text) : 0;
   const maxW = mine ? 252 : 228;
+  // the reaction hangs off the bottom corner that faces the screen centre
+  const chip = m.reaction ? <ReactionChip emoji={m.reaction} p={p} side={onRight ? "left" : "right"} /> : null;
+  const quote = parent ? <ReplyQuote parent={parent} mine={mine} p={p} lang={lang} them={them} /> : null;
 
   const bubble: CSSProperties = {
     background: bg,
@@ -531,10 +761,23 @@ function Row({
 
   let body: ReactNode;
   if (m.type === "voice") {
-    body = <Voice m={m} p={p} mine={mine} lang={lang} rtl={rtl} />;
+    body = (
+      <div className="relative" style={{ maxWidth: maxW }}>
+        {quote && <div style={{ background: bg, color: fg, borderRadius: RADIUS, padding: "8px 13px 2px", marginBottom: 2 }}>{quote}</div>}
+        <Voice m={m} p={p} mine={mine} lang={lang} rtl={rtl} />
+        {chip}
+      </div>
+    );
   } else if (m.type === "image") {
     body = (
       <div className="flex flex-col" style={{ alignItems: onRight ? "flex-end" : "flex-start", gap: 4 }}>
+        {quote && (
+          <div style={{ ...bubble, maxWidth: 220 }}>
+            {quote}
+          </div>
+        )}
+        <div className="relative" style={{ width: 220 }}>
+        {!caption && chip}
         <div className="overflow-hidden" style={{ width: 220, borderRadius: 18 }}>
           {m.imageSrc ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -554,9 +797,11 @@ function Row({
             </div>
           )}
         </div>
+        </div>
         {caption && (
-          <div className="whitespace-pre-wrap break-words" dir={dirOf(caption)} style={bubble}>
+          <div className="relative whitespace-pre-wrap break-words" dir={dirOf(caption)} style={bubble}>
             {caption}
+            {chip}
           </div>
         )}
       </div>
@@ -564,12 +809,19 @@ function Row({
   } else if (emoji) {
     const size = emoji === 1 ? 46 : emoji === 2 ? 40 : 36;
     body = (
-      <div style={{ fontSize: size, lineHeight: `${Math.round(size * 1.18)}px`, padding: "0 2px" }}>{m.text.trim()}</div>
+      <div className="relative" style={{ fontSize: size, lineHeight: `${Math.round(size * 1.18)}px`, padding: "0 2px" }}>
+        {m.text.trim()}
+        {chip}
+      </div>
     );
   } else {
     body = (
-      <div className="whitespace-pre-wrap break-words" dir={dirOf(m.text)} style={bubble}>
-        {m.text}
+      <div className="relative" style={bubble}>
+        {quote}
+        <div className="whitespace-pre-wrap break-words" dir={dirOf(m.text)}>
+          {m.text}
+        </div>
+        {chip}
       </div>
     );
   }
@@ -584,6 +836,7 @@ function Row({
       style={{
         padding: `0 ${SIDE}px`,
         marginTop: isFirst ? 0 : firstOfGroup ? 16 : 4,
+        paddingBottom: chip ? REACT_HANG - 4 : 0,
         transformOrigin: `${onRight ? "right" : "left"} bottom`,
       }}
     >

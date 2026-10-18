@@ -11,8 +11,8 @@ import { stepBounds } from "../components/studio/timing";
  * only exposes which messages are visible, so we run a local clock and keep
  * it clamped inside the current step's [start, end) window.
  */
-export function usePlaybackClock(playback: PlaybackView, messages: Message[]) {
-  const bounds = useMemo(() => stepBounds(messages), [messages]);
+export function usePlaybackClock(playback: PlaybackView, messages: Message[], composeTyping?: boolean) {
+  const bounds = useMemo(() => stepBounds(messages, { composeTyping }), [messages, composeTyping]);
   const total = bounds[bounds.length - 1] ?? 0;
   const visible = playback.isLive ? playback.messages.length : 0;
   const { phase } = playback;

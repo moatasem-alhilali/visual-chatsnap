@@ -53,6 +53,30 @@
  *     (https://www.techlicious.com/tip/snapchat-symbol-meaning/); in the App
  *     Store shots it peeks over an outlined, coloured name pill.
  *
+ * [R] Reactions: Snap newsroom "New features, May 2024" (Emoji_Reactions.mp4,
+ *     https://newsroom.snap.com/new-features-may-2024): the reaction is the
+ *     reactor's Bitmoji composed with the chosen emoji (emoji behind, upper
+ *     start; Bitmoji in front, lower end), ~32pt tall, sitting directly UNDER
+ *     the reacted chat at the bar's leading edge, outside the bar. Web bundle:
+ *     the reactions <ul> follows the message (`flex-flow: row wrap`), items
+ *     `aspect-ratio: 15/16`.
+ * [Q] Replies: newsroom "New messaging tools" (Jan 2022, Messaging_Bundle_Assets
+ *     .png) + Web bundle quote component (`.MJ6mo`): inside the replier's bar,
+ *     ABOVE the reply text, a full-width card — margin 4px 0, padding 4px 8px,
+ *     0.5px --sigDisabled border (#eaedef / rgba(255,255,255,.1)), radius 10,
+ *     --sigSurface fill (#fff / #1e1e1e) — holding the quoted sender's label
+ *     (12px uppercase, sender colour, "ME" for my own chats) and the quoted
+ *     chat behind a 2px bar in that sender's colour (6px inline padding).
+ * [C] Compose: Web composer (`.euyIb`): 16px/22px text, min-height 38,
+ *     padding 7px 15px, max-height 100 (≈4 lines, then it scrolls), radius
+ *     20; caret-color = MY chat colour (#F23C57 in 1:1); once text exists the
+ *     send arrow (production path below, --sigBrandSecondary #0fadff, mirrored
+ *     in RTL) slides in at the field's end and the camera button's glyph turns
+ *     into the camera-with-"T" (send the text as a Snap). The mobile bar
+ *     collapses the sticker / memories / ⊕ icons so the field spans the row.
+ *     Placeholder casing on mobile is "Send a Chat" (May 2024 video, 2022
+ *     assets); Snapchat Web lower-cases it.
+ *
  * Design notes
  * - Snapchat has no bubbles, no per-message timestamps and no "last seen";
  *   only the day separator ("TODAY"). `scenario.lastSeenText` is shown as the
@@ -67,7 +91,7 @@
 
 import type { CSSProperties, ReactNode } from "react";
 
-import type { DeliveryStatus, Message } from "../../types";
+import type { DeliveryStatus, Message, Person } from "../../types";
 import { Avatar, dirOf, SystemBottomBar, useChatScroll } from "../shared";
 import { StatusBar } from "../devices/StatusBar";
 import type { Lang } from "./chrome";
@@ -80,6 +104,8 @@ import { groupInfo, type PlatformMotion, type PlatformProps } from "./types";
 /** 1:1 conversation colours, verbatim from Snapchat's own colour helper [W]. */
 const IOS_ME = "#F23C57";
 const IOS_THEM = "#0EADFF";
+/** --sigBrandSecondary: the composer send arrow [C]. */
+const SNAP_SEND_BLUE = "#0FADFF";
 
 const IOS_STR: Record<
   Lang,
@@ -88,7 +114,7 @@ const IOS_STR: Record<
   en: {
     me: "Me",
     today: "Today",
-    sendAChat: "Send a chat",
+    sendAChat: "Send a Chat",
     sending: "Sending...",
     delivered: "Delivered",
     opened: "Opened",
@@ -122,6 +148,9 @@ interface IosPalette {
   iconSecondary: string;
   wavePale: number;
   missing: string;
+  /** quoted-reply card: --sigSurface fill and --sigDisabled hairline [Q] */
+  quoteBg: string;
+  quoteBorder: string;
 }
 
 function iosPalette(dark: boolean): IosPalette {
@@ -141,6 +170,8 @@ function iosPalette(dark: boolean): IosPalette {
         iconSecondary: "#999999",
         wavePale: 0.4,
         missing: "#1e1e1e",
+        quoteBg: "#1e1e1e",
+        quoteBorder: "rgba(255,255,255,0.1)",
       }
     : {
         bg: "#ffffff",
@@ -157,6 +188,8 @@ function iosPalette(dark: boolean): IosPalette {
         iconSecondary: "#4e565f",
         wavePale: 0.35,
         missing: "#f2f2f2",
+        quoteBg: "#ffffff",
+        quoteBorder: "#e3e6e9",
       };
 }
 
@@ -230,6 +263,9 @@ function snapDotAt(phase: number): { opacity: number; y: number } {
   return { opacity: 0.35 + 0.65 * k, y: -1.5 * k };
 }
 
+/** Text caret blink period (UIKit: ~0.5s on, ~0.5s off). */
+const SNAP_CARET_MS = 1000;
+
 /** Keyframes generated from the exporter's own functions → preview == export. */
 const SNAP_IOS_CSS = (() => {
   const steps = 20;
@@ -254,6 +290,11 @@ const SNAP_IOS_CSS = (() => {
   css += `@keyframes snap-ios-dot{${dot}}.snap-ios-dot{animation:snap-ios-dot ${SNAP_DOT_MS}ms linear infinite}`;
   css += `@keyframes snap-ios-fade{from{opacity:0}to{opacity:1}}.snap-ios-fade{animation:snap-ios-fade 200ms ease-out both}`;
   css += `.snap-ios-peek{transition:transform 260ms cubic-bezier(0.215,0.61,0.355,1)}`;
+  // Composer caret: on 500ms / off 500ms. The element is re-keyed on every typed
+  // character, so it stays solid while typing and only blinks once idle (as UIKit does).
+  css += `@keyframes snap-ios-caret{0%{opacity:1}50%{opacity:0}}.snap-ios-caret{animation:snap-ios-caret ${SNAP_CARET_MS}ms step-end infinite}`;
+  css += `@keyframes snap-ios-send{from{opacity:0;transform:translateX(-70%)}to{opacity:1;transform:none}}.snap-ios-send{animation:snap-ios-send 180ms cubic-bezier(0.215,0.61,0.355,1) both}`;
+  css += `@keyframes snap-ios-send-rtl{from{opacity:0;transform:translateX(70%)}to{opacity:1;transform:none}}.snap-ios-send-rtl{animation:snap-ios-send-rtl 180ms cubic-bezier(0.215,0.61,0.355,1) both}`;
   return css;
 })();
 
@@ -399,6 +440,165 @@ function IosPhotoGlyph({ color }: { color: string }) {
   );
 }
 
+/** Camera button glyph once text is typed: camera with a "T" knocked out (send the text as a Snap) [C]. */
+function IosCameraText({ color }: { color: string }) {
+  return (
+    <svg width="23" height="23" viewBox="0 0 22 22" fill="none">
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M13.803 3.894c-.316-.406-.644-.76-1.688-.764-.673-.003-1.004-.005-1.336-.005-.331 0-.663.002-1.336.005-1.043.005-1.372.358-1.687.764-.082.105-.163.214-.243.322-.18.241-.353.474-.517.64-.6.61-1.077.665-1.274.687a14.675 14.675 0 0 0-1.022.165c-1.057.214-1.554.474-1.776.697-.866.87-1.111 3.494-1.111 5.272 0 1.779.245 4.515 1.11 5.385.471.473 2.182 1.387 7.856 1.387 5.674 0 7.385-.915 7.855-1.387.866-.87 1.112-3.606 1.112-5.385 0-1.778-.246-4.402-1.112-5.272-.221-.223-.718-.483-1.776-.697a16.38 16.38 0 0 0-1.022-.165c-.196-.022-.674-.077-1.274-.686-.164-.167-.338-.4-.517-.641-.08-.108-.16-.217-.242-.322Zm.506 6.173a.3.3 0 0 0 .3-.3V7.691a.3.3 0 0 0-.3-.3H7.691a.3.3 0 0 0-.3.3v2.076a.3.3 0 0 0 .3.3h.503l.049-.183a3.02 3.02 0 0 1 .16-.431l.001-.002c.079-.18.169-.35.27-.508.101-.157.21-.295.325-.415.112-.116.19-.15.235-.155.145-.018.297-.029.457-.032h.005c.165-.008.302-.012.41-.012h.077v6.229a.458.458 0 0 1-.05.24l-.001.002c-.021.035-.062.075-.147.11l-.003.001c-.044.02-.159.045-.37.068-.207.023-.358.037-.456.045a.24.24 0 0 0-.222.239v.359a.3.3 0 0 0 .3.3h3.532a.3.3 0 0 0 .3-.3v-.36a.24.24 0 0 0-.232-.239 2.76 2.76 0 0 1-.45-.069 3.194 3.194 0 0 1-.367-.094c-.085-.039-.124-.082-.144-.12a.53.53 0 0 1-.05-.233V8.329h.077c.141 0 .296.004.464.011.165.008.299.018.402.032.05.009.129.046.235.156l.005.005c.116.114.224.25.324.408v.001c.099.155.188.322.266.5l.003.005c.083.176.135.32.163.432l.045.188h.502Z"
+        fill={color}
+      />
+    </svg>
+  );
+}
+
+/** Send arrow (production glyph [C]); points along the reading direction, so it mirrors in RTL. */
+function IosSendArrow({ color }: { color: string }) {
+  return (
+    <svg width="21" height="21" viewBox="0 0 16 16" fill="none" className="shrink-0 rtl:-scale-x-100">
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M13.536 7.248 3.218 2.09a.84.84 0 0 0-1.192.956l1.807 4.302c.174.416.174.885 0 1.302l-1.807 4.302a.84.84 0 0 0 1.192.956l10.318-5.157a.842.842 0 0 0 0-1.504Z"
+        fill={color}
+      />
+    </svg>
+  );
+}
+
+/**
+ * Chat reaction [R]: the reactor's Bitmoji composed with the emoji — emoji
+ * behind at the upper start, the Bitmoji (here the avatar, ringed in the
+ * screen colour) in front at the lower end. 15:16 box, ~32pt tall.
+ */
+function SnapReaction({ emoji, person, ring }: { emoji: string; person: Person; ring: string }) {
+  return (
+    <div className="relative shrink-0" style={{ width: 30, height: 32 }} aria-label={emoji}>
+      <span
+        className="absolute select-none"
+        style={{ top: 0, insetInlineStart: 0, fontSize: 20, lineHeight: "22px", fontFamily: "system-ui, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif" }}
+      >
+        {emoji}
+      </span>
+      <span className="absolute flex rounded-full" style={{ bottom: 0, insetInlineEnd: 0, padding: 1.5, background: ring }}>
+        <Avatar person={person} size={19} />
+      </span>
+    </div>
+  );
+}
+
+/** Body of a quoted chat inside the reply card (text → 2-line snippet, voice/photo → mini forms). */
+function IosQuoteBody({ target, accent, pal, rtl }: { target: Message; accent: string; pal: IosPalette; rtl: boolean }) {
+  const snippet: CSSProperties = {
+    color: pal.text,
+    fontSize: 15.5,
+    lineHeight: "20px",
+    fontWeight: 500,
+    overflowWrap: "anywhere",
+    display: "-webkit-box",
+    WebkitBoxOrient: "vertical",
+    WebkitLineClamp: 2,
+    overflow: "hidden",
+    textAlign: rtl ? "right" : "left",
+  };
+  if (target.type === "voice") {
+    const bars = waveform(target.id, 18);
+    return (
+      <div className="flex items-center" style={{ height: 22, gap: 7 }}>
+        <IosPlay color={accent} />
+        <span className="flex items-center" style={{ gap: 2, height: 16 }} dir="ltr">
+          {bars.map((b, i) => (
+            <span key={i} style={{ width: 2, height: Math.max(3, b * 0.75), borderRadius: 1, background: accent, opacity: pal.wavePale }} />
+          ))}
+        </span>
+        <span style={{ fontSize: 12, fontWeight: 500, color: pal.sub, fontVariantNumeric: "tabular-nums" }}>
+          {target.voiceDuration || "0:08"}
+        </span>
+      </div>
+    );
+  }
+  if (target.type === "image") {
+    const cap = target.text.trim();
+    return (
+      <div className="flex items-center" style={{ gap: 8 }}>
+        {target.imageSrc ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={target.imageSrc} alt="" draggable={false} className="block shrink-0 object-cover" style={{ width: 36, height: 48, borderRadius: 5 }} />
+        ) : (
+          <span className="flex shrink-0 items-center justify-center" style={{ width: 36, height: 48, borderRadius: 5, background: pal.missing }}>
+            <span style={{ display: "flex", transform: "scale(0.6)" }}>
+              <IosPhotoGlyph color={pal.iconSecondary} />
+            </span>
+          </span>
+        )}
+        {cap && (
+          <span className="min-w-0 flex-1" dir={dirOf(cap)} style={snippet}>
+            {cap}
+          </span>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div dir={dirOf(target.text)} style={snippet}>
+      {target.text}
+    </div>
+  );
+}
+
+/** Quoted-reply card shown inside the replier's bar, above the reply [Q]. */
+function IosQuote({
+  target,
+  label,
+  accent,
+  pal,
+  lang,
+  rtl,
+}: {
+  target: Message;
+  label: string;
+  accent: string;
+  pal: IosPalette;
+  lang: Lang;
+  rtl: boolean;
+}) {
+  return (
+    <div
+      style={{
+        marginTop: 3,
+        marginBottom: 6,
+        padding: "0 8px 7px",
+        border: `0.5px solid ${pal.quoteBorder}`,
+        borderRadius: 10,
+        background: pal.quoteBg,
+      }}
+    >
+      <div
+        className="truncate uppercase"
+        dir="auto"
+        style={{
+          color: accent,
+          fontSize: lang === "ar" ? 13 : 12,
+          fontWeight: lang === "ar" ? 700 : 600,
+          letterSpacing: lang === "ar" ? 0 : 0.5,
+          lineHeight: "16px",
+          marginTop: 6,
+          marginBottom: 3,
+          textAlign: "start",
+        }}
+      >
+        {label}
+      </div>
+      <div className="relative" style={{ paddingInlineStart: 8, paddingBlock: 1 }}>
+        <span aria-hidden className="absolute" style={{ insetInlineStart: 0, top: 0, bottom: 0, width: 2, borderRadius: 1, background: accent }} />
+        <IosQuoteBody target={target} accent={accent} pal={pal} rtl={rtl} />
+      </div>
+    </div>
+  );
+}
+
 function RoundButton({ bg, children }: { bg: string; children: ReactNode }) {
   return (
     <span
@@ -471,7 +671,7 @@ export function Snapchat({ scenario, playback, lang, rtl }: PlatformProps) {
   const { messages, typing } = playback;
   const live = playback.isLive;
   const clockMs = playback.clockMs;
-  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}`);
+  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}-${playback.draft?.text.length ?? -1}`);
 
   const showTyping = typing || (!live && scenario.presence === "typing");
   const present = showTyping || scenario.presence === "online";
@@ -480,6 +680,11 @@ export function Snapchat({ scenario, playback, lang, rtl }: PlatformProps) {
 
   const last = messages[messages.length - 1];
   const receiptId = last && last.sender === "me" ? last.id : null;
+  const draft = playback.draft;
+  const byId = new Map(scenario.messages.map((x) => [x.id, x] as const));
+
+  const caretStyle: CSSProperties =
+    clockMs === undefined ? {} : { opacity: clockMs % SNAP_CARET_MS < SNAP_CARET_MS / 2 ? 1 : 0 };
 
   const textStyle: CSSProperties = {
     color: pal.text,
@@ -570,6 +775,9 @@ export function Snapchat({ scenario, playback, lang, rtl }: PlatformProps) {
           const big = m.type === "text" && isEmojiOnly(m.text);
           const label = mine ? s.me : themName;
           const anim = live ? `snap-ios-in-${mine ? "me" : "them"}-${rtl ? "rtl" : "ltr"}` : "";
+          const quoted = m.replyToId ? byId.get(m.replyToId) : undefined;
+          const quotedMine = quoted?.sender === "me";
+          const reaction = m.reaction?.trim();
 
           let body: ReactNode;
           if (m.type === "voice") {
@@ -658,8 +866,23 @@ export function Snapchat({ scenario, playback, lang, rtl }: PlatformProps) {
                     transition: "background-color 200ms ease-out",
                   }}
                 />
+                {quoted && (
+                  <IosQuote
+                    target={quoted}
+                    label={quotedMine ? s.me : themName}
+                    accent={quotedMine ? IOS_ME : IOS_THEM}
+                    pal={pal}
+                    lang={lang}
+                    rtl={rtl}
+                  />
+                )}
                 {body}
               </div>
+              {reaction && (
+                <div className="flex" style={{ marginTop: 3, marginBottom: 1 }}>
+                  <SnapReaction emoji={reaction} person={mine ? scenario.them : scenario.me} ring={pal.bg} />
+                </div>
+              )}
               {m.id === receiptId && (
                 <div
                   key={status}
@@ -731,8 +954,11 @@ export function Snapchat({ scenario, playback, lang, rtl }: PlatformProps) {
       )}
 
       {/* Chat bar: camera · "Send a chat" + mic · sticker · memories · ⊕ */}
+      {/* While text is typed [C]: the camera glyph turns into camera-with-T, the mic
+          gives way to the blue send arrow, the sticker/memories/⊕ icons collapse so
+          the field spans the row, and the field grows to 4 lines (then scrolls). */}
       <div
-        className="flex shrink-0 items-center"
+        className="flex shrink-0 items-end"
         style={{
           background: pal.bg,
           borderTop: `0.5px solid ${pal.divider}`,
@@ -741,26 +967,83 @@ export function Snapchat({ scenario, playback, lang, rtl }: PlatformProps) {
           paddingInline: 10,
         }}
       >
-        <RoundButton bg={pal.circle}>
-          <IosCamera color={pal.icon} />
-        </RoundButton>
+        <RoundButton bg={pal.circle}>{draft ? <IosCameraText color={pal.icon} /> : <IosCamera color={pal.icon} />}</RoundButton>
         <div
-          className="flex min-w-0 flex-1 items-center"
-          style={{ height: 38, borderRadius: 19, background: pal.field, marginInlineStart: 8, paddingInlineStart: 14, paddingInlineEnd: 12 }}
+          className="flex min-w-0 flex-1 items-end"
+          style={{
+            minHeight: 38,
+            borderRadius: 19,
+            background: pal.field,
+            marginInlineStart: 8,
+            paddingInlineStart: 14,
+            paddingInlineEnd: draft ? 7 : 12,
+          }}
         >
-          <span
-            className="min-w-0 flex-1 truncate"
-            style={{ color: pal.placeholder, fontSize: 16.5, fontWeight: 500, lineHeight: "22px" }}
-          >
-            {s.sendAChat}
-          </span>
-          <IosMic color={pal.iconSecondary} />
+          {draft ? (
+            <>
+              <div
+                className="flex min-w-0 flex-1 flex-col justify-end overflow-hidden"
+                style={{ maxHeight: 4 * 22 + 16, paddingBlock: 8 }}
+              >
+                <div
+                  dir={dirOf(draft.text)}
+                  style={{
+                    color: pal.text,
+                    fontSize: 16.5,
+                    fontWeight: 500,
+                    lineHeight: "22px",
+                    whiteSpace: "pre-wrap",
+                    overflowWrap: "anywhere",
+                    textAlign: "start",
+                  }}
+                >
+                  {draft.text}
+                  <span
+                    key={draft.text.length}
+                    aria-hidden
+                    className={clockMs === undefined ? "snap-ios-caret" : ""}
+                    style={{
+                      display: "inline-block",
+                      width: 2,
+                      height: 21,
+                      borderRadius: 1,
+                      background: IOS_ME,
+                      verticalAlign: "-5px",
+                      marginInlineStart: 1,
+                      marginInlineEnd: -3,
+                      ...caretStyle,
+                    }}
+                  />
+                </div>
+              </div>
+              <span
+                className={`flex shrink-0 items-center justify-center ${clockMs === undefined ? (rtl ? "snap-ios-send-rtl" : "snap-ios-send") : ""}`}
+                style={{ width: 30, height: 38, marginInlineStart: 4 }}
+              >
+                <IosSendArrow color={SNAP_SEND_BLUE} />
+              </span>
+            </>
+          ) : (
+            <>
+              <span
+                className="min-w-0 flex-1 truncate"
+                style={{ color: pal.placeholder, fontSize: 16.5, fontWeight: 500, lineHeight: "38px" }}
+              >
+                {s.sendAChat}
+              </span>
+              <span className="flex shrink-0 items-center" style={{ height: 38 }}>
+                <IosMic color={pal.iconSecondary} />
+              </span>
+            </>
+          )}
         </div>
-        <div className="flex shrink-0 items-center" style={{ gap: 14, marginInlineStart: 10 }}>
-          <IosSmiley color={pal.icon} />
-          <IosMemories color={pal.icon} />
-          <IosPlus color={pal.icon} />
-        </div>
+        {!draft && (
+          <div className="flex shrink-0 items-center" style={{ gap: 14, marginInlineStart: 10, height: 38 }}>
+            <IosSmiley color={pal.icon} />
+            <IosMemories color={pal.icon} />
+            <IosPlus color={pal.icon} />
+          </div>
+        )}
       </div>
       <SystemBottomBar device={scenario.device} bg={pal.bg} fg={dark ? "#ffffff" : "#000000"} />
     </div>

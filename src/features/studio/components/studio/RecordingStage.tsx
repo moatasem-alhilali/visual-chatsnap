@@ -75,7 +75,7 @@ export function RecordingStage({
             </Button>
           </div>
           <div className="absolute inset-x-4 bottom-5 flex flex-col items-center gap-2 animate-in fade-in-0 slide-in-from-bottom-2 duration-200">
-            <PlaybackControls playback={playback} messages={scenario.messages} t={t} className="max-w-lg" />
+            <PlaybackControls playback={playback} messages={scenario.messages} composeTyping={scenario.composeTyping !== false} t={t} className="max-w-lg" />
             <button
               type="button"
               onClick={() => setControls(false)}

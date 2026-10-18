@@ -54,6 +54,24 @@
  *    lightly damped spring while scaling 0.94→1; incoming pills fade up 10pt. The
  *    keyframes are generated from the same functions as `xIosMotion.enterStyle`.
  *
+ *  - Reactions [C] (X Chat client, pin-page-rweb chunk: Mq/wq/dq): a rounded-full chip
+ *    under the bubble, -mt-2.5 (tucked under its bottom edge), mx-3 from the bubble
+ *    edge on the sender's side, h-5 content, px-2, min-w-10, 1px border in the page
+ *    colour (--x-bg-alpha-100), emoji 18px × 0.84; selected (= my reaction) fills
+ *    chat-accent #1D9BF0, otherwise gray-50 (the incoming-bubble fill); the count only
+ *    shows from 2. Web px are scaled by 17/15 (iOS body / web body) for iOS.
+ *  - Replies [C] (u2/d2/f2/p2): a column above the bubble on the same side, gap-1:
+ *    icon-reply-alt + the quoted sender's display name (subtext2 13/16, gray-700),
+ *    then the quoted text in a px-3 py-1.5 pill, 2 lines max — gray-50 fill + gray-700
+ *    text when it quotes them, 1px chat-accent/50 outline + accent text when it quotes
+ *    me; voice → icon-voice + "Voice message"; photo → 25% thumbnail, rounded-sm,
+ *    gray-200 hairline.
+ *  - Compose typing [D] (launch film 0:21, "We are leaving on the 18t|"): text in the
+ *    capsule in the normal text colour with a white/black 2pt caret, the capsule grows
+ *    keeping 22pt corners, and the trailing voice glyph is replaced by a 36pt
+ *    #1D9BF0 disc with a white icon-arrow-up (18pt), 4pt from the capsule's end and
+ *    bottom. The client swaps voice ↔ send with an 80 ms opacity/scale 0.9 fade [C].
+ *
  * Uncertain (no primary capture found): the 1:1 header's trailing call buttons
  * (phone + video drawn, from X's icon set), light-mode composer fills (taken from
  * the tokens), the Arabic receipt/typing strings, and the voice-bubble layout.
@@ -85,6 +103,8 @@ interface Palette {
   photoFill: string;
   avatarBg: string;
   avatarFg: string;
+  /** gray-200 hairline around reply thumbnails */
+  hairline: string;
 }
 
 const BLUE = "#1d9bf0";
@@ -100,6 +120,7 @@ const LIGHT: Palette = {
   photoFill: "#ebebeb",
   avatarBg: "#ccd6dd",
   avatarFg: "#ffffff",
+  hairline: "#e5e5e5",
 };
 
 const DARK: Palette = {
@@ -113,11 +134,23 @@ const DARK: Palette = {
   photoFill: "#1f1f1f",
   avatarBg: "#3b3b3b",
   avatarFg: "#8a8a8a",
+  hairline: "#2e2e2e",
 };
 
-const LOCAL: Record<Lang, { today: string; placeholder: string; seen: string; sent: string; typing: (n: string) => string }> = {
-  en: { today: "Today", placeholder: "Message", seen: "Seen", sent: "Sent", typing: (n) => `${n} is typing …` }, // X Chat bundle string
-  ar: { today: "اليوم", placeholder: "رسالة", seen: "تمت المشاهدة", sent: "تم الإرسال", typing: (n) => `${n} يكتب …` },
+interface Strings {
+  today: string;
+  placeholder: string;
+  seen: string;
+  sent: string;
+  typing: (n: string) => string;
+  voice: string;
+  photo: string;
+}
+
+/* X Chat bundle strings; "Voice message" / "Photo" are the reply-preview labels. */
+const LOCAL: Record<Lang, Strings> = {
+  en: { today: "Today", placeholder: "Message", seen: "Seen", sent: "Sent", typing: (n) => `${n} is typing …`, voice: "Voice message", photo: "Photo" },
+  ar: { today: "اليوم", placeholder: "رسالة", seen: "تمت المشاهدة", sent: "تم الإرسال", typing: (n) => `${n} يكتب …`, voice: "رسالة صوتية", photo: "الصورة" },
 };
 
 /* metrics (pt) */
@@ -135,6 +168,29 @@ const GAP_SENDER = 16;
 const GAP_AFTER_RECEIPT = 14;
 const HEADER_H = 60;
 const COMPOSER_H = 44;
+
+/* Reply preview + reaction chip: X Chat client metrics (web px) × 17/15 (iOS body / web body). */
+const QUOTE_TEXT = 15; // subtext2 13px
+const QUOTE_LINE = 18; // 16px
+const QUOTE_PAD_Y = 7; // py-1.5
+const QUOTE_PAD_X = 14; // px-3
+const QUOTE_GAP = 4.5; // gap-1
+const THUMB_SCALE = 0.25; // reply thumbnails are 25% of the media size
+const THUMB_RADIUS = 9; // rounded-sm 8px
+const CHIP_H = 23; // h-5 row
+const CHIP_PAD_X = 9; // px-2
+const CHIP_MIN_W = 45; // min-w-10
+const CHIP_RING = 1.5; // 1px border in the page colour
+const CHIP_EMOJI = 17; // 18px × 0.84
+const CHIP_OVERLAP = 11; // -mt-2.5
+const CHIP_INSET = 14; // mx-3
+const CHIP_AFTER = 4; // pb-1
+
+/* Compose typing [D]: capsule grows with fixed 22pt corners, send disc bottom-aligned. */
+const SEND_D = 36;
+const SEND_INSET = (COMPOSER_H - SEND_D) / 2;
+const DRAFT_MAX_LINES = 5;
+const CARET_PERIOD = 1000;
 
 /* ------------------------------ motion ------------------------------ */
 
@@ -218,6 +274,10 @@ const STYLE = [
   `.x-ios-anim-in{animation:x-ios-in ${IN_MS}ms linear both}`,
   `.x-ios-anim-typing{animation:x-ios-fade ${TYPING_IN_MS}ms ease-out both}`,
   ".x-ios-anim-receipt{animation:x-ios-fade 200ms ease-out both}",
+  "@keyframes x-ios-caret{0%,50%{opacity:1}50.01%,100%{opacity:0}}",
+  `.x-ios-caret{animation:x-ios-caret ${CARET_PERIOD}ms linear infinite}`,
+  "@keyframes x-ios-send{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:scale(1)}}",
+  ".x-ios-send{animation:x-ios-send 80ms ease-out both}",
   "@keyframes x-ios-shim{0%{color:var(--x-sec)}15%{color:var(--x-pri)}60%{color:var(--x-pri)}75%{color:var(--x-sec)}100%{color:var(--x-sec)}}",
 ].join("\n");
 
@@ -277,6 +337,33 @@ function WaveformGlyph({ color }: { color: string }) {
           strokeLinecap="round"
         />
       ))}
+    </svg>
+  );
+}
+
+/** X icon-reply-alt (12×12 grid), drawn at 1em of the reply-name label [C]. */
+function ReplyAltGlyph({ color, size }: { color: string; size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 12 12" fill={color} style={{ display: "block", flexShrink: 0 }}>
+      <path d="M3.393 5.565L4.826 7L3.942 7.88L1 4.94L3.942 2L4.826 2.88L3.393 4.315H6.634C8.498 4.315 10.009 5.825 10.009 7.69V9.44H8.759V7.69C8.759 6.515 7.8075 5.565 6.634 5.565H3.393Z" />
+    </svg>
+  );
+}
+
+/** X icon-voice — shown in the reply preview of a voice note [C]. */
+function VoiceIcon({ color, size }: { color: string; size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={color} style={{ display: "block", flexShrink: 0 }}>
+      <path d="M7 21V3h2v18H7zm8-2V5h2v14h-2zm-4-2V7h2v10h-2zm-8-2V9h2v6H3zm16 0V9h2v6h-2z" />
+    </svg>
+  );
+}
+
+/** X icon-arrow-up — the composer send glyph [C]. */
+function ArrowUpGlyph({ color, size }: { color: string; size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={color} style={{ display: "block" }}>
+      <path d="M12 3.59l7.457 7.45-1.414 1.42L13 7.41V21h-2V7.41l-5.043 5.05-1.414-1.42L12 3.59z" />
     </svg>
   );
 }
@@ -401,8 +488,8 @@ function VoiceBubble({ m, mine, p }: { m: Message; mine: boolean; p: Palette }) 
   );
 }
 
-function ImageBubble({ src, p }: { src?: string | null; p: Palette }) {
-  const [ratio, setRatio] = useState<number | null>(null);
+/** Bubble size of a photo (pt), shared by the image bubble and its reply thumbnail. */
+function fitImage(src: string | null | undefined, ratio: number | null): { w: number; h: number } {
   let w = IMG_MAX_W;
   let h = 225;
   if (src) {
@@ -414,6 +501,12 @@ function ImageBubble({ src, p }: { src?: string | null; p: Palette }) {
     }
     h = Math.max(150, h);
   }
+  return { w, h };
+}
+
+function ImageBubble({ src, p }: { src?: string | null; p: Palette }) {
+  const [ratio, setRatio] = useState<number | null>(null);
+  const { w, h } = fitImage(src, ratio);
   return (
     <div className="overflow-hidden" style={{ width: Math.round(w), height: Math.round(h), borderRadius: IMG_RADIUS, background: p.photoFill }}>
       {src ? (
@@ -434,6 +527,140 @@ function ImageBubble({ src, p }: { src?: string | null; p: Palette }) {
         </div>
       )}
     </div>
+  );
+}
+
+/** 25%-scale photo thumbnail of the reply preview (rounded-sm, gray-200 hairline) [C]. */
+function ReplyThumb({ src, p }: { src?: string | null; p: Palette }) {
+  const [ratio, setRatio] = useState<number | null>(null);
+  const { w, h } = fitImage(src, ratio);
+  return (
+    <div
+      className="overflow-hidden"
+      style={{
+        width: Math.round(w * THUMB_SCALE),
+        height: Math.round(h * THUMB_SCALE),
+        borderRadius: THUMB_RADIUS,
+        border: `1px solid ${p.hairline}`,
+        background: p.photoFill,
+      }}
+    >
+      {src && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={src}
+          alt=""
+          draggable={false}
+          className="block h-full w-full object-cover"
+          onLoad={(e) => {
+            const im = e.currentTarget;
+            if (im.naturalWidth && im.naturalHeight) setRatio(im.naturalWidth / im.naturalHeight);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * X Chat's reply preview, stacked above the replying bubble on the same side [C]:
+ *  - a name row: icon-reply-alt + the quoted sender's display name (subtext2, gray-700);
+ *  - the quoted text in a small pill, two lines max — filled gray-50 / gray-700 when
+ *    it quotes the other person, outlined chat-accent/50 with accent text when it
+ *    quotes me; a voice note becomes "🎙 Voice message", a photo a 25% thumbnail.
+ */
+function ReplyPreview({ target, name, mine, p, l }: { target: Message; name: string; mine: boolean; p: Palette; l: Strings }) {
+  const quotesMe = target.sender === "me";
+  const pill: CSSProperties = quotesMe
+    ? { border: `1px solid rgba(29,155,240,0.5)`, color: BLUE, padding: `${QUOTE_PAD_Y - 1}px ${QUOTE_PAD_X - 1}px` }
+    : { background: p.inBubble, color: p.secondary, padding: `${QUOTE_PAD_Y}px ${QUOTE_PAD_X}px` };
+  const text = target.text.trim();
+  return (
+    <div className="flex flex-col" style={{ alignItems: mine ? "flex-end" : "flex-start", gap: QUOTE_GAP, marginTop: 2, marginBottom: QUOTE_GAP, maxWidth: MAX_W }}>
+      <div className="flex min-w-0 items-center" style={{ gap: QUOTE_GAP, paddingInline: 9, color: p.secondary, maxWidth: "100%" }}>
+        <ReplyAltGlyph color={p.secondary} size={QUOTE_TEXT} />
+        <span dir={dirOf(name)} className="truncate" style={{ fontSize: QUOTE_TEXT, lineHeight: `${QUOTE_LINE}px` }}>
+          {name}
+        </span>
+      </div>
+      {target.type === "image" && <ReplyThumb src={target.imageSrc} p={p} />}
+      {target.type === "voice" ? (
+        <div className="flex items-center" style={{ ...pill, gap: 7, borderRadius: RADIUS }}>
+          <VoiceIcon color="currentColor" size={18} />
+          <span style={{ fontSize: QUOTE_TEXT, lineHeight: `${QUOTE_LINE}px`, whiteSpace: "nowrap" }}>{l.voice}</span>
+        </div>
+      ) : text ? (
+        <div style={{ ...pill, borderRadius: RADIUS, maxWidth: "100%" }}>
+          <p
+            dir={dirOf(text)}
+            className="break-words"
+            style={{
+              margin: 0,
+              fontSize: QUOTE_TEXT,
+              lineHeight: `${QUOTE_LINE}px`,
+              textAlign: "start",
+              display: "-webkit-box",
+              WebkitBoxOrient: "vertical",
+              WebkitLineClamp: 2,
+              overflow: "hidden",
+            }}
+          >
+            {text}
+          </p>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * X Chat reaction chip [C]: a rounded-full pill (h-5 content, px-2, min-w-10) ringed in
+ * the page colour, tucked 10px up under the bubble and inset 12px from its edge. My own
+ * reaction is the selected state (chat-accent fill); theirs uses the gray-50 fill.
+ * The count only appears from 2 reactors, so a single emoji shows alone.
+ */
+function ReactionChip({ emoji, mine, p }: { emoji: string; mine: boolean; p: Palette }) {
+  const selected = !mine; // reaction on their message = mine
+  return (
+    <div
+      className="relative flex"
+      style={{ justifyContent: mine ? "flex-end" : "flex-start", paddingInline: CHIP_INSET, marginTop: -CHIP_OVERLAP, marginBottom: CHIP_AFTER, zIndex: 1 }}
+    >
+      <div
+        className="flex items-center justify-center rounded-full"
+        style={{
+          height: CHIP_H + 2 * CHIP_RING,
+          minWidth: CHIP_MIN_W,
+          paddingInline: CHIP_PAD_X,
+          background: selected ? BLUE : p.inBubble,
+          border: `${CHIP_RING}px solid ${p.bg}`,
+          boxSizing: "border-box",
+        }}
+      >
+        <span style={{ fontSize: CHIP_EMOJI, lineHeight: `${CHIP_H}px`, display: "block" }}>{emoji}</span>
+      </div>
+    </div>
+  );
+}
+
+/** The text caret: a 2pt bar in the text colour, blinking (clockMs-driven in exports). */
+function Caret({ color, clockMs, height }: { color: string; clockMs?: number; height: number }) {
+  const on = clockMs === undefined ? undefined : clockMs % CARET_PERIOD < CARET_PERIOD / 2;
+  return (
+    <span
+      aria-hidden
+      className={clockMs === undefined ? "x-ios-caret" : undefined}
+      style={{
+        display: "inline-block",
+        width: 2,
+        height,
+        marginInlineStart: 1,
+        verticalAlign: -4,
+        borderRadius: 1,
+        background: color,
+        opacity: on === false ? 0 : undefined,
+      }}
+    />
   );
 }
 
@@ -510,6 +737,21 @@ export function XChat({ scenario, playback, lang, rtl }: PlatformProps) {
   const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}`);
   const typingRef = useRef<HTMLDivElement>(null);
   const typingSince = useRef<number | undefined>(undefined);
+  const draft = playback.draft;
+  const composerRef = useRef<HTMLDivElement>(null);
+  const composerH = useRef<number | undefined>(undefined);
+
+  // As the composer grows with the draft, keep the thread pinned to its bottom (the
+  // real list scrolls with the input instead of hiding its last rows).
+  useLayoutEffect(() => {
+    const box = composerRef.current;
+    const list = scrollRef.current;
+    if (!box || !list) return;
+    const h = box.offsetHeight;
+    const prev = composerH.current;
+    composerH.current = h;
+    if (prev !== undefined && h !== prev) list.scrollTop += h - prev;
+  }, [draft?.text, scrollRef]);
 
   // Typing row entrance in exported frames (CSS animations don't run there).
   useLayoutEffect(() => {
@@ -533,6 +775,7 @@ export function XChat({ scenario, playback, lang, rtl }: PlatformProps) {
     }
   }
 
+  const byId = new Map(messages.map((m) => [m.id, m]));
   const rows: ReactNode[] = [];
   let prevHadReceipt = false;
   messages.forEach((m, i) => {
@@ -565,6 +808,26 @@ export function XChat({ scenario, playback, lang, rtl }: PlatformProps) {
       );
     } else {
       content = <TextBubble m={m} mine={mine} p={p} />;
+    }
+
+    const target = m.replyToId ? byId.get(m.replyToId) : undefined;
+    const reaction = m.reaction?.trim();
+    if (target || reaction) {
+      content = (
+        <div className="flex max-w-full flex-col" style={{ alignItems: mine ? "flex-end" : "flex-start" }}>
+          {target && (
+            <ReplyPreview
+              target={target}
+              name={target.sender === "me" ? scenario.me.name : scenario.them.name}
+              mine={mine}
+              p={p}
+              l={l}
+            />
+          )}
+          {content}
+          {reaction && <ReactionChip emoji={reaction} mine={mine} p={p} />}
+        </div>
+      );
     }
 
     let marginTop = 0;
@@ -680,22 +943,55 @@ export function XChat({ scenario, playback, lang, rtl }: PlatformProps) {
       </div>
 
       {/* ------------------------------ composer ------------------------------ */}
-      <div className="flex shrink-0 items-center" style={{ height: COMPOSER_H, paddingInlineStart: SIDE, paddingInlineEnd: 15, gap: 8, marginBottom: 16 }}>
+      <div
+        ref={composerRef}
+        className="flex shrink-0 items-end"
+        style={{ minHeight: COMPOSER_H, paddingInlineStart: SIDE, paddingInlineEnd: 15, gap: 8, marginBottom: 16 }}
+      >
         <div
           className="flex shrink-0 items-center justify-center rounded-full"
           style={{ width: COMPOSER_H, height: COMPOSER_H, background: p.plusFill }}
         >
           <PlusGlyph color={p.fg} />
         </div>
-        <div
-          className="flex h-full min-w-0 flex-1 items-center rounded-full"
-          style={{ background: p.input, paddingInlineStart: 16, paddingInlineEnd: 14 }}
-        >
-          <span className="flex-1 truncate" style={{ color: p.secondary, fontSize: 17, lineHeight: "22px" }}>
-            {l.placeholder}
-          </span>
-          <WaveformGlyph color={p.fg} />
-        </div>
+        {draft ? (
+          <div className="relative min-w-0 flex-1" style={{ background: p.input, borderRadius: COMPOSER_H / 2, minHeight: COMPOSER_H }}>
+            <div
+              className="flex flex-col justify-end overflow-hidden"
+              style={{
+                maxHeight: DRAFT_MAX_LINES * LINE + 2 * ((COMPOSER_H - LINE) / 2),
+                paddingBlock: (COMPOSER_H - LINE) / 2,
+                paddingInlineStart: 16,
+                paddingInlineEnd: SEND_INSET + SEND_D + 8,
+              }}
+            >
+              <p
+                dir={dirOf(draft.text)}
+                className="whitespace-pre-wrap"
+                style={{ margin: 0, color: p.fg, fontSize: 17, lineHeight: `${LINE}px`, textAlign: "start", overflowWrap: "anywhere" }}
+              >
+                {draft.text}
+                <Caret color={p.fg} clockMs={clockMs} height={20} />
+              </p>
+            </div>
+            <div
+              className={`absolute flex items-center justify-center rounded-full ${live ? "x-ios-send" : ""}`}
+              style={{ insetInlineEnd: SEND_INSET, bottom: SEND_INSET, width: SEND_D, height: SEND_D, background: BLUE }}
+            >
+              <ArrowUpGlyph color="#ffffff" size={18} />
+            </div>
+          </div>
+        ) : (
+          <div
+            className="flex min-w-0 flex-1 items-center rounded-full"
+            style={{ height: COMPOSER_H, background: p.input, paddingInlineStart: 16, paddingInlineEnd: 14 }}
+          >
+            <span className="flex-1 truncate" style={{ color: p.secondary, fontSize: 17, lineHeight: "22px" }}>
+              {l.placeholder}
+            </span>
+            <WaveformGlyph color={p.fg} />
+          </div>
+        )}
       </div>
 
       <SystemBottomBar device={scenario.device} bg={p.bg} fg={p.fg} />

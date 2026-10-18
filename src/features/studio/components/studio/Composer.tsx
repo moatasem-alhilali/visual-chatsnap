@@ -14,6 +14,8 @@ import { Avatar } from "../shared";
 import type { StudioLabels } from "../labels";
 import { fmt } from "./timing";
 import { readImageFile } from "./image-utils";
+import { createBlankMessage } from "../../data/defaults";
+import { naturalTiming } from "../../services/smart-timing";
 
 /** Quick-add bar: pick who is talking, type, Enter. */
 export function Composer({
@@ -26,7 +28,6 @@ export function Composer({
   onAdded: (id: string) => void;
 }) {
   const addMessage = useStudioStore((s) => s.addMessage);
-  const updateMessage = useStudioStore((s) => s.updateMessage);
   const focusTick = useStudioUi((s) => s.composerFocusTick);
 
   const last = scenario.messages[scenario.messages.length - 1];
@@ -43,12 +44,10 @@ export function Composer({
   const name = person.name || (sender === "me" ? t.meShort : t.themShort);
 
   const create = (patch: Partial<Message>) => {
-    addMessage(sender);
-    const list = useStudioStore.getState().scenario.messages;
-    const created = list[list.length - 1];
-    if (!created) return;
-    updateMessage(created.id, patch);
-    onAdded(created.id);
+    const prev = scenario.messages[scenario.messages.length - 1];
+    const draft = { ...createBlankMessage(sender), ...patch };
+    // natural pacing from the length (and the message before) as a start
+    onAdded(addMessage(sender, { ...patch, ...naturalTiming(draft, prev) }));
   };
 
   const submit = (switchAfter: boolean) => {

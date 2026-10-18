@@ -53,6 +53,28 @@
  *    dot (online = green, otherwise the grey offline ring); typing is shown only in
  *    the "<Name> is typing…" strip above the chat bar.
  *
+ * Round 4 (live client CSS, discord.com/assets/*.css, Oct 2026; tokens resolved
+ * for .theme-darker = "Dark" and .theme-light):
+ *  - Reaction pill (.reaction/.reactionInner/.reactionCount): radius 8, 1 px
+ *    border, padding 2/6, 20 px emoji (2 px block margin), count 14 semibold
+ *    6 px after it. Default: bg #97979f@.122, border --reaction-border-default
+ *    (@.122 dark / @.278 light), count --text-subtle #abacb2 / #595a63.
+ *    Mine (reacted): bg #5865f2@.239, border #5865f2, count #b9c8ff / #273478.
+ *  - Reply bar (.repliedMessage/.replyAvatar/.messageSpine:before): 14/18 line
+ *    4 px above the header, 16 dp round avatar + 4, "@name" (.64 opacity), one-
+ *    line snippet; spine 2 px, 6 px start-start radius, --spine-default
+ *    #474851 / #c5c6ca, from the avatar's centre line to 4 px before the reply.
+ *    A reply always starts a new group. Attachment targets: "Tap to see
+ *    attachment" (italic) + ImageIcon.
+ *  - Compose typing (.mobile-visual-refresh-floating): send button 36×36 blurple
+ *    (#5865f2) circle with the white SendMessageIcon replaces the mic; Gift
+ *    collapses; Emoji stays; text-md 16/20 in --text-default with a 2 dp brand
+ *    cursor (500 ms blink); the bar grows line by line up to 6 lines with the
+ *    buttons pinned to the bottom. Replying adds the floating accessory bar
+ *    ("Replying to Name" · "@ ON" · close; 1 px border, 8 below, padding 12/8).
+ *  - Glyphs are now Discord's production icon paths (same RN icon set as iOS);
+ *    voice duration text-sm/semibold (floating refresh token).
+ *
  * Arabic / RTL: Discord ships no Arabic localisation and no RTL layout
  * (support.discord.com community posts 360050257474 "Adding Arabic language
  * support", 360030086752 "Add Right to Left (RTL) support"). On an Arabic phone
@@ -94,6 +116,14 @@ interface Pal {
   nav: string;
   barFill: string;
   barBorder: string;
+  spine: string;
+  reactBg: string;
+  reactBorder: string;
+  reactText: string;
+  reactedBg: string;
+  reactedBorder: string;
+  reactedText: string;
+  brand: string;
 }
 
 function palette(dark: boolean): Pal {
@@ -115,6 +145,14 @@ function palette(dark: boolean): Pal {
         nav: "#ffffff",
         barFill: "#242429",
         barBorder: "rgba(151, 151, 159, 0.122)",
+        spine: "#474851",
+        reactBg: "rgba(151, 151, 159, 0.122)",
+        reactBorder: "rgba(151, 151, 159, 0.122)",
+        reactText: "#abacb2",
+        reactedBg: "rgba(88, 101, 242, 0.239)",
+        reactedBorder: "#5865f2",
+        reactedText: "#b9c8ff",
+        brand: "#5865f2",
       }
     : {
         bg: "#fbfbfb",
@@ -133,6 +171,14 @@ function palette(dark: boolean): Pal {
         nav: "#000000",
         barFill: "#ffffff",
         barBorder: "rgba(151, 151, 159, 0.278)",
+        spine: "#c5c6ca",
+        reactBg: "rgba(151, 151, 159, 0.122)",
+        reactBorder: "rgba(151, 151, 159, 0.278)",
+        reactText: "#595a63",
+        reactedBg: "rgba(88, 101, 242, 0.239)",
+        reactedBorder: "#5865f2",
+        reactedText: "#273478",
+        brand: "#5865f2",
       };
 }
 
@@ -157,6 +203,9 @@ const EN = {
   todayAt: (time: string) => `Today at ${time}`,
   isTyping: "is typing...",
   beginning: "This is the beginning of your direct message history with ",
+  attachment: "Tap to see attachment",
+  replyingTo: "Replying to ",
+  mentionOn: "ON",
 };
 const STR: Record<Lang, typeof EN> = { en: EN, ar: EN };
 
@@ -198,6 +247,7 @@ const CONTENT_INSET = EDGE + AVATAR + GUTTER; // 68
 const TEXT_SIZE = 14;
 const TEXT_LINE = 18;
 const GROUP_GAP = 16;
+const DRAFT_MAX_LINES = 6; // the input grows to ~6 lines, then scrolls inside
 
 /* --------------------------------- motion --------------------------------- */
 
@@ -247,6 +297,13 @@ function dotAt(ms: number, i: number): number {
   return 0.3;
 }
 
+/** Android TextView cursor: 500 ms on / 500 ms off (Editor BLINK = 500). */
+const CARET_CYCLE = 1000;
+
+function caretOn(ms: number): boolean {
+  return ((ms % CARET_CYCLE) + CARET_CYCLE) % CARET_CYCLE < CARET_CYCLE / 2;
+}
+
 /* Two keyframe stops so CSS reproduces "rise on FastOutSlowIn + 120 ms fade". */
 const KEYFRAMES = `
 @keyframes dcand-rise{from{transform:translateY(${ENTER_RISE}px)}to{transform:translateY(0)}}
@@ -255,6 +312,8 @@ const KEYFRAMES = `
 .dcand-enter{animation:dcand-rise ${ENTER_MS}ms cubic-bezier(.4,0,.2,1) both,dcand-fadein ${FADE_MS}ms cubic-bezier(.42,0,.58,1) both}
 .dcand-fade{animation:dcand-fadein 150ms linear both}
 .dcand-dot{animation:dcand-dot ${DOT_CYCLE}ms linear infinite}
+@keyframes dcand-caret{0%,49.99%{opacity:1}50%,100%{opacity:0}}
+.dcand-caret{animation:dcand-caret ${CARET_CYCLE}ms linear infinite}
 `;
 
 /* --------------------------------- glyphs --------------------------------- */
@@ -273,7 +332,7 @@ function BackArrow({ color }: { color: string }) {
     <Glyph>
       <path
         fill={color}
-        d="M3.3 11.3a1 1 0 0 0 0 1.4l7 7a1 1 0 0 0 1.4-1.4L6.42 13H20a1 1 0 1 0 0-2H6.42l5.3-5.3a1 1 0 0 0-1.42-1.4l-7 7Z"
+        d="M3.3 11.3a1 1 0 0 0 0 1.4l8 8a1 1 0 1 0 1.4-1.4L6.42 13H20a1 1 0 1 0 0-2H6.41l6.3-6.3a1 1 0 0 0-1.42-1.4l-8 8Z"
       />
     </Glyph>
   );
@@ -284,8 +343,9 @@ function PhoneGlyph({ color }: { color: string }) {
     <Glyph>
       <path
         fill={color}
-        d="M2 7.4A5.4 5.4 0 0 1 7.4 2c.36 0 .7.22.83.55l1.93 4.64a1 1 0 0 1-.43 1.25L7.1 9.8a12.8 12.8 0 0 0 7.1 7.1l1.36-2.63a1 1 0 0 1 1.25-.43l4.64 1.93c.33.14.55.47.55.83A5.4 5.4 0 0 1 16.6 22 14.6 14.6 0 0 1 2 7.4Z"
+        d="M2 7.4A5.4 5.4 0 0 1 7.4 2c.36 0 .7.22.83.55l1.93 4.64a1 1 0 0 1-.43 1.25L7 10a8.52 8.52 0 0 0 7 7l1.12-2.24a1 1 0 0 1 1.19-.51l5.06 1.56c.38.11.63.46.63.85C22 19.6 19.6 22 16.66 22h-.37C8.39 22 2 15.6 2 7.71V7.4ZM13 3a1 1 0 0 1 1-1 8 8 0 0 1 8 8 1 1 0 1 1-2 0 6 6 0 0 0-6-6 1 1 0 0 1-1-1Z"
       />
+      <path fill={color} d="M13 7a1 1 0 0 1 1-1 4 4 0 0 1 4 4 1 1 0 1 1-2 0 2 2 0 0 0-2-2 1 1 0 0 1-1-1Z" />
     </Glyph>
   );
 }
@@ -293,26 +353,36 @@ function PhoneGlyph({ color }: { color: string }) {
 function VideoGlyph({ color }: { color: string }) {
   return (
     <Glyph>
-      <path fill={color} d="M4 4.5a3 3 0 0 0-3 3v9a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-9a3 3 0 0 0-3-3H4Z" />
-      <path fill={color} d="M18.5 9.4 21.6 7.3c.6-.4 1.4 0 1.4.8v7.8c0 .8-.8 1.2-1.4.8l-3.1-2.1V9.4Z" />
+      <path
+        fill={color}
+        d="M4 4a3 3 0 0 0-3 3v10a3 3 0 0 0 3 3h11a3 3 0 0 0 3-3v-2.12a1 1 0 0 0 .55.9l3 1.5a1 1 0 0 0 1.45-.9V7.62a1 1 0 0 0-1.45-.9l-3 1.5a1 1 0 0 0-.55.9V7a3 3 0 0 0-3-3H4Z"
+      />
     </Glyph>
   );
 }
 
+/** MagnifyingGlassIcon (production path). */
 function SearchGlyph({ color }: { color: string }) {
   return (
     <Glyph>
-      <circle cx="10.5" cy="10.5" r="7" stroke={color} strokeWidth="2.2" />
-      <path d="m15.7 15.7 5.3 5.3" stroke={color} strokeWidth="2.4" strokeLinecap="round" />
+      <path
+        fill={color}
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M15.62 17.03a9 9 0 1 1 1.41-1.41l4.68 4.67a1 1 0 0 1-1.42 1.42l-4.67-4.68ZM17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z"
+      />
     </Glyph>
   );
 }
 
 function ChevronRight({ color }: { color: string }) {
   return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="shrink-0" style={{ display: "block" }}>
-      <path d="m4.5 2.5 3.5 3.5-3.5 3.5" stroke={color} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
+    <Glyph size={16}>
+      <path
+        fill={color}
+        d="M9.3 5.3a1 1 0 0 0 0 1.4l5.29 5.3-5.3 5.3a1 1 0 1 0 1.42 1.4l6-6a1 1 0 0 0 0-1.4l-6-6a1 1 0 0 0-1.42 0Z"
+      />
+    </Glyph>
   );
 }
 
@@ -325,21 +395,26 @@ function BarButton({ children }: { children: ReactNode }) {
   );
 }
 
+/* Production glyph paths from Discord's icon set (same RN icons on both platforms). */
+
 function PlusGlyph({ color }: { color: string }) {
   return (
     <Glyph size={20}>
-      <path d="M12 4.5v15M4.5 12h15" stroke={color} strokeWidth="2.2" strokeLinecap="round" />
+      <path fill={color} d="M13 3a1 1 0 1 0-2 0v8H3a1 1 0 1 0 0 2h8v8a1 1 0 0 0 2 0v-8h8a1 1 0 0 0 0-2h-8V3Z" />
     </Glyph>
   );
 }
 
+/** EmojiHappyWinkingFaceIcon — the chat bar's expression-picker button. */
 function EmojiGlyph({ color }: { color: string }) {
   return (
     <Glyph size={20}>
-      <circle cx="12" cy="12" r="9.5" stroke={color} strokeWidth="2" />
-      <circle cx="8.8" cy="9.8" r="1.4" fill={color} />
-      <circle cx="15.2" cy="9.8" r="1.4" fill={color} />
-      <path d="M7.6 13.8c.9 1.9 2.5 2.9 4.4 2.9s3.5-1 4.4-2.9" stroke={color} strokeWidth="2" strokeLinecap="round" />
+      <path
+        fill={color}
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M12 23a11 11 0 1 0 0-22 11 11 0 0 0 0 22Zm5.5-10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Zm-2.14 1.99c.15-.53-.3-.99-.86-.99h-5c-.55 0-1.01.46-.86.99a3.5 3.5 0 0 0 6.72 0ZM6.45 9.1a1 1 0 0 0-.9 1.78l1.21.61-1.2.6a1 1 0 1 0 .89 1.8l3-1.5a1 1 0 0 0 0-1.8l-3-1.5Z"
+      />
     </Glyph>
   );
 }
@@ -347,17 +422,16 @@ function EmojiGlyph({ color }: { color: string }) {
 function GiftGlyph({ color }: { color: string }) {
   return (
     <Glyph size={20}>
-      {/* bow */}
       <path
-        d="M11.2 7.2C10 5.3 8.4 4.1 7.2 4.4c-1 .3-1.3 1.5-.6 2.3.7.7 2.4.8 4.6.5Zm1.6 0c1.2-1.9 2.8-3.1 4-2.8 1 .3 1.3 1.5.6 2.3-.7.7-2.4.8-4.6.5Z"
-        stroke={color}
-        strokeWidth="1.8"
-        strokeLinejoin="round"
+        fill={color}
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M4 6a4 4 0 0 1 4-4h.09c1.8 0 3.39 1.18 3.91 2.9A4.09 4.09 0 0 1 15.91 2H16a4 4 0 0 1 3.46 6H20a2 2 0 0 1 2 2v1.5a.5.5 0 0 1-.5.5h-19a.5.5 0 0 1-.5-.5V10c0-1.1.9-2 2-2h.54A3.98 3.98 0 0 1 4 6Zm12 2a2 2 0 1 0 0-4h-.09c-.96 0-1.8.65-2.02 1.58L13.29 8H16Zm-5.89-2.42.6 2.42H8a2 2 0 1 1 0-4h.09c.96 0 1.8.65 2.02 1.58Z"
       />
-      {/* lid halves */}
-      <path fill={color} d="M3.5 8.2h7.6v3.6H3.5a1 1 0 0 1-1-1V9.2a1 1 0 0 1 1-1ZM12.9 8.2h7.6a1 1 0 0 1 1 1v1.6a1 1 0 0 1-1 1h-7.6V8.2Z" />
-      {/* box halves */}
-      <path fill={color} d="M4 13.2h7.1v7.6H6a2 2 0 0 1-2-2v-5.6ZM12.9 13.2H20v5.6a2 2 0 0 1-2 2h-5.1v-7.6Z" />
+      <path
+        fill={color}
+        d="M3 20c0 1.1.9 2 2 2h5.5a.5.5 0 0 0 .5-.5v-7a.5.5 0 0 0-.5-.5h-7a.5.5 0 0 0-.5.5V20ZM13.5 22a.5.5 0 0 1-.5-.5v-7c0-.28.22-.5.5-.5h7c.28 0 .5.22.5.5V20a2 2 0 0 1-2 2h-5.5Z"
+      />
     </Glyph>
   );
 }
@@ -365,8 +439,47 @@ function GiftGlyph({ color }: { color: string }) {
 function MicGlyph({ color }: { color: string }) {
   return (
     <Glyph size={20}>
-      <rect x="8.4" y="2.2" width="7.2" height="12.4" rx="3.6" fill={color} />
-      <path d="M5.4 11.2a6.6 6.6 0 0 0 13.2 0M12 17.9v3.6" stroke={color} strokeWidth="2" strokeLinecap="round" />
+      <path fill={color} d="M12 2a4 4 0 0 0-4 4v4a4 4 0 0 0 8 0V6a4 4 0 0 0-4-4Z" />
+      <path
+        fill={color}
+        d="M6 10a1 1 0 0 0-2 0 8 8 0 0 0 7 7.94V20H9a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2h-2v-2.06A8 8 0 0 0 20 10a1 1 0 1 0-2 0 6 6 0 0 1-12 0Z"
+      />
+    </Glyph>
+  );
+}
+
+/** SendMessageIcon (paper plane) — the send button's glyph; never mirrored. */
+function SendGlyph() {
+  return (
+    <Glyph size={20}>
+      <path
+        fill="#ffffff"
+        d="M6.6 10.02 14 11.4a.6.6 0 0 1 0 1.18L6.6 14l-2.94 5.87a1.48 1.48 0 0 0 1.99 1.98l17.03-8.52a1.48 1.48 0 0 0 0-2.64L5.65 2.16a1.48 1.48 0 0 0-1.99 1.98l2.94 5.88Z"
+      />
+    </Glyph>
+  );
+}
+
+/** Filled circle with an X — the reply accessory's close button. */
+function CircleXGlyph({ color, cut }: { color: string; cut: string }) {
+  return (
+    <Glyph size={20}>
+      <circle cx="12" cy="12" r="10" fill={color} />
+      <path d="m8.5 8.5 7 7m0-7-7 7" stroke={cut} strokeWidth="2" strokeLinecap="round" />
+    </Glyph>
+  );
+}
+
+/** ImageIcon (production path). */
+function ImageGlyph({ color, size }: { color: string; size: number }) {
+  return (
+    <Glyph size={size}>
+      <path
+        fill={color}
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M2 5a3 3 0 0 1 3-3h14a3 3 0 0 1 3 3v14a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V5Zm13.35 8.13 3.5 4.67c.37.5.02 1.2-.6 1.2H5.81a.75.75 0 0 1-.59-1.22l1.86-2.32a1.5 1.5 0 0 1 2.34 0l.5.64 2.23-2.97a2 2 0 0 1 3.2 0ZM10.2 5.98c.23-.91-.88-1.55-1.55-.9a.93.93 0 0 1-1.3 0c-.67-.65-1.78-.01-1.55.9a.93.93 0 0 1-.65 1.12c-.9.26-.9 1.54 0 1.8.48.14.77.63.65 1.12-.23.91.88 1.55 1.55.9a.93.93 0 0 1 1.3 0c.67.65 1.78.01 1.55-.9a.93.93 0 0 1 .65-1.12c.9-.26.9-1.54 0-1.8a.93.93 0 0 1-.65-1.12Z"
+      />
     </Glyph>
   );
 }
@@ -471,7 +584,7 @@ function VoiceMessage({ pal, duration }: { pal: Pal; duration?: string }) {
         }}
       >
         <svg width="14" height="14" viewBox="0 0 24 24" style={{ display: "block", transform: "translateX(1px)" }}>
-          <path fill="#ffffff" d="M6.5 4.3v15.4c0 .9 1 1.4 1.7.9l11.4-7.7a1.1 1.1 0 0 0 0-1.8L8.2 3.4c-.7-.5-1.7 0-1.7.9Z" />
+          <path fill="#ffffff" d="M9.25 3.35C7.87 2.45 6 3.38 6 4.96v14.08c0 1.58 1.87 2.5 3.25 1.61l10.85-7.04a1.9 1.9 0 0 0 0-3.22L9.25 3.35Z" />
         </svg>
       </span>
       <span className="flex min-w-0 flex-1 items-center justify-between overflow-hidden" style={{ height: 24, gap: 1.5 }}>
@@ -479,7 +592,7 @@ function VoiceMessage({ pal, duration }: { pal: Pal; duration?: string }) {
           <span key={i} className="shrink-0" style={{ width: 3, height: h, borderRadius: 1.5, background: pal.wave }} />
         ))}
       </span>
-      <span className="shrink-0 tabular-nums" style={{ color: pal.muted, fontSize: 14, lineHeight: "18px", fontWeight: 500 }}>
+      <span className="shrink-0 tabular-nums" style={{ color: pal.muted, fontSize: 14, lineHeight: "18px", fontWeight: 600 }}>
         {duration || "0:08"}
       </span>
     </div>
@@ -490,11 +603,7 @@ function Attachment({ src, pal }: { src?: string | null; pal: Pal }) {
   if (!src) {
     return (
       <div className="flex items-center justify-center" style={{ width: 225, height: 300, borderRadius: 8, background: pal.mod }}>
-        <svg width="40" height="40" viewBox="0 0 24 24" fill="none">
-          <rect x="3" y="4" width="18" height="16" rx="3" stroke={pal.muted} strokeWidth="1.8" />
-          <circle cx="9" cy="9.5" r="1.7" fill={pal.muted} />
-          <path d="m4.5 18 5-5.2 3.4 3.4 2.4-2.4 4.2 4.2" stroke={pal.muted} strokeWidth="1.8" strokeLinejoin="round" />
-        </svg>
+        <ImageGlyph color={pal.muted} size={40} />
       </div>
     );
   }
@@ -517,6 +626,131 @@ function usernameOf(name: string): string {
     .slice(0, 32);
 }
 
+/* ------------------------- reactions / replies / caret ------------------------- */
+
+/** One reaction pill with count 1; `me` = my own reaction (blurple reacted state). */
+function ReactionPill({ emoji, me, pal }: { emoji: string; me: boolean; pal: Pal }) {
+  return (
+    <div className="flex" style={{ paddingTop: 4 }}>
+      <span
+        className="flex items-center"
+        style={{
+          boxSizing: "border-box",
+          borderRadius: 8,
+          border: `1px solid ${me ? pal.reactedBorder : pal.reactBorder}`,
+          background: me ? pal.reactedBg : pal.reactBg,
+          padding: "2px 6px",
+        }}
+      >
+        <span
+          className="flex items-center justify-center"
+          style={{ width: 20, height: 20, margin: "2px 0", fontSize: 17, lineHeight: "20px" }}
+        >
+          {emoji}
+        </span>
+        <span
+          className="tabular-nums"
+          style={{
+            color: me ? pal.reactedText : pal.reactText,
+            fontSize: 14,
+            lineHeight: "18px",
+            fontWeight: 600,
+            marginLeft: 6,
+            minWidth: 9,
+            textAlign: "center",
+          }}
+        >
+          1
+        </span>
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Reply bar above a message header: spine from the avatar's centre line,
+ * 16 dp avatar, "@name", one-line snippet (inside the content column, x = 68).
+ */
+function ReplyBar({ target, person, fallbackName, pal, s }: {
+  target: Message;
+  person: Person;
+  fallbackName: string;
+  pal: Pal;
+  s: typeof EN;
+}) {
+  const name = person.name.trim() || fallbackName;
+  const snippet = target.text.replace(/\s+/g, " ").trim();
+  const attachmentOnly = target.type !== "text" && !snippet;
+  return (
+    <div
+      className="relative flex min-w-0 items-center"
+      style={{ height: 18, marginLeft: AVATAR + GUTTER, marginBottom: 4, fontSize: 14, lineHeight: "18px", whiteSpace: "pre" }}
+    >
+      <span
+        aria-hidden
+        className="absolute block"
+        style={{
+          left: -(AVATAR / 2 + GUTTER) - 1,
+          width: AVATAR / 2 + GUTTER + 1 - 4,
+          top: 8,
+          height: 13,
+          boxSizing: "border-box",
+          borderTop: `2px solid ${pal.spine}`,
+          borderLeft: `2px solid ${pal.spine}`,
+          borderTopLeftRadius: 6,
+        }}
+      />
+      <span className="shrink-0" style={{ marginRight: 4 }}>
+        <DiscordAvatar person={person} size={16} />
+      </span>
+      <span
+        dir="auto"
+        className="shrink-0"
+        style={{ color: pal.strong, fontWeight: 500, opacity: 0.64, marginRight: 4, maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis" }}
+      >
+        @{name}
+      </span>
+      {attachmentOnly ? (
+        <span className="flex min-w-0 items-center" style={{ color: pal.text }}>
+          <span className="truncate" style={{ fontStyle: "italic", paddingRight: 2 }}>
+            {s.attachment}
+          </span>
+          {target.type === "image" && (
+            <span className="shrink-0" style={{ marginLeft: 4 }}>
+              <ImageGlyph color={pal.icon} size={16} />
+            </span>
+          )}
+        </span>
+      ) : (
+        <span dir="auto" className="min-w-0 truncate" style={{ color: pal.text }}>
+          {snippet}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** EditText cursor tinted with Discord's brand colour: 2 dp wide. */
+function Caret({ pal, clockMs }: { pal: Pal; clockMs?: number }) {
+  const exporting = clockMs !== undefined;
+  return (
+    <span
+      aria-hidden
+      className={exporting ? undefined : "dcand-caret"}
+      style={{
+        display: "inline-block",
+        width: 2,
+        height: 21,
+        background: pal.brand,
+        verticalAlign: "-5px",
+        marginLeft: 1,
+        marginRight: 1,
+        opacity: exporting ? (caretOn(clockMs) ? 1 : 0) : undefined,
+      }}
+    />
+  );
+}
+
 /* --------------------------------- screen --------------------------------- */
 
 export function DiscordAndroid({ scenario, playback, lang }: PlatformProps) {
@@ -526,7 +760,9 @@ export function DiscordAndroid({ scenario, playback, lang }: PlatformProps) {
   const { messages, typing, clockMs } = playback;
   const exporting = clockMs !== undefined;
   const live = playback.isLive && !exporting;
-  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}`);
+  // The composer grows while a draft wraps: keep the list pinned to its newest row.
+  const draftKey = playback.draft ? `${Math.floor(playback.draft.text.length / 22)}` : "-";
+  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}-${draftKey}`);
 
   const showTyping = typing || (!playback.isLive && scenario.presence === "typing");
   const online = scenario.presence !== "lastseen" || showTyping;
@@ -534,6 +770,15 @@ export function DiscordAndroid({ scenario, playback, lang }: PlatformProps) {
   const themName = them.name.trim() || "Discord";
   const handle = usernameOf(them.name);
   const today = longDate(new Date());
+
+  const draft = playback.draft;
+  const draftText = draft?.text ?? "";
+  const hasDraft = draftText.length > 0;
+  const draftMsg = draft ? scenario.messages.find((x) => x.id === draft.messageId) : undefined;
+  const draftReplyTo = draftMsg?.replyToId ? scenario.messages.find((x) => x.id === draftMsg.replyToId) : undefined;
+  const draftReplyName = draftReplyTo
+    ? (draftReplyTo.sender === "me" ? scenario.me.name : them.name).trim() || (draftReplyTo.sender === "me" ? "You" : themName)
+    : "";
 
   const textStyle: CSSProperties = {
     color: pal.text,
@@ -567,7 +812,7 @@ export function DiscordAndroid({ scenario, playback, lang }: PlatformProps) {
             >
               {themName}
             </span>
-            <ChevronRight color={pal.muted} />
+            <ChevronRight color={pal.icon} />
           </div>
           <div className="flex shrink-0 items-center">
             {[PhoneGlyph, VideoGlyph, SearchGlyph].map((G, i) => (
@@ -618,7 +863,10 @@ export function DiscordAndroid({ scenario, playback, lang }: PlatformProps) {
               const mine = m.sender === "me";
               const person = mine ? scenario.me : them;
               const name = person.name.trim() || (mine ? "You" : themName);
-              const { firstOfGroup } = groupInfo(messages, i);
+              const replyTarget = m.replyToId ? scenario.messages.find((x) => x.id === m.replyToId) : undefined;
+              // A reply always opens a new group: avatar + name come back.
+              const firstOfGroup = groupInfo(messages, i).firstOfGroup || !!replyTarget;
+              const reaction = m.reaction?.trim() || "";
               const caption = m.type === "image" ? m.text.trim() : "";
               const emoji = m.type === "text" && isEmojiOnly(m.text);
               const time = m.time.trim();
@@ -660,6 +908,15 @@ export function DiscordAndroid({ scenario, playback, lang }: PlatformProps) {
                     paddingLeft: firstOfGroup ? EDGE : CONTENT_INSET,
                   }}
                 >
+                  {replyTarget && (
+                    <ReplyBar
+                      target={replyTarget}
+                      person={replyTarget.sender === "me" ? scenario.me : them}
+                      fallbackName={replyTarget.sender === "me" ? "You" : themName}
+                      pal={pal}
+                      s={s}
+                    />
+                  )}
                   {firstOfGroup ? (
                     <div className="flex items-start">
                       <span style={{ marginTop: 1 }}>
@@ -684,10 +941,14 @@ export function DiscordAndroid({ scenario, playback, lang }: PlatformProps) {
                           )}
                         </div>
                         {body}
+                        {reaction && <ReactionPill emoji={reaction} me={!mine} pal={pal} />}
                       </div>
                     </div>
                   ) : (
-                    body
+                    <>
+                      {body}
+                      {reaction && <ReactionPill emoji={reaction} me={!mine} pal={pal} />}
+                    </>
                   )}
                 </div>
               );
@@ -724,40 +985,94 @@ export function DiscordAndroid({ scenario, playback, lang }: PlatformProps) {
           )}
         </div>
 
-        {/* Chat bar */}
-        {/* One floating bordered rounded rectangle (mobile visual refresh). */}
+        {/* Chat bar: one floating bordered rounded rectangle (mobile visual refresh).
+            Typing: + · text · Emoji · Send (Gift collapses, the mic becomes Send). */}
         <div className="shrink-0" style={{ background: pal.bg, padding: `6px ${EDGE}px 8px` }}>
+          {draftReplyTo && (
+            <div
+              className="flex items-center"
+              style={{
+                marginBottom: 8,
+                borderRadius: 16,
+                background: pal.barFill,
+                border: `1px solid ${pal.barBorder}`,
+                boxSizing: "border-box",
+                padding: "8px 12px",
+                gap: 8,
+              }}
+            >
+              <span className="min-w-0 flex-1 truncate" style={{ color: pal.muted, fontSize: 14, lineHeight: "18px", fontWeight: 500 }}>
+                {s.replyingTo}
+                <span dir="auto" style={{ color: pal.strong, fontWeight: 600 }}>
+                  {draftReplyName}
+                </span>
+              </span>
+              <span className="shrink-0" style={{ color: pal.brand, fontSize: 14, lineHeight: "18px", fontWeight: 700 }}>
+                @ {s.mentionOn}
+              </span>
+              <CircleXGlyph color={pal.icon} cut={pal.barFill} />
+            </div>
+          )}
           <div
-            className="flex items-center"
+            className="flex items-end"
             style={{
-              height: 56,
+              minHeight: 56,
               boxSizing: "border-box",
               borderRadius: 16,
               border: `1px solid ${pal.barBorder}`,
               background: pal.barFill,
-              paddingLeft: 11,
-              paddingRight: 11,
+              padding: "9px 11px",
               gap: 8,
             }}
           >
-            <BarButton>
-              <PlusGlyph color={pal.icon} />
-            </BarButton>
-            <span
-              className="min-w-0 flex-1 truncate"
-              style={{ color: pal.muted, fontSize: 16, lineHeight: "20px", fontWeight: 400, paddingLeft: 2 }}
-            >
-              {s.messageAt(themName)}
+            <span className="flex shrink-0 items-center" style={{ height: 36 }}>
+              <BarButton>
+                <PlusGlyph color={pal.icon} />
+              </BarButton>
             </span>
-            <BarButton>
-              <GiftGlyph color={pal.icon} />
-            </BarButton>
-            <BarButton>
-              <EmojiGlyph color={pal.icon} />
-            </BarButton>
-            <BarButton>
-              <MicGlyph color={pal.icon} />
-            </BarButton>
+            <div className="min-w-0 flex-1" style={{ padding: "8px 0 8px 2px" }}>
+              {hasDraft ? (
+                <div className="flex flex-col justify-end overflow-hidden" style={{ maxHeight: DRAFT_MAX_LINES * 20 }}>
+                  <div
+                    dir={dirOf(draftText)}
+                    className="whitespace-pre-wrap"
+                    style={{ color: pal.text, fontSize: 16, lineHeight: "20px", fontWeight: 400, overflowWrap: "anywhere", textAlign: "start" }}
+                  >
+                    {draftText}
+                    <Caret pal={pal} clockMs={clockMs} />
+                  </div>
+                </div>
+              ) : (
+                <div className="flex min-w-0 items-center" style={{ height: 20 }}>
+                  {draft && <Caret pal={pal} clockMs={clockMs} />}
+                  <span className="min-w-0 truncate" style={{ color: pal.muted, fontSize: 16, lineHeight: "20px", fontWeight: 400 }}>
+                    {s.messageAt(themName)}
+                  </span>
+                </div>
+              )}
+            </div>
+            <span className="flex shrink-0 items-center" style={{ height: 36, gap: 8 }}>
+              {!hasDraft && (
+                <BarButton>
+                  <GiftGlyph color={pal.icon} />
+                </BarButton>
+              )}
+              <BarButton>
+                <EmojiGlyph color={pal.icon} />
+              </BarButton>
+              {hasDraft ? (
+                <span
+                  className="flex shrink-0 items-center justify-center rounded-full"
+                  style={{ width: 36, height: 36, marginRight: -2, background: pal.brand }}
+                >
+                  <SendGlyph />
+                </span>
+              ) : (
+                <BarButton>
+                  <MicGlyph color={pal.icon} />
+                </BarButton>
+              )}
+            </span>
           </div>
         </div>
       </div>

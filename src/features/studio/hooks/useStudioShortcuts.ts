@@ -52,6 +52,15 @@ export function useStudioShortcuts(handlers: Handlers) {
       const exists = selected ? useStudioStore.getState().scenario.messages.some((m) => m.id === selected) : false;
       const key = e.key.toLowerCase();
 
+      // Undo / redo of scenario edits. Inside a text field the browser's own
+      // text undo applies instead.
+      if (mod && !typing && (key === "z" || key === "y")) {
+        e.preventDefault();
+        const store = useStudioStore.getState();
+        if (key === "y" || e.shiftKey) store.redo();
+        else store.undo();
+        return;
+      }
       if (mod && key === "s") {
         e.preventDefault();
         h.onSave();

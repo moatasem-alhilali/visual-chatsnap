@@ -47,6 +47,10 @@ function Dialog({
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        // a menu, listbox or popover opened from inside the dialog closes first
+        if (document.querySelector('[role="menu"], [role="listbox"], [data-popover]')) return
+        // fields that use Escape themselves (e.g. cancel an inline rename)
+        if ((e.target as HTMLElement | null)?.closest?.("[data-escape-scope]")) return
         e.stopPropagation()
         onOpenChange(false)
         return
@@ -88,12 +92,12 @@ function Dialog({
         aria-labelledby={titleId}
         aria-describedby={description ? descId : undefined}
         className={cn(
-          "relative w-full max-w-md rounded-xl border border-border bg-popover text-popover-foreground shadow-studio-pop outline-none",
+          "relative flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col rounded-xl border border-border bg-popover text-popover-foreground shadow-studio-pop outline-none",
           "animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-2 duration-200",
           className,
         )}
       >
-        <div className="flex items-start gap-3 p-5 pb-0">
+        <div className="flex shrink-0 items-start gap-3 p-5 pb-0">
           {icon && (
             <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
               {icon}
@@ -118,12 +122,12 @@ function Dialog({
             <X className="size-4" />
           </button>
         </div>
-        {children && <div className="px-5 pt-4">{children}</div>}
+        {children && <div className={cn("studio-scroll min-h-0 flex-1 overflow-y-auto px-5 pt-4", !footer && "pb-5")}>{children}</div>}
         {footer ? (
-          <div className="mt-5 flex flex-col-reverse gap-2 border-t border-border px-5 py-3.5 sm:flex-row sm:justify-end">
+          <div className="mt-5 flex shrink-0 flex-col-reverse gap-2 border-t border-border px-5 py-3.5 sm:flex-row sm:justify-end">
             {footer}
           </div>
-        ) : (
+        ) : children ? null : (
           <div className="h-5" />
         )}
       </div>

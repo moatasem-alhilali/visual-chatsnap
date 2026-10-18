@@ -124,11 +124,56 @@ const TYPING_MS = 700;
 
 const TGI_STRINGS: Record<
   Lang,
-  { online: string; typing: string; lastSeenRecently: string; today: string; placeholder: string }
+  {
+    online: string;
+    typing: string;
+    lastSeenRecently: string;
+    today: string;
+    placeholder: string;
+    photo: string;
+    voice: string;
+  }
 > = {
-  en: { online: "online", typing: "typing", lastSeenRecently: "last seen recently", today: "Today", placeholder: "Message" },
-  ar: { online: "متصل", typing: "يكتب", lastSeenRecently: "آخر ظهور كان قريبًا", today: "اليوم", placeholder: "الرسالة" },
+  // Message.Photo / Message.Audio (reply snippets for media targets)
+  en: {
+    online: "online",
+    typing: "typing",
+    lastSeenRecently: "last seen recently",
+    today: "Today",
+    placeholder: "Message",
+    photo: "Photo",
+    voice: "Voice Message",
+  },
+  ar: {
+    online: "متصل",
+    typing: "يكتب",
+    lastSeenRecently: "آخر ظهور كان قريبًا",
+    today: "اليوم",
+    placeholder: "الرسالة",
+    photo: "صورة",
+    voice: "رسالة صوتية",
+  },
 };
+
+/*
+ * Reactions (ReactionButtonListComponent + ChatMessageDateAndStatusNode, trailingContent): always chips now
+ * (shouldDisplayInlineDateReactions returns false). Chip 30pt tall, radius 15, emoji box 20pt at x 11; in a
+ * private chat (displayAllReactionPeers = CloudUser) the reactor's 24pt avatar follows at x 35, width 68.
+ * The chip row sits 3pt under the text (verticalReactionsInset), x −1 (reactionButtonLeadingBleed), 6pt spacing;
+ * the date shares the row, bottom-aligned (+1pt). Colours: Default{Day,Dark}PresentationTheme
+ * reactionActive/InactiveBackground (selected = my reaction).
+ * Replies (ChatMessageReplyInfoNode + MessageInlineBlockBackgroundView): block 10pt from the body top/sides
+ * (header 11 − 1pt stroke inset), radius 4, 3pt bar in the main colour, fill main @ .1; title semibold 14 /
+ * text regular 14 (17 × 14/17), one line each, x 9, 3pt top/bottom insets → 40pt; photo thumb = 2 × title line
+ * (≈33pt) at (9,4) r 4, text shifts by side + 6. Incoming: author name colour (PeerNameColors), outgoing:
+ * outgoing.accentTextColor. Media snippet in secondaryTextColor. Text resumes 6⅓pt under the block.
+ * Composer (ChatTextInputPanelNode, ChatTextInputActionButtonsNode): with text the mic glass circle moves off
+ * screen (x = width + 8), the field stretches to 8pt from the edge and the send button (40pt slot, 34pt
+ * panelControlAccentColor circle, inset 3) scales in at the field's trailing bottom with the paper-plane
+ * SendIcon (send.pdf, 30×30, white); alpha 0.2s + blur 4→0 0.18s, icon slides in from (−22, +18).
+ * The sticker accessory (32pt slot, 4pt inset) moves left of it. Field text: 17pt, insets 5+4.5 / 4+5.5,
+ * left 12; grows by one SF line (20.29pt) per wrapped line.
+ */
 
 /* ------------------------------------------------------------------ */
 /* Theme                                                              */
@@ -151,6 +196,14 @@ interface IosTheme {
   glassShadow: string;
   mediaPlaceholderIn: string;
   mediaPlaceholderOut: string;
+  /** reaction chip fills: [incoming bubble, outgoing bubble] × [chosen by me, not chosen] */
+  react: { inChosen: string; inOther: string; outChosen: string; outOther: string };
+  /** reply block main colour inside outgoing bubbles (outgoing.accentTextColor) */
+  replyOut: string;
+  /** author name colours (PeerNameColors) for replies inside incoming bubbles */
+  names: string[];
+  /** panelControlAccentColor — send button + caret */
+  sendFill: string;
   voice: {
     in: { active: string; inactive: string; glyph: string; duration: string; dot: string };
     out: { active: string; inactive: string; glyph: string; duration: string; dot: string };
@@ -174,6 +227,15 @@ const IOS_LIGHT: IosTheme = {
   glassShadow: "0 1px 14px rgba(0,0,0,0.07), 0 0 3px rgba(0,0,0,0.04), inset 0 0 0 0.5px rgba(255,255,255,0.9)",
   mediaPlaceholderIn: "#e4e8eb",
   mediaPlaceholderOut: "#d2f2b6",
+  react: {
+    inChosen: "#0088ff",
+    inOther: "rgba(0, 136, 255, 0.1)",
+    outChosen: "#3fc33b",
+    outOther: "rgba(63, 195, 59, 0.12)",
+  },
+  replyOut: "#00a700",
+  names: ["#cc5049", "#d67722", "#955cdb", "#40a920", "#309eba", "#368ad1", "#c7508b"],
+  sendFill: "#0088ff",
   voice: {
     in: { active: "#0088ff", inactive: "#cacaca", glyph: "#ffffff", duration: "rgba(82, 82, 82, 0.6)", dot: "#0088ff" },
     out: { active: "#3fc33b", inactive: "#93d987", glyph: "#e1ffc7", duration: "rgba(0, 140, 9, 0.8)", dot: "#3fc33b" },
@@ -198,6 +260,17 @@ const IOS_DARK: IosTheme = {
   glassShadow: "0 1px 14px rgba(0,0,0,0.35), inset 0 0 0 0.5px rgba(255,255,255,0.09)",
   mediaPlaceholderIn: "#2a2a2a",
   mediaPlaceholderOut: "rgba(255,255,255,0.2)",
+  // customizeDefaultDarkTheme: incoming active = accent, inactive white .07; outgoing active white, inactive .12
+  react: {
+    inChosen: "#3e88f7",
+    inOther: "rgba(255, 255, 255, 0.07)",
+    outChosen: "#ffffff",
+    outOther: "rgba(255, 255, 255, 0.12)",
+  },
+  replyOut: "#ffffff",
+  // server peer_colors dark variants
+  names: ["#ff8e86", "#ffa357", "#b18fff", "#4fd635", "#45e8d1", "#52bfff", "#ff7fd5"],
+  sendFill: "#3e88f7",
   voice: {
     in: { active: "#3e88f7", inactive: "rgba(62, 136, 247, 0.4)", glyph: "#1d1d1d", duration: "rgba(255, 255, 255, 0.5)", dot: "#3e88f7" },
     out: { active: "#ffffff", inactive: "rgba(255, 255, 255, 0.5)", glyph: "#1a8cfb", duration: "rgba(255, 255, 255, 0.5)", dot: "#ffffff" },
@@ -805,6 +878,23 @@ const darkOutStyle: CSSProperties = {
   backgroundRepeat: "no-repeat",
 };
 
+/** Who reacted with what (on my message it is theirs, on theirs it is mine). */
+interface Reaction {
+  emoji: string;
+  by: Person;
+  chosen: boolean;
+}
+
+/** The quoted message of a reply. */
+interface Quote {
+  name: string;
+  nameIdx: number;
+  text: string;
+  media: boolean;
+  thumb: string | null;
+  hasThumb: boolean;
+}
+
 interface RowCtx {
   t: IosTheme;
   m: Message;
@@ -813,6 +903,93 @@ interface RowCtx {
   last: boolean;
   status: DeliveryStatus;
   animate: boolean;
+  react: Reaction | null;
+  quote: Quote | null;
+}
+
+/** PeerNameColor preset for a peer without a custom colour (id % 7); the name stands in for the id. */
+function nameColorIndex(name: string): number {
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return h % 7;
+}
+
+function quoteOf(target: Message | undefined, me: Person, them: Person, s: (typeof TGI_STRINGS)[Lang]): Quote | null {
+  if (!target) return null;
+  const author = target.sender === "me" ? me : them;
+  const base = { name: author.name, nameIdx: nameColorIndex(author.name) };
+  if (target.type === "voice") return { ...base, text: s.voice, media: true, thumb: null, hasThumb: false };
+  if (target.type === "image") {
+    const caption = target.text.replace(/\s+/g, " ").trim();
+    return { ...base, text: caption || s.photo, media: !caption, thumb: target.imageSrc ?? null, hasThumb: true };
+  }
+  return { ...base, text: target.text.replace(/\s+/g, " ").trim(), media: false, thumb: null, hasThumb: false };
+}
+
+/** rgba() of a #rrggbb colour. */
+function alpha(hex: string, a: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+}
+
+/** ReactionButtonAsyncNode in a private chat: 30pt pill, 20pt emoji at x 11, reactor avatar 24pt at x 35. */
+function ReactionChip({ r, t, outgoing }: { r: Reaction; t: IosTheme; outgoing: boolean }) {
+  const bg = outgoing ? (r.chosen ? t.react.outChosen : t.react.outOther) : r.chosen ? t.react.inChosen : t.react.inOther;
+  return (
+    <span className="relative block shrink-0" style={{ width: 68, height: 30, borderRadius: 15, background: bg }}>
+      <span
+        className="absolute flex items-center justify-center"
+        style={{ left: 11, top: 5, width: 20, height: 20, fontSize: 17, lineHeight: "20px", letterSpacing: 0 }}
+      >
+        {r.emoji}
+      </span>
+      <span className="absolute block" style={{ left: 35, top: 3 }}>
+        <TgAvatar person={r.by} size={24} />
+      </span>
+    </span>
+  );
+}
+
+/** ChatMessageReplyInfoNode inside a bubble (MessageInlineBlockBackgroundView behind it). */
+function ReplyHeader({ q, t, outgoing, style }: { q: Quote; t: IosTheme; outgoing: boolean; style?: CSSProperties }) {
+  const main = outgoing ? t.replyOut : t.names[q.nameIdx];
+  const textColor = q.media ? (outgoing ? t.outMeta : t.inMeta) : t.text;
+  const thumbSide = 33;
+  const x = q.hasThumb ? 9 + thumbSide + 6 : 9;
+  const line: CSSProperties = {
+    fontSize: 14,
+    lineHeight: "17px",
+    letterSpacing: "-0.15px",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    textAlign: "left",
+  };
+  return (
+    <div
+      className="relative overflow-hidden"
+      style={{ borderRadius: 4, background: alpha(main, 0.1), padding: `3px 8px 3px ${x}px`, minWidth: 0, ...style }}
+    >
+      <span aria-hidden className="absolute inset-y-0 left-0 block" style={{ width: 3, background: main }} />
+      {q.hasThumb && (
+        <span
+          className="absolute block overflow-hidden"
+          style={{ left: 9, top: 4, width: thumbSide, height: thumbSide, borderRadius: 4, background: outgoing ? t.mediaPlaceholderOut : t.mediaPlaceholderIn }}
+        >
+          {q.thumb && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={q.thumb} alt="" draggable={false} className="block h-full w-full object-cover" />
+          )}
+        </span>
+      )}
+      <div dir="auto" style={{ ...line, fontWeight: 600, color: main }}>
+        {q.name}
+      </div>
+      <div dir="auto" style={{ ...line, color: textColor }}>
+        {q.text}
+      </div>
+    </div>
+  );
 }
 
 function fillsFor(ctx: RowCtx): { fill: string; tailFill: string; gradient: boolean } {
@@ -885,7 +1062,7 @@ function TextWithMeta({ ctx, text }: { ctx: RowCtx; text: string }) {
         }}
       >
         <span style={{ lineHeight: `${LINE_PITCH}px` }}>{text}</span>
-        {dir === "rtl" ? (
+        {ctx.react ? null : dir === "rtl" ? (
           <span aria-hidden className="flex justify-end" style={{ height: 14, visibility: "hidden", letterSpacing: 0 }} dir="ltr">
             {run(true)}
           </span>
@@ -895,6 +1072,7 @@ function TextWithMeta({ ctx, text }: { ctx: RowCtx; text: string }) {
           </span>
         )}
       </div>
+      {ctx.react && <ReactionRow ctx={ctx} meta={run(true)} />}
       <span className="pointer-events-none absolute" style={{ right: 10, bottom: META_BOTTOM }}>
         {run(false)}
       </span>
@@ -902,13 +1080,35 @@ function TextWithMeta({ ctx, text }: { ctx: RowCtx; text: string }) {
   );
 }
 
+/**
+ * Reaction row under the content (ChatMessageDateAndStatusNode trailingContent): 3pt gap, chips from x −1,
+ * the date sharing the last row (its width reserved by a hidden copy), 1pt below.
+ */
+function ReactionRow({ ctx, meta }: { ctx: RowCtx; meta: ReactNode }) {
+  if (!ctx.react) return null;
+  return (
+    <div className="flex items-end" dir="ltr" style={{ marginTop: 3, paddingBottom: 1, letterSpacing: 0 }}>
+      <span style={{ marginLeft: -1 }}>
+        <ReactionChip r={ctx.react} t={ctx.t} outgoing={ctx.mine} />
+      </span>
+      <span aria-hidden className="ml-auto" style={{ visibility: "hidden", paddingLeft: 1 }}>
+        {meta}
+      </span>
+    </div>
+  );
+}
+
 function TextBubble({ ctx }: { ctx: RowCtx }) {
   const radius = radiiFor(ctx.mine, ctx.first, ctx.last, R_MAIN, R_AUX);
   return (
     <BubbleShell ctx={ctx} radius={radius} tail={ctx.last} style={{ maxWidth: BODY_MAX, minWidth: 38 }}>
+      {ctx.quote && <ReplyHeader q={ctx.quote} t={ctx.t} outgoing={ctx.mine} style={{ margin: "10px 10px 0" }} />}
       <div
         className="relative flex flex-col justify-center"
-        style={{ minHeight: 33, padding: `${TEXT_PAD_TOP}px 10px ${TEXT_PAD_BOTTOM}px` }}
+        style={{
+          minHeight: ctx.quote ? undefined : 33,
+          padding: `${ctx.quote ? 6 + 1 / 3 - HALF_LEAD : TEXT_PAD_TOP}px 10px ${TEXT_PAD_BOTTOM}px`,
+        }}
       >
         <TextWithMeta ctx={ctx} text={ctx.m.text} />
       </div>
@@ -933,7 +1133,9 @@ function VoiceBubble({ ctx }: { ctx: RowCtx }) {
   const { color, check } = metaColors(ctx);
   const glyph = ctx.mine && ctx.t.dark ? "var(--tgi-tail, #1a8cfb)" : v.glyph;
   return (
-    <BubbleShell ctx={ctx} radius={radius} tail={ctx.last} style={{ width: bodyW, height: 70 }}>
+    <BubbleShell ctx={ctx} radius={radius} tail={ctx.last} style={{ minWidth: bodyW, maxWidth: BODY_MAX }}>
+      {ctx.quote && <ReplyHeader q={ctx.quote} t={ctx.t} outgoing={ctx.mine} style={{ margin: "10px 10px -4px" }} />}
+      <div className="relative" style={{ height: ctx.react ? 66 : 70 }}>
       <span className="absolute rounded-full" style={{ left: 11, top: 11, width: 44, height: 44, background: v.active }}>
         <svg width="44" height="44" viewBox="0 0 44 44" aria-hidden className="block">
           <path
@@ -952,6 +1154,12 @@ function VoiceBubble({ ctx }: { ctx: RowCtx }) {
         {ctx.m.voiceDuration ?? "0:00"}
         {unplayed && <span className="rounded-full" style={{ width: 4, height: 4, marginLeft: 4, marginTop: 1, background: v.dot }} />}
       </span>
+      </div>
+      {ctx.react && (
+        <div className="relative" style={{ height: 34, paddingLeft: 10 }}>
+          <ReactionChip r={ctx.react} t={ctx.t} outgoing={ctx.mine} />
+        </div>
+      )}
       <span className="pointer-events-none absolute" style={{ right: 8, bottom: 3 }}>
         <MetaRun time={ctx.m.time} mine={ctx.mine} status={ctx.status} color={color} checkColor={check} inset={0} animate={ctx.animate} />
       </span>
@@ -967,15 +1175,17 @@ function ImageBubble({ ctx }: { ctx: RowCtx }) {
   const natural = loaded && loaded.src === src ? loaded : (parsed ?? { w: 4, h: 3 });
   const { w, h } = fitImage(natural);
   const onRight = ctx.mine;
-  const tailOnImage = ctx.last && !caption;
+  const footer = !caption && !!ctx.react;
+  const tailOnImage = ctx.last && !caption && !footer;
   const radius = radiiFor(onRight, ctx.first, ctx.last, R_MAIN, R_AUX);
   // image corners (chatMessageBubbleImageContentCorners)
   const senderTop = ctx.first ? IMG_R_MAIN : IMG_R_AUX;
   const senderBottom = ctx.last ? IMG_R_MAIN : IMG_R_AUX;
-  const tl = onRight ? IMG_R_MAIN : senderTop;
-  const tr = onRight ? senderTop : IMG_R_MAIN;
-  const bl = caption ? 0 : onRight ? IMG_R_MAIN : senderBottom;
-  const br = caption ? 0 : onRight ? senderBottom : IMG_R_MAIN;
+  // a reply header above / a caption or reaction footer below merge those corners
+  const tl = ctx.quote ? 0 : onRight ? IMG_R_MAIN : senderTop;
+  const tr = ctx.quote ? 0 : onRight ? senderTop : IMG_R_MAIN;
+  const bl = caption || footer ? 0 : onRight ? IMG_R_MAIN : senderBottom;
+  const br = caption || footer ? 0 : onRight ? senderBottom : IMG_R_MAIN;
   const ext = tailOnImage ? 6 : 0;
   const dx = onRight ? 0 : ext;
   let clip = roundedRectPath(w, h, tl, tr, br, bl, dx);
@@ -983,6 +1193,7 @@ function ImageBubble({ ctx }: { ctx: RowCtx }) {
   const placeholder = ctx.mine ? ctx.t.mediaPlaceholderOut : ctx.t.mediaPlaceholderIn;
   return (
     <BubbleShell ctx={ctx} radius={radius} tail={ctx.last} style={{ width: w + 2 }}>
+      {ctx.quote && <ReplyHeader q={ctx.quote} t={ctx.t} outgoing={ctx.mine} style={{ margin: "10px 10px 5px" }} />}
       <div className="relative" style={{ height: h + 2 }}>
         <div
           className="absolute overflow-hidden"
@@ -1031,6 +1242,12 @@ function ImageBubble({ ctx }: { ctx: RowCtx }) {
           <TextWithMeta ctx={ctx} text={caption} />
         </div>
       )}
+      {footer && ctx.react && (
+        // ChatMessageReactionsFooterContentNode: chips at the text inset, 2pt bottom inset
+        <div style={{ padding: "5px 10px 6px" }}>
+          <ReactionChip r={ctx.react} t={ctx.t} outgoing={ctx.mine} />
+        </div>
+      )}
     </BubbleShell>
   );
 }
@@ -1039,7 +1256,8 @@ function EmojiMessage({ ctx, count, freeBg }: { ctx: RowCtx; count: number; free
   const single = count === 1;
   const fontSize = single ? 100 : Math.floor(94 * (count === 2 ? 0.84 : 0.69));
   return (
-    <div className="relative" style={{ margin: ctx.mine ? "0 -1px 0 0" : "0 0 0 -1px" }}>
+    <div style={{ margin: ctx.mine ? "0 -1px 0 0" : "0 0 0 -1px" }}>
+      <div className="relative">
       <div
         dir="ltr"
         style={
@@ -1058,6 +1276,17 @@ function EmojiMessage({ ctx, count, freeBg }: { ctx: RowCtx; count: number; free
         animate={ctx.animate}
         style={{ right: 4, bottom: single ? 4 : 0 }}
       />
+      </div>
+      {ctx.react && (
+        // free-standing reactions sit under the sticker, on the service fill when not chosen
+        <div className={`flex ${ctx.mine ? "justify-end" : "justify-start"}`} style={{ paddingTop: 4 }}>
+          <ReactionChip
+            r={ctx.react}
+            t={{ ...ctx.t, react: { ...ctx.t.react, inOther: freeBg, outOther: freeBg, outChosen: ctx.t.react.inChosen } }}
+            outgoing={ctx.mine}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -1122,6 +1351,10 @@ export const telegramIosMotion: PlatformMotion = {
   },
 };
 
+/** Layout spring of the input panel, approximated (0.4s, fast start, long settle). */
+const SEND_MS = 400;
+const SPRING_CSS = "cubic-bezier(0.22, 1, 0.36, 1)";
+
 function buildCss(): string {
   let css = "";
   for (const mine of [true, false]) {
@@ -1143,9 +1376,196 @@ function buildCss(): string {
   css += `@keyframes tgi-dot{${dot}}.tgi-dot{animation:tgi-dot ${TYPING_MS}ms linear infinite}`;
   css += `@keyframes tgi-chk{from{transform:scale(1.3)}to{transform:scale(1)}}.tgi-chk{animation:tgi-chk 100ms ease-out both;transform-origin:center}`;
   css += `@keyframes tgi-fade{from{opacity:0}to{opacity:1}}.tgi-fade{animation:tgi-fade 200ms ease-out both}`;
+  // UIKit caret: solid while typing, then ~0.53s off / on
+  css += `@keyframes tgi-caret{0%,50%{opacity:0}50.01%,100%{opacity:1}}.tgi-caret{animation:tgi-caret 1060ms steps(1,end) 500ms infinite}`;
+  // send button: alpha 0.2s easeInOut + blur 4→0 0.18s; scale-in and the icon's (−22, 18) slide ride the layout spring
+  css += `@keyframes tgi-send{from{opacity:0;filter:blur(4px);transform:scale(.001)}45%{filter:blur(0)}50%{opacity:1}to{opacity:1;filter:blur(0);transform:none}}.tgi-send{animation:tgi-send ${SEND_MS}ms ${SPRING_CSS} both}`;
+  css += `@keyframes tgi-send-icon{from{transform:translate(-22px,18px)}to{transform:none}}.tgi-send-icon{animation:tgi-send-icon ${SEND_MS}ms ${SPRING_CSS} both}`;
   return css;
 }
 const TGI_CSS = buildCss();
+
+/* ------------------------------------------------------------------ */
+/* Composer (compose typing)                                          */
+/* ------------------------------------------------------------------ */
+
+const SPRING = bezier(0.22, 1, 0.36, 1);
+
+/** Field geometry (ChatTextInputPanelNode): text insets 5+4.5 top, 4+5.5 bottom; one SF 17 line = 20.29pt. */
+const FIELD_LINE = 20.29;
+const FIELD_PAD_V = 9.5;
+/** right text inset with text: accessory (4 + 32 − 2 − 14) + send (40 − 10) + internal 11 */
+const FIELD_TEXT_RIGHT = 61;
+
+/**
+ * Exporter clock bookkeeping: ms since `key` last changed (undefined when not exporting) and whether that
+ * value is the one we started with. Derived state updated during render (React's documented pattern).
+ */
+function useSwitchClock(key: string, clockMs: number | undefined): { since: number; initial: boolean } | undefined {
+  const [mark, setMark] = useState<{ key: string; at: number | undefined; initial: boolean }>({ key, at: clockMs, initial: true });
+  let cur = mark;
+  if (mark.key !== key) {
+    cur = { key, at: clockMs, initial: false };
+    setMark(cur);
+  }
+  if (clockMs === undefined) return undefined;
+  return { since: Math.max(0, clockMs - (cur.at ?? clockMs)), initial: cur.initial };
+}
+
+/** Chat/Input/Text/SendIcon (send.pdf, 30×30): the Telegram paper plane, white. */
+const SEND_PLANE_D =
+  "M1.374896 9.472263C1.374896 9.472263 9.427943 12.958834 12.114815 14.069384C17.229191 16.183283 18.291916 16.550489 18.984585 16.562614C19.13693 16.565281 19.477566 16.527763 19.698214 16.349846C19.884525 16.199615 19.935787 15.996675 19.960318 15.85424C19.984848 15.711806 20.015392 15.387336 19.99111 15.133804C19.713961 12.240038 18.514738 5.217632 17.904642 1.976564C17.646488 0.605147 17.138172 0.145317 16.646065 0.100317C15.576601 0.002522 14.764499 0.802658 13.728671 1.477396C12.107805 2.533228 11.192119 3.190486 9.618788 4.220782C7.800531 5.411469 8.979231 6.065889 10.01545 7.135397C10.286633 7.415293 14.998713 11.674402 15.089916 12.06077C15.101322 12.109092 15.111909 12.289213 15.004227 12.384323C14.896544 12.479433 14.737615 12.446909 14.622927 12.421043C14.379076 12.366045 6.854864 7.318857 6.854864 7.318857C6.854864 7.318857 5.752395 6.566566 4.857699 6.585774C4.200145 6.599892 2.935277 6.955233 1.994976 7.258969C0.84166 7.631515 -0.074973 7.828483 0.004845 8.46118C0.067207 8.955502 1.374896 9.472263 1.374896 9.472263Z";
+
+/** The typed text block (shared by the field and the list's bottom spacer so both grow alike). */
+function DraftText({ text, color, caret }: { text: string; color: string; caret?: ReactNode }) {
+  return (
+    <div
+      dir={dirOf(text)}
+      style={{
+        padding: `${FIELD_PAD_V}px ${FIELD_TEXT_RIGHT}px ${FIELD_PAD_V}px 12px`,
+        fontSize: 17,
+        lineHeight: `${FIELD_LINE}px`,
+        letterSpacing: "-0.4px",
+        color,
+        textAlign: "start",
+        whiteSpace: "pre-wrap",
+        overflowWrap: "break-word",
+        wordBreak: "break-word",
+      }}
+    >
+      {text}
+      {caret}
+    </div>
+  );
+}
+
+/** UITextView caret: 2pt, tint colour. Solid right after a keystroke, then blinks. */
+function Caret({ color, clock }: { color: string; clock?: { since: number } }) {
+  const visible = !clock || clock.since < 500 || Math.floor((clock.since - 500) / 530) % 2 === 1;
+  return (
+    <span
+      aria-hidden
+      className={clock ? undefined : "tgi-caret"}
+      style={{
+        display: "inline-block",
+        width: 2,
+        height: 20,
+        margin: "0 -2px 0 0",
+        verticalAlign: "top",
+        borderRadius: 1,
+        background: color,
+        opacity: visible ? 1 : 0,
+      }}
+    />
+  );
+}
+
+function Composer({
+  t,
+  placeholder,
+  text,
+  clockMs,
+  live,
+}: {
+  t: IosTheme;
+  placeholder: string;
+  text: string | null;
+  clockMs?: number;
+  live: boolean;
+}) {
+  const on = text !== null;
+  const sw = useSwitchClock(on ? "on" : "off", clockMs);
+  const keyClock = useSwitchClock(text ?? "", clockMs);
+  const exporting = sw !== undefined;
+  // 0 = empty composer, 1 = typing layout (field to the edge, mic off screen)
+  let k = on ? 1 : 0;
+  if (sw && !sw.initial) {
+    const p = SPRING(Math.min(1, sw.since / SEND_MS));
+    k = on ? p : 1 - p;
+  }
+  const move: CSSProperties = exporting || !live ? {} : { transition: `right ${SEND_MS}ms ${SPRING_CSS}` };
+  const fieldRight = 54 + (8 - 54) * k;
+  // send button (export: computed from the clock; live: CSS keyframes on mount)
+  let sendStyle: CSSProperties | null = null;
+  let iconStyle: CSSProperties = {};
+  if (on || (sw && !sw.initial && sw.since < 200)) {
+    if (sw && !sw.initial) {
+      const s = sw.since;
+      const sp = SPRING(Math.min(1, s / SEND_MS));
+      sendStyle = on
+        ? {
+            opacity: Math.min(1, s / 200),
+            filter: s < 180 ? `blur(${(4 * (1 - s / 180)).toFixed(2)}px)` : undefined,
+            transform: sp < 1 ? `scale(${Math.max(0.001, sp).toFixed(4)})` : undefined,
+          }
+        : { opacity: Math.max(0, 1 - s / 200), filter: `blur(${(4 * Math.min(1, s / 180)).toFixed(2)}px)` };
+      if (on && sp < 1) iconStyle = { transform: `translate(${(-22 * (1 - sp)).toFixed(2)}px, ${(18 * (1 - sp)).toFixed(2)}px)` };
+    } else {
+      sendStyle = {};
+    }
+  }
+  const animateSend = !exporting && live;
+  return (
+    <>
+      <div className="absolute flex items-center justify-center" style={{ left: 8, bottom: PANEL_BOTTOM, ...glass(t, { w: 40, h: 40 }) }}>
+        <AttachIcon color={t.control} />
+      </div>
+      <div
+        className="absolute"
+        style={{
+          left: 54,
+          right: fieldRight,
+          bottom: PANEL_BOTTOM,
+          minHeight: PANEL_H,
+          ...glass(t, { h: PANEL_H }),
+          height: undefined,
+          borderRadius: 20,
+          ...move,
+        }}
+      >
+        {on ? (
+          <DraftText text={text} color={t.text} caret={<Caret key={text.length} color={t.sendFill} clock={keyClock} />} />
+        ) : (
+          <div className="flex items-center" style={{ height: PANEL_H, paddingLeft: 12, paddingRight: 44 }}>
+            <span
+              className="flex-1 truncate"
+              dir="auto"
+              style={{ fontSize: 17, lineHeight: "21px", letterSpacing: "-0.4px", color: t.placeholder, textAlign: "left", marginTop: -0.5 }}
+            >
+              {placeholder}
+            </span>
+          </div>
+        )}
+        {/* sticker accessory: 32pt slot 4pt from the trailing edge, left of the send slot while typing */}
+        <span
+          className="absolute block"
+          style={{ right: 4 + 4 + (on ? 40 : 0), bottom: 8, width: 24, height: 24, ...(exporting || !live ? {} : { transition: `right ${SEND_MS}ms ${SPRING_CSS}` }) }}
+        >
+          <StickerIcon color={t.inputControl} />
+        </span>
+        {sendStyle && (
+          <span
+            aria-hidden
+            className={`absolute block ${animateSend ? "tgi-send" : ""}`}
+            style={{ right: 3, bottom: 3, width: 34, height: 34, borderRadius: 17, background: t.sendFill, ...sendStyle }}
+          >
+            <span className={`absolute block ${animateSend ? "tgi-send-icon" : ""}`} style={{ left: 2, top: 2, width: 30, height: 30, ...iconStyle }}>
+              <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden className="block">
+                <path fill="#ffffff" fillRule="evenodd" transform="matrix(1 0 0 -1 4 23.562744)" d={SEND_PLANE_D} />
+              </svg>
+            </span>
+          </span>
+        )}
+      </div>
+      <div
+        className="absolute flex items-center justify-center"
+        style={{ right: 8 + (-48 - 8) * k, bottom: PANEL_BOTTOM, ...glass(t, { w: 40, h: 40 }), ...move }}
+      >
+        <MicIcon color={t.control} />
+      </div>
+    </>
+  );
+}
 
 /* ------------------------------------------------------------------ */
 /* Component                                                          */
@@ -1157,7 +1577,10 @@ export function Telegram({ scenario, playback, lang, rtl }: PlatformProps) {
   const s = TGI_STRINGS[lang];
   const { messages, typing, clockMs } = playback;
   const live = playback.isLive && clockMs === undefined;
-  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}`);
+  const draftText = playback.draft ? playback.draft.text : null;
+  // the draft is in the key so a growing field (taller bottom inset) keeps the newest message in view
+  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}-${draftText === null ? -1 : draftText.length}`);
+  const byId = new Map(scenario.messages.map((m) => [m.id, m] as const));
   const rootRef = useRef<HTMLDivElement>(null);
   useScreenGradient(rootRef, scrollRef, dark, `${messages.length}-${typing}-${dark}`);
 
@@ -1188,7 +1611,7 @@ export function Telegram({ scenario, playback, lang, rtl }: PlatformProps) {
       <div
         ref={scrollRef}
         className="rcss-scroll absolute inset-0 overflow-y-auto"
-        style={{ paddingTop: LIST_TOP, paddingBottom: LIST_BOTTOM }}
+        style={{ paddingTop: LIST_TOP, paddingBottom: LIST_BOTTOM - PANEL_H }}
       >
         {messages.length > 0 && (
         <div className="flex items-center justify-center" style={{ height: 34 }}>
@@ -1222,6 +1645,10 @@ export function Telegram({ scenario, playback, lang, rtl }: PlatformProps) {
             last: lastOfGroup,
             status: playback.statusOf(m),
             animate: mounted && clockMs === undefined,
+            react: m.reaction
+              ? { emoji: m.reaction, by: mine ? scenario.them : scenario.me, chosen: !mine }
+              : null,
+            quote: m.replyToId ? quoteOf(byId.get(m.replyToId), scenario.me, scenario.them, s) : null,
           };
           const emoji = m.type === "text" ? emojiCount(m.text) : 0;
           let body: ReactNode;
@@ -1246,6 +1673,10 @@ export function Telegram({ scenario, playback, lang, rtl }: PlatformProps) {
             </div>
           );
         })}
+        {/* bottom inset = input panel height (grows with a multi-line draft, like the real list inset) */}
+        <div aria-hidden style={{ visibility: "hidden", width: SCREEN_W - 54 - 8, minHeight: PANEL_H }}>
+          {draftText !== null && <DraftText text={draftText} color="transparent" />}
+        </div>
       </div>
 
       <EdgeEffects dark={dark} />
@@ -1299,25 +1730,7 @@ export function Telegram({ scenario, playback, lang, rtl }: PlatformProps) {
       </div>
 
       {/* Input panel */}
-      <div className="absolute flex items-center justify-center" style={{ left: 8, bottom: PANEL_BOTTOM, ...glass(t, { w: 40, h: 40 }) }}>
-        <AttachIcon color={t.control} />
-      </div>
-      <div
-        className="absolute flex items-center"
-        style={{ left: 54, right: 54, bottom: PANEL_BOTTOM, ...glass(t, { h: PANEL_H }), paddingLeft: 12, paddingRight: 8 }}
-      >
-        <span
-          className="flex-1 truncate"
-          dir="auto"
-          style={{ fontSize: 17, lineHeight: "21px", letterSpacing: "-0.4px", color: t.placeholder, textAlign: "left", marginTop: -0.5 }}
-        >
-          {s.placeholder}
-        </span>
-        <StickerIcon color={t.inputControl} />
-      </div>
-      <div className="absolute flex items-center justify-center" style={{ right: 8, bottom: PANEL_BOTTOM, ...glass(t, { w: 40, h: 40 }) }}>
-        <MicIcon color={t.control} />
-      </div>
+      <Composer t={t} placeholder={s.placeholder} text={draftText} clockMs={clockMs} live={clockMs === undefined} />
       <div className="absolute inset-x-0 bottom-0">
         <SystemBottomBar device={scenario.device} bg="transparent" fg={dark ? "#ffffff" : "#000000"} />
       </div>

@@ -48,7 +48,7 @@
  * strings) are exported from here; WhatsAppAndroid.tsx may still import them.
  */
 
-import type { CSSProperties, ReactNode } from "react";
+import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 
 import type { DeliveryStatus, Message, Person } from "../../types";
 import { dirOf, SystemBottomBar, useChatScroll } from "../shared";
@@ -242,6 +242,23 @@ interface Pal {
   avatarFg: string;
   home: string;
   link: string;
+  /** glyph colour on the green accent buttons (mic / send) */
+  onGreen: string;
+  /** text caret (the app tint) */
+  caret: string;
+  /** quoted-reply block fill inside an incoming / outgoing bubble */
+  quoteIn: string;
+  quoteOut: string;
+  /** quoted-reply bar + name: my messages ("You") / the contact */
+  quoteYou: string;
+  quoteThem: string;
+  quoteSnippetIn: string;
+  quoteSnippetOut: string;
+  quoteThumb: string;
+  /** reaction pill under a bubble: fill, separating ring, shadow */
+  pill: string;
+  pillRing: string;
+  pillShadow: string;
 }
 
 /** Denser doodle tile for iOS (the 2024 redrawn pattern is tighter than the old one). */
@@ -304,6 +321,18 @@ const LIGHT: Pal = {
   avatarFg: "#ffffff",
   home: "#000000",
   link: "#027eb5",
+  onGreen: "#ffffff",
+  caret: "#1daa61",
+  quoteIn: "rgba(11,20,26,0.05)",
+  quoteOut: "rgba(11,20,26,0.06)",
+  quoteYou: "#1daa61",
+  quoteThem: "#7f66ff",
+  quoteSnippetIn: "rgba(0,0,0,0.55)",
+  quoteSnippetOut: "rgba(0,0,0,0.55)",
+  quoteThumb: "#d7dadc",
+  pill: "#ffffff",
+  pillRing: "#f4f1eb",
+  pillShadow: "0 1px 1.5px rgba(11,20,26,0.14)",
 };
 
 const DARK: Pal = {
@@ -341,6 +370,18 @@ const DARK: Pal = {
   avatarFg: "#9ba1a5",
   home: "#ffffff",
   link: "#53bdeb",
+  onGreen: "#0a1014",
+  caret: "#21c063",
+  quoteIn: "rgba(0,0,0,0.22)",
+  quoteOut: "rgba(0,0,0,0.22)",
+  quoteYou: "#21c063",
+  quoteThem: "#a791ff",
+  quoteSnippetIn: "rgba(255,255,255,0.6)",
+  quoteSnippetOut: "rgba(255,255,255,0.62)",
+  quoteThumb: "#3a3d3f",
+  pill: "#363838",
+  pillRing: "#0a0a0a",
+  pillShadow: "none",
 };
 
 /* ======================================================================
@@ -412,6 +453,8 @@ export const whatsappIosMotion: PlatformMotion = {
 
 /** Typing-bubble dots: 1.2s cycle, each dot 0.2s behind; pulses opacity + scale. */
 const DOT_MS = 1200;
+/** Text caret blink cycle (UIKit ≈ 1s). */
+const CARET_MS = 1000;
 function dotAt(phase: number): { opacity: number; scale: number } {
   const t = ((phase % 1) + 1) % 1;
   const k = t < 0.5 ? Math.sin((t / 0.5) * Math.PI) : 0;
@@ -440,6 +483,8 @@ const MOTION_CSS = (() => {
     dot += `${i * 5}%{opacity:${d.opacity.toFixed(3)};transform:scale(${d.scale.toFixed(3)})}`;
   }
   css += `@keyframes wa-ios-dot{${dot}}.wa-ios-dot{animation:wa-ios-dot ${DOT_MS}ms linear infinite}`;
+  // UIKit text caret: solid right after a keystroke, then a soft ~1s blink
+  css += `@keyframes wa-ios-caret{0%,50%{opacity:1}60%,90%{opacity:0}100%{opacity:1}}.wa-ios-caret{animation:wa-ios-caret ${CARET_MS}ms linear infinite}`;
   return css;
 })();
 
@@ -565,6 +610,47 @@ function MicBadge({ color, ring }: { color: string; ring: string }) {
 }
 
 /**
+ * WhatsApp's send glyph: a flat paper plane pointing right with a notched
+ * back; the lower wing is a touch darker (the fold), as on the real button.
+ */
+function SendGlyph({ color, flip }: { color: string; flip: boolean }) {
+  return (
+    <svg
+      width="20"
+      height="18"
+      viewBox="0 0 22 20"
+      style={{ display: "block", transform: flip ? "scaleX(-1)" : undefined, marginInlineStart: flip ? 0 : 2 }}
+    >
+      <path d="M1.6 1.9c-.4-.9.5-1.8 1.4-1.4L20.9 9c.9.4.9 1.6 0 2L3 19.5c-.9.4-1.8-.5-1.4-1.4L5.3 10z" fill={color} />
+      <path d="M5.3 10h15.9c0 .4-.1.8-.3 1L3 19.5c-.9.4-1.8-.5-1.4-1.4z" fill="#000000" fillOpacity="0.14" />
+    </svg>
+  );
+}
+
+/** SF "camera.fill"-style mini glyph used inside a quoted-reply snippet. */
+function MiniCamera({ color }: { color: string }) {
+  return (
+    <svg width="15" height="12" viewBox="0 0 24 19" style={{ display: "inline-block", verticalAlign: "-1px", flexShrink: 0 }}>
+      <path
+        d="M3.4 3.6h3.2l1.6-2.1c.3-.4.8-.7 1.3-.7h5c.5 0 1 .3 1.3.7l1.6 2.1h3.2A2.6 2.6 0 0 1 23.2 6.2v9.6a2.6 2.6 0 0 1-2.6 2.6H3.4A2.6 2.6 0 0 1 .8 15.8V6.2a2.6 2.6 0 0 1 2.6-2.6zM12 6.2a4.4 4.4 0 1 0 0 8.8 4.4 4.4 0 0 0 0-8.8z"
+        fill={color}
+        fillRule="evenodd"
+      />
+    </svg>
+  );
+}
+
+/** SF "mic.fill"-style mini glyph used inside a quoted-reply snippet. */
+function MiniMic({ color }: { color: string }) {
+  return (
+    <svg width="10" height="14" viewBox="0 0 16 22" style={{ display: "inline-block", verticalAlign: "-1.5px", flexShrink: 0 }}>
+      <rect x="4.4" y="1" width="7.2" height="12.4" rx="3.6" fill={color} />
+      <path d="M1.6 9.6a6.4 6.4 0 0 0 12.8 0M8 16.2v4" stroke={color} strokeWidth="2" strokeLinecap="round" fill="none" />
+    </svg>
+  );
+}
+
+/**
  * Bubble tail for the new (2026) rounder bubbles: the body edge runs straight
  * down, flares out ~6.5pt to a point on the baseline, and the underside curls
  * back up into a small notch before joining the bottom edge. It covers the
@@ -642,6 +728,150 @@ function jumboCount(text: string): number {
 
 const JUMBO_SIZE = [0, 52, 44, 38];
 
+/** Strings the shared CHROME map does not carry (WhatsApp's own wording). */
+const WA_STR: Record<Lang, { you: string; photo: string; voice: string }> = {
+  en: { you: "You", photo: "Photo", voice: "Voice message" },
+  ar: { you: "أنت", photo: "صورة", voice: "رسالة صوتية" },
+};
+
+/* Reaction pill (measured on WABetaInfo iOS captures, 3x → pt): 20pt tall
+   including a 1.5pt ring, ≥32pt wide, hangs 17pt below the bubble (3pt overlap),
+   10.5pt in from the bubble's own outer edge. */
+const PILL_H = 20;
+const PILL_OVERLAP = 3;
+const PILL_INSET = 10;
+
+/** The one-line quoted-reply block at the top of a reply bubble. */
+function Quote({
+  target,
+  p,
+  inMine,
+  lang,
+  themName,
+  uiDir,
+}: {
+  target: Message;
+  p: Pal;
+  inMine: boolean;
+  lang: Lang;
+  themName: string;
+  uiDir: "rtl" | "ltr";
+}) {
+  const s = WA_STR[lang];
+  const fromMe = target.sender === "me";
+  const color = fromMe ? p.quoteYou : p.quoteThem;
+  const snipColor = inMine ? p.quoteSnippetOut : p.quoteSnippetIn;
+  const isImg = target.type === "image";
+  const caption = target.text.replace(/\s+/g, " ").trim();
+  let snippet: ReactNode;
+  let snipDir: "rtl" | "ltr" = uiDir;
+  if (target.type === "voice") {
+    snippet = (
+      <>
+        <MiniMic color={snipColor} /> {`${s.voice} (${target.voiceDuration || "0:07"})`}
+      </>
+    );
+  } else if (isImg) {
+    snipDir = caption ? dirOf(caption) : uiDir;
+    snippet = (
+      <>
+        <MiniCamera color={snipColor} /> {caption || s.photo}
+      </>
+    );
+  } else {
+    snipDir = dirOf(caption);
+    snippet = caption;
+  }
+  return (
+    <div
+      dir={uiDir}
+      className="relative flex overflow-hidden"
+      style={{ background: inMine ? p.quoteOut : p.quoteIn, borderRadius: R - 5, minWidth: 0 }}
+    >
+      <span style={{ width: 4, background: color, flexShrink: 0 }} />
+      <div className="min-w-0 flex-1" style={{ padding: "6px 0 7px", paddingInline: "8px 10px" }}>
+        <div
+          className="truncate"
+          dir="auto"
+          style={{ fontSize: 14, lineHeight: "18px", fontWeight: 600, color, letterSpacing: -0.15, textAlign: "start" }}
+        >
+          {fromMe ? s.you : themName}
+        </div>
+        <div
+          className="truncate"
+          dir={snipDir}
+          style={{ fontSize: 14, lineHeight: "18px", color: snipColor, letterSpacing: -0.15, textAlign: "start" }}
+        >
+          {snippet}
+        </div>
+      </div>
+      {isImg && (
+        <div className="relative shrink-0 overflow-hidden" style={{ width: 49, alignSelf: "stretch", background: p.quoteThumb }}>
+          {target.imageSrc && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={target.imageSrc}
+              alt=""
+              draggable={false}
+              className="absolute inset-0"
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The reaction pill that hangs off a bubble's bottom outer corner. */
+function ReactionPill({ emoji, p, onRight }: { emoji: string; p: Pal; onRight: boolean }) {
+  return (
+    <span
+      className="absolute flex items-center justify-center"
+      style={{
+        bottom: -(PILL_H - PILL_OVERLAP),
+        [onRight ? "right" : "left"]: PILL_INSET,
+        height: PILL_H,
+        minWidth: 32,
+        padding: "0 6px",
+        boxSizing: "border-box",
+        borderRadius: PILL_H / 2,
+        border: `1.5px solid ${p.pillRing}`,
+        background: p.pill,
+        boxShadow: p.pillShadow,
+        fontSize: 13,
+        lineHeight: "16px",
+        zIndex: 1,
+      }}
+    >
+      {emoji}
+    </span>
+  );
+}
+
+/** UIKit caret: 2pt wide in the app tint, as tall as the text line. */
+function Caret({ p, clockMs, k }: { p: Pal; clockMs?: number; k: number }) {
+  return (
+    <span
+      // remount on every keystroke so the blink restarts solid, like UIKit
+      key={k}
+      className={clockMs === undefined ? "wa-ios-caret" : undefined}
+      style={{
+        display: "inline-block",
+        width: 2,
+        height: 21,
+        marginInline: "1px -3px",
+        verticalAlign: "-5px",
+        borderRadius: 1,
+        background: p.caret,
+        // the exporter only renders drafts mid-typing or in the 220ms hold
+        // before sending, when a real caret is solid (no blink yet)
+        opacity: clockMs === undefined ? undefined : 1,
+      }}
+    />
+  );
+}
+
 /* ======================================================================
    Component
    ====================================================================== */
@@ -659,6 +889,34 @@ export function WhatsApp({ scenario, playback, lang, rtl }: PlatformProps) {
 
   const subtitle = waPresence(typing, scenario.presence, scenario.lastSeenText, c.online, c.typing);
   const lastSender = messages.length ? messages[messages.length - 1].sender : null;
+  const byId = new Map(scenario.messages.map((m) => [m.id, m] as const));
+
+  // compose typing: the draft replaces the (empty) field; with text in it the
+  // camera + mic give way to the green send button
+  const draft = playback.draft;
+  const hasText = !!draft && draft.text.length > 0;
+  const draftDir = draft && draft.text ? dirOf(draft.text) : uiDir;
+
+  // The floating chat bar grows with a multi-line draft: grow the thread's
+  // bottom inset with it (like the real content inset) and keep the latest
+  // message in view.
+  const barRef = useRef<HTMLDivElement>(null);
+  const spacerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const bar = barRef.current;
+    const spacer = spacerRef.current;
+    const el = scrollRef.current;
+    if (!bar || !spacer || !el) return;
+    const ro = new ResizeObserver(() => {
+      const extra = Math.max(0, Math.round(bar.offsetHeight - CTL));
+      if (spacer.offsetHeight === extra) return;
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+      spacer.style.height = `${extra}px`;
+      if (atBottom) el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(bar);
+    return () => ro.disconnect();
+  }, [scrollRef]);
 
   const glassCircle: CSSProperties = {
     ...p.glass,
@@ -749,6 +1007,9 @@ export function WhatsApp({ scenario, playback, lang, rtl }: PlatformProps) {
                 status={playback.statusOf(m)}
                 person={m.sender === "me" ? scenario.me : scenario.them}
                 live={live}
+                quote={m.replyToId ? (byId.get(m.replyToId) ?? null) : null}
+                lang={lang}
+                themName={scenario.them.name}
               />
             );
           })}
@@ -791,6 +1052,7 @@ export function WhatsApp({ scenario, playback, lang, rtl }: PlatformProps) {
             </div>
           )}
         </div>
+        <div ref={spacerRef} aria-hidden style={{ height: 0 }} />
       </div>
 
       {/* Top: scroll-edge fade + status bar + floating header */}
@@ -843,31 +1105,52 @@ export function WhatsApp({ scenario, playback, lang, rtl }: PlatformProps) {
         <div
           className="absolute inset-x-0 bottom-0"
           style={{
-            height: COMPOSER_BOTTOM + CTL + 30,
+            // grows with a multi-line chat bar (30pt of fade above the bar)
+            top: -30,
             background: edgeFade(p.wallRgb, "to top", 0.85),
           }}
         />
-        <div className="relative flex items-center" style={{ height: CTL, paddingInline: 14, marginBottom: 20 }}>
+        <div ref={barRef} className="relative flex items-end" style={{ minHeight: CTL, paddingInline: 14, marginBottom: 20 }}>
           <div style={glassCircle}>
             <PlusGlyph color={p.icon} />
           </div>
+          {/* the field: a glass capsule that grows to 5 lines, then scrolls (latest line in view) */}
           <div
-            className="flex min-w-0 flex-1 items-center justify-end"
-            style={{ ...p.glass, height: CTL, borderRadius: CTL / 2, marginInline: "10px 8px", paddingInline: 10 }}
+            className="flex min-w-0 flex-1 items-end"
+            style={{ ...p.glass, minHeight: CTL, borderRadius: CTL / 2, marginInline: hasText ? "10px 10px" : "10px 8px" }}
           >
-            <StickerGlyph color={p.icon} />
+            <div
+              className="flex min-w-0 flex-1 flex-col justify-end overflow-hidden"
+              style={{ maxHeight: 5 * 22 + 16, padding: "8px 0", paddingInlineStart: 13 }}
+            >
+              {draft && (
+                <div
+                  dir={draftDir}
+                  className="whitespace-pre-wrap break-words"
+                  style={{ fontSize: 17, lineHeight: "22px", letterSpacing: -0.43, color: p.text, textAlign: "start" }}
+                >
+                  {draft.text}
+                  <Caret p={p} clockMs={clockMs} k={draft.text.length} />
+                </div>
+              )}
+            </div>
+            <div className="flex shrink-0 items-center" style={{ height: CTL, paddingInline: "6px 10px" }}>
+              <StickerGlyph color={p.icon} />
+            </div>
           </div>
-          <div style={glassCircle}>
-            <CameraGlyph color={p.icon} />
-          </div>
+          {!hasText && (
+            <div style={glassCircle}>
+              <CameraGlyph color={p.icon} />
+            </div>
+          )}
           <div
             style={{
               ...glassCircle,
               ...{ background: p.green, boxShadow: "0 3px 10px rgba(0,0,0,0.12)" },
-              marginInlineStart: 6,
+              marginInlineStart: hasText ? 0 : 6,
             }}
           >
-            <MicGlyph color="#ffffff" />
+            {hasText ? <SendGlyph color={p.onGreen} flip={rtl} /> : <MicGlyph color={p.onGreen} />}
           </div>
         </div>
         <div className="relative">
@@ -892,6 +1175,9 @@ function Row({
   status,
   person,
   live,
+  quote,
+  lang,
+  themName,
 }: {
   m: Message;
   p: Pal;
@@ -902,6 +1188,9 @@ function Row({
   status: DeliveryStatus;
   person: Person;
   live: boolean;
+  quote: Message | null;
+  lang: Lang;
+  themName: string;
 }) {
   const mine = m.sender === "me";
   const onRight = mine ? !rtl : rtl;
@@ -911,7 +1200,9 @@ function Row({
   const isVoice = m.type === "voice";
   const caption = isImage ? m.text.trim() : "";
   const textDir = dirOf(m.text);
-  const jumbo = !isImage && !isVoice ? jumboCount(m.text) : 0;
+  // a reply always gets a bubble (the quote lives inside it)
+  const jumbo = !isImage && !isVoice && !quote ? jumboCount(m.text) : 0;
+  const reaction = m.reaction?.trim() || "";
 
   const meta = (overlay: boolean, color = metaColor) => (
     <span
@@ -937,15 +1228,21 @@ function Row({
   const rowStyle: CSSProperties = {
     padding: `0 ${SIDE}px`,
     marginTop: firstOfGroup ? 8 : 3,
+    // the reaction pill hangs below the bubble and pushes the next row down
+    paddingBottom: reaction ? PILL_H - PILL_OVERLAP : 0,
     transformOrigin: `${onRight ? "right" : "left"} bottom`,
   };
   const rowClass = `flex ${mine ? "justify-end" : "justify-start"} ${enterClass(live, mine, rtl)}`;
+  const pill = reaction ? <ReactionPill emoji={reaction} p={p} onRight={onRight} /> : null;
+  const quoteEl = quote ? (
+    <Quote target={quote} p={p} inMine={mine} lang={lang} themName={themName} uiDir={uiDir} />
+  ) : null;
 
   /* --- emoji-only: big, no bubble, time in a small pill under it --- */
   if (jumbo) {
     return (
       <div data-mid={m.id} data-sender={m.sender} className={rowClass} style={rowStyle}>
-        <div className="flex flex-col" style={{ alignItems: "flex-end" }}>
+        <div className="relative flex flex-col" style={{ alignItems: "flex-end" }}>
           <span style={{ fontSize: JUMBO_SIZE[jumbo], lineHeight: 1.18, letterSpacing: 2, paddingInline: 2 }}>
             {m.text.trim()}
           </span>
@@ -960,24 +1257,28 @@ function Row({
           >
             {meta(false)}
           </span>
+          {pill}
         </div>
       </div>
     );
   }
 
-  /* --- frameless photo (no caption) --- */
-  if (isImage && !caption) {
+  /* --- frameless photo (no caption, not a reply) --- */
+  if (isImage && !caption && !quote) {
     return (
       <div data-mid={m.id} data-sender={m.sender} className={rowClass} style={rowStyle}>
-        <div className="relative overflow-hidden" dir={uiDir} style={{ width: IMG_W, borderRadius: R, background: bg }}>
-          <Photo m={m} dark={p === DARK} />
-          <span
-            className="pointer-events-none absolute inset-x-0 bottom-0"
-            style={{ height: 40, background: "linear-gradient(to top, rgba(0,0,0,0.32), rgba(0,0,0,0))" }}
-          />
-          <span className="absolute" style={{ bottom: 6, insetInlineEnd: mine ? 8 : 11 }}>
-            {meta(true)}
-          </span>
+        <div className="relative">
+          <div className="relative overflow-hidden" dir={uiDir} style={{ width: IMG_W, borderRadius: R, background: bg }}>
+            <Photo m={m} dark={p === DARK} />
+            <span
+              className="pointer-events-none absolute inset-x-0 bottom-0"
+              style={{ height: 40, background: "linear-gradient(to top, rgba(0,0,0,0.32), rgba(0,0,0,0))" }}
+            />
+            <span className="absolute" style={{ bottom: 6, insetInlineEnd: mine ? 8 : 11 }}>
+              {meta(true)}
+            </span>
+          </div>
+          {pill}
         </div>
       </div>
     );
@@ -989,30 +1290,59 @@ function Row({
 
   if (isVoice) {
     dir = uiDir;
-    padding = "9px 12px 6px 10px";
-    body = <Voice m={m} p={p} mine={mine} status={status} person={person} meta={meta(false)} />;
+    padding = quote ? "4px 12px 6px 10px" : "9px 12px 6px 10px";
+    body = (
+      <>
+        {quoteEl && <div style={{ margin: "0 -8px 7px -6px" }}>{quoteEl}</div>}
+        <Voice m={m} p={p} mine={mine} status={status} person={person} meta={meta(false)} />
+      </>
+    );
   } else if (isImage) {
     padding = 0;
-    dir = textDir;
+    dir = caption ? textDir : uiDir;
+    // a reply with a photo: quote on top, the photo inset below it
     body = (
       <div style={{ width: IMG_W }}>
-        <div className="overflow-hidden" style={{ borderRadius: `${R}px ${R}px 0 0` }}>
+        {quoteEl && <div style={{ padding: "4px 4px 0" }}>{quoteEl}</div>}
+        <div
+          className="relative overflow-hidden"
+          style={
+            quote
+              ? { margin: "4px 4px 0", borderRadius: caption ? `${R - 5}px ${R - 5}px 0 0` : R - 5, marginBottom: caption ? 0 : 4 }
+              : { borderRadius: `${R}px ${R}px 0 0` }
+          }
+        >
           <Photo m={m} dark={p === DARK} />
+          {!caption && (
+            <>
+              <span
+                className="pointer-events-none absolute inset-x-0 bottom-0"
+                style={{ height: 40, background: "linear-gradient(to top, rgba(0,0,0,0.32), rgba(0,0,0,0))" }}
+              />
+              <span className="absolute" style={{ bottom: 6, insetInlineEnd: 8 }}>
+                {meta(true)}
+              </span>
+            </>
+          )}
         </div>
-        <div className="relative" style={{ padding: "6px 12px 8px" }}>
-          <span className="whitespace-pre-wrap break-words" style={{ fontSize: 17, lineHeight: "22px", letterSpacing: -0.43 }}>
-            {caption}
-          </span>
-          <span style={{ display: "inline-block", width: reserve, height: 1 }} />
-          <span className="absolute" style={{ bottom: 4, insetInlineEnd: metaEnd }}>
-            {meta(false)}
-          </span>
-        </div>
+        {caption && (
+          <div className="relative" style={{ padding: "6px 12px 8px" }}>
+            <span className="whitespace-pre-wrap break-words" style={{ fontSize: 17, lineHeight: "22px", letterSpacing: -0.43 }}>
+              {caption}
+            </span>
+            <span style={{ display: "inline-block", width: reserve, height: 1 }} />
+            <span className="absolute" style={{ bottom: 4, insetInlineEnd: metaEnd }}>
+              {meta(false)}
+            </span>
+          </div>
+        )}
       </div>
     );
   } else {
     body = (
       <>
+        {/* quoted reply: 4pt in from the bubble edges, 6pt above the text */}
+        {quoteEl && <div style={{ margin: "-3px -8px 5px" }}>{quoteEl}</div>}
         <span className="whitespace-pre-wrap break-words" style={{ fontSize: 17, lineHeight: "22px", letterSpacing: -0.43 }}>
           {m.text}
         </span>
@@ -1026,16 +1356,19 @@ function Row({
 
   return (
     <div data-mid={m.id} data-sender={m.sender} className={rowClass} style={rowStyle}>
-      <div className="relative" style={{ maxWidth: "calc(100% - 54px)", filter: p.bubbleShadow }}>
-        {/* tail first so the bubble content (meta, ticks) paints over it */}
-        {tail && <Tail side={onRight ? "right" : "left"} color={bg} />}
-        <div
-          className="relative"
-          dir={dir}
-          style={{ background: bg, color: p.text, borderRadius: R, padding, minWidth: 48 }}
-        >
-          {body}
+      <div className="relative" style={{ maxWidth: "calc(100% - 54px)" }}>
+        <div className="relative" style={{ filter: p.bubbleShadow }}>
+          {/* tail first so the bubble content (meta, ticks) paints over it */}
+          {tail && <Tail side={onRight ? "right" : "left"} color={bg} />}
+          <div
+            className="relative"
+            dir={dir}
+            style={{ background: bg, color: p.text, borderRadius: R, padding, minWidth: 48 }}
+          >
+            {body}
+          </div>
         </div>
+        {pill}
       </div>
     </div>
   );

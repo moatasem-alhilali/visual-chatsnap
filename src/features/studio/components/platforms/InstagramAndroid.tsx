@@ -50,7 +50,7 @@
  * does.
  */
 
-import { useCallback, useEffect, useLayoutEffect, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react";
 
 import type { Message, Person } from "../../types";
 import { Avatar, dirOf, SystemBottomBar, useChatScroll } from "../shared";
@@ -66,6 +66,8 @@ const OUT_GRADIENT = "linear-gradient(180deg, #a033ea 0%, #7a3cf4 46%, #4a5df9 1
 const OUT_SOLID = "#4a5df9";
 const ACCENT = "#4a5df9";
 const ACTIVE_GREEN = "#78de45";
+/** Composer camera disc (dp). */
+const CAMERA = 34;
 
 interface Pal {
   bg: string;
@@ -76,6 +78,8 @@ interface Pal {
   button: string;
   dots: string;
   imgPlaceholder: string;
+  /** reply rail beside a quoted message */
+  rail: string;
 }
 
 function palette(dark: boolean): Pal {
@@ -89,6 +93,7 @@ function palette(dark: boolean): Pal {
         button: "#25292e",
         dots: "#a2aab4",
         imgPlaceholder: "#25292e",
+        rail: "#3d4249",
       }
     : {
         bg: "#ffffff",
@@ -99,6 +104,7 @@ function palette(dark: boolean): Pal {
         button: "#efefef",
         dots: "#8e959e",
         imgPlaceholder: "#e9ecef",
+        rail: "#dbdfe4",
       };
 }
 
@@ -111,6 +117,12 @@ const STR: Record<Lang, {
   today: string;
   viewProfile: string;
   instagram: string;
+  send: string;
+  youRepliedTo: (name: string) => string;
+  youRepliedSelf: string;
+  repliedToYou: string;
+  repliedSelf: string;
+  voiceMessage: string;
 }> = {
   en: {
     activeNow: "Active now",
@@ -120,6 +132,12 @@ const STR: Record<Lang, {
     today: "Today",
     viewProfile: "View profile",
     instagram: "Instagram",
+    send: "Send",
+    youRepliedTo: (name) => `You replied to ${name}`,
+    youRepliedSelf: "You replied to yourself",
+    repliedToYou: "Replied to you",
+    repliedSelf: "Replied to themselves",
+    voiceMessage: "Voice message",
   },
   ar: {
     activeNow: "نشط الآن",
@@ -129,6 +147,12 @@ const STR: Record<Lang, {
     today: "اليوم",
     viewProfile: "عرض الملف الشخصي",
     instagram: "Instagram",
+    send: "إرسال",
+    youRepliedTo: (name) => `قمت بالرد على ${name}`,
+    youRepliedSelf: "قمت بالرد على نفسك",
+    repliedToYou: "قام بالرد عليك",
+    repliedSelf: "قام بالرد على نفسه",
+    voiceMessage: "رسالة صوتية",
   },
 };
 
@@ -196,6 +220,11 @@ export const instagramAndroidMotion: PlatformMotion = {
   },
 };
 
+/** Android TextView cursor blink: 500ms on, 500ms off (solid while keys land). */
+const CARET_MS = 1000;
+/** The composer grows up to this many lines, then scrolls inside. */
+const DRAFT_LINES = 5;
+
 const TYPING_CYCLE = 1200;
 const TYPING_STAGGER = 0.15; // fraction of the cycle between dots
 
@@ -233,6 +262,11 @@ const KEYFRAMES = `
 [dir="rtl"] .ig-and-typing-in { transform-origin: right bottom; }
 .ig-and-fade { animation: ig-and-fade 200ms ease-out both; }
 .ig-and-dot { animation: ig-and-dot ${TYPING_CYCLE}ms linear infinite; }
+@keyframes ig-and-caret {
+  0%, 50% { opacity: 1; }
+  50.01%, 100% { opacity: 0; }
+}
+.ig-and-caret { animation: ig-and-caret ${CARET_MS}ms step-end infinite; animation-delay: ${CARET_MS / 2}ms; }
 `;
 
 /* ------------------------------- icons ------------------------------ */
@@ -468,6 +502,136 @@ function TypingRow({ person, pal, animate, clockMs }: { person: Person; pal: Pal
   );
 }
 
+/* ----------------------- reactions + replies ------------------------ */
+
+/** Reaction pill: hangs 18dp below the bubble, overlapping its bottom edge by 6dp. */
+const REACT = { h: 26, overlap: 7, inset: 10, border: 2 } as const;
+
+/**
+ * Instagram reaction: the emoji in a small incoming-grey pill with a 2dp
+ * canvas-coloured ring, tucked under the bubble's outer (screen-edge) bottom
+ * corner. One reactor in a 1:1 thread → no count.
+ */
+function ReactionPill({ emoji, pal, mine }: { emoji: string; pal: Pal; mine: boolean }) {
+  return (
+    <div
+      className="relative z-[1] flex"
+      style={{ marginTop: -REACT.overlap, [mine ? "marginInlineEnd" : "marginInlineStart"]: REACT.inset }}
+    >
+      <span
+        dir="ltr"
+        className="flex items-center justify-center"
+        style={{
+          height: REACT.h,
+          minWidth: REACT.h,
+          padding: "0 4px",
+          boxSizing: "border-box",
+          borderRadius: REACT.h / 2,
+          border: `${REACT.border}px solid ${pal.bg}`,
+          background: pal.inBubble,
+          fontSize: 15,
+          lineHeight: "18px",
+        }}
+      >
+        {emoji}
+      </span>
+    </div>
+  );
+}
+
+function MicSmall() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" className="shrink-0">
+      <rect x="8.5" y="2" width="7" height="12" rx="3.5" />
+      <path d="M5 10.8a7 7 0 0 0 14 0M12 18v3.6" />
+    </svg>
+  );
+}
+
+/**
+ * Quoted reply, Instagram style: a 12sp secondary label ("You replied to
+ * Khalid" / "Replied to you"), then the original as a smaller, muted bubble
+ * (14/18, two lines max) beside a 3dp rounded rail on the screen-edge side,
+ * then the reply bubble 4dp below.
+ */
+function ReplyQuote({
+  target,
+  mine,
+  pal,
+  s,
+  themName,
+}: {
+  target: Message;
+  mine: boolean;
+  pal: Pal;
+  s: (typeof STR)[Lang];
+  themName: string;
+}) {
+  const label = mine
+    ? target.sender === "me"
+      ? s.youRepliedSelf
+      : s.youRepliedTo(themName)
+    : target.sender === "me"
+      ? s.repliedToYou
+      : s.repliedSelf;
+  const targetMine = target.sender === "me";
+
+  let quote: ReactNode;
+  if (target.type === "image") {
+    quote = (
+      <div className="shrink-0 overflow-hidden" style={{ width: 92, height: 122, borderRadius: 14, background: pal.imgPlaceholder, opacity: 0.7 }}>
+        {target.imageSrc ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={target.imageSrc} alt="" draggable={false} className="block h-full w-full object-cover" />
+        ) : (
+          <div className="flex h-full items-center justify-center">
+            <ImageGlyph color={pal.sub} />
+          </div>
+        )}
+      </div>
+    );
+  } else {
+    const isVoice = target.type === "voice";
+    const text = isVoice ? s.voiceMessage : target.text;
+    quote = (
+      <div
+        className="min-w-0"
+        style={{
+          borderRadius: 18,
+          padding: "7px 12px",
+          background: targetMine ? OUT_SOLID : pal.inBubble,
+          opacity: targetMine ? 0.5 : 1,
+          color: targetMine ? "#ffffff" : pal.sub,
+        }}
+      >
+        <div
+          dir={isVoice ? undefined : dirOf(text)}
+          className={isVoice ? "flex items-center gap-1" : "line-clamp-2 whitespace-pre-wrap break-words"}
+          style={{ fontSize: 14, lineHeight: "18px", textAlign: "start" }}
+        >
+          {isVoice && <MicSmall />}
+          {text}
+        </div>
+      </div>
+    );
+  }
+
+  const rail = <span className="shrink-0 self-stretch" style={{ width: 3, borderRadius: 2, background: pal.rail }} />;
+
+  return (
+    <div className={`flex min-w-0 flex-col ${mine ? "items-end" : "items-start"}`} style={{ marginBottom: 4, maxWidth: "100%" }}>
+      <div className="max-w-full truncate" style={{ fontSize: 12, lineHeight: "16px", color: pal.sub, marginBottom: 4, paddingInline: 4, textAlign: "start" }}>
+        {label}
+      </div>
+      <div className="flex min-w-0 max-w-full" style={{ gap: 6 }}>
+        {!mine && rail}
+        {quote}
+        {mine && rail}
+      </div>
+    </div>
+  );
+}
+
 /* ------------------------------ thread ------------------------------ */
 
 export function InstagramAndroid({ scenario, playback, lang, rtl }: PlatformProps) {
@@ -501,14 +665,38 @@ export function InstagramAndroid({ scenario, playback, lang, rtl }: PlatformProp
   useLayoutEffect(() => {
     paint();
   });
+  /* Keep the newest message pinned above the composer while it grows with a
+     multi-line draft (adjustResize keeps the list anchored to its bottom). */
+  const pinned = useRef(true);
+  const onScroll = useCallback(() => {
+    const root = scrollRef.current;
+    if (root) pinned.current = root.scrollHeight - root.scrollTop - root.clientHeight < 32;
+    paint();
+  }, [scrollRef, paint]);
   useEffect(() => {
     const root = scrollRef.current;
     if (!root || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => paint());
+    let lastH = root.clientHeight;
+    const ro = new ResizeObserver(() => {
+      if (root.clientHeight !== lastH) {
+        lastH = root.clientHeight;
+        if (pinned.current) root.scrollTop = root.scrollHeight;
+      }
+      paint();
+    });
     ro.observe(root);
     if (root.firstElementChild) ro.observe(root.firstElementChild);
     return () => ro.disconnect();
   }, [paint, scrollRef]);
+
+  const byId = new Map(messages.map((m) => [m.id, m] as const));
+  /** the earlier message this one quotes (nothing when it is missing / not yet shown) */
+  const targetOf = (m: Message | undefined): Message | undefined =>
+    m?.replyToId ? byId.get(m.replyToId) : undefined;
+
+  const draft = playback.draft;
+  const exporting = clockMs !== undefined;
+  const caretOn = exporting ? clockMs % CARET_MS < CARET_MS / 2 : true;
 
   const last = messages[messages.length - 1];
   const receipt = last && last.sender === "me" ? (playback.statusOf(last) === "read" ? s.seen : s.sent) : null;
@@ -557,7 +745,7 @@ export function InstagramAndroid({ scenario, playback, lang, rtl }: PlatformProp
       {/* Thread */}
       <div
         ref={scrollRef}
-        onScroll={paint}
+        onScroll={onScroll}
         onAnimationEnd={paint}
         className="rcss-scroll relative min-h-0 flex-1 overflow-y-auto"
         style={{ background: pal.bg, paddingInline: M.bodyX, paddingTop: 8, paddingBottom: 10 }}
@@ -591,16 +779,19 @@ export function InstagramAndroid({ scenario, playback, lang, rtl }: PlatformProp
             const kind = kinds[i];
             const sep = needsSeparator(messages, i);
             const g = groupInfo(messages, i);
-            const firstOfGroup = g.firstOfGroup || sep;
+            const target = targetOf(m);
+            // a quoted reply opens a new visual block: it breaks the corner join on both sides
+            const firstOfGroup = g.firstOfGroup || sep || !!target;
             const nextSep = i + 1 < messages.length && needsSeparator(messages, i + 1);
-            const lastOfGroup = g.lastOfGroup || nextSep;
+            const lastOfGroup = g.lastOfGroup || nextSep || !!targetOf(messages[i + 1]);
+            const reaction = m.reaction?.trim();
             const joinAbove = !firstOfGroup && joins(kinds[i - 1], kind);
             const joinBelow = !lastOfGroup && joins(kind, kinds[i + 1]);
 
             const caption = kind === "image" ? m.text.trim() : "";
             const marginTop = sep ? 0 : firstOfGroup ? M.senderGap : M.groupGap;
 
-            let body: React.ReactNode;
+            let body: ReactNode;
             if (kind === "emoji") {
               body = (
                 <div dir="auto" style={{ fontSize: M.emoji, lineHeight: `${M.emoji + 8}px`, paddingInline: 2 }}>
@@ -677,12 +868,14 @@ export function InstagramAndroid({ scenario, playback, lang, rtl }: PlatformProp
                   style={{ marginTop, gap: 8, ...(live ? { transformOrigin: originOf(mine, rtl) } : {}) }}
                 >
                   {!mine && (
-                    <div className="shrink-0" style={{ width: M.inAvatar }}>
+                    <div className="shrink-0" style={{ width: M.inAvatar, marginBottom: reaction ? REACT.h - REACT.overlap : 0 }}>
                       {lastOfGroup && <Avatar person={scenario.them} size={M.inAvatar} />}
                     </div>
                   )}
                   <div className={`flex min-w-0 flex-col ${mine ? "items-end" : "items-start"}`} style={{ maxWidth: M.maxW }}>
+                    {target && <ReplyQuote target={target} mine={mine} pal={pal} s={s} themName={scenario.them.name} />}
                     {body}
+                    {reaction && <ReactionPill emoji={reaction} pal={pal} mine={mine} />}
                   </div>
                 </div>
               </div>
@@ -705,22 +898,78 @@ export function InstagramAndroid({ scenario, playback, lang, rtl }: PlatformProp
 
       {/* Composer — 44dp pill */}
       <div className="shrink-0" style={{ background: pal.bg, padding: "6px 12px 8px" }}>
+        {/* The pill grows line by line with a draft (radius stays 22dp, camera
+            disc and "Send" stay on the bottom row); mic/gallery/sticker/+ give
+            way to the theme-coloured "Send" text button while there is text. */}
         <div
-          className="flex items-center rounded-full"
-          style={{ background: pal.field, height: M.composerH, paddingInlineStart: 5, paddingInlineEnd: 14 }}
+          className="flex items-end"
+          style={{
+            background: pal.field,
+            minHeight: M.composerH,
+            borderRadius: M.composerH / 2,
+            padding: (M.composerH - CAMERA) / 2,
+            paddingInlineEnd: draft ? 16 : 14,
+          }}
         >
-          <div className="flex shrink-0 items-center justify-center rounded-full" style={{ width: 34, height: 34, background: ACCENT }}>
+          <div className="flex shrink-0 items-center justify-center rounded-full" style={{ width: CAMERA, height: CAMERA, background: ACCENT }}>
             <CameraGlyph />
           </div>
-          <span className="min-w-0 flex-1 truncate" style={{ marginInlineStart: 10, fontSize: 15, color: pal.sub }}>
-            {s.message}
-          </span>
-          <div className="flex shrink-0 items-center" style={{ gap: 14, color: pal.fg }}>
-            <MicIcon />
-            <GalleryIcon />
-            <StickerIcon />
-            <PlusCircleIcon />
-          </div>
+          {draft ? (
+            <>
+              <div
+                className="flex min-w-0 flex-1 flex-col justify-end overflow-hidden"
+                style={{
+                  marginInlineStart: 10,
+                  paddingBlock: (CAMERA - M.line) / 2,
+                  maxHeight: M.line * DRAFT_LINES + (CAMERA - M.line),
+                }}
+              >
+                <div
+                  dir={dirOf(draft.text)}
+                  className="whitespace-pre-wrap break-words"
+                  style={{ fontSize: M.text, lineHeight: `${M.line}px`, color: pal.fg, textAlign: "start" }}
+                >
+                  {draft.text}
+                  <span
+                    key={draft.text.length}
+                    aria-hidden
+                    className={exporting ? "" : "ig-and-caret"}
+                    style={{
+                      display: "inline-block",
+                      width: 2,
+                      height: 19,
+                      marginInlineStart: 1,
+                      marginInlineEnd: -3,
+                      verticalAlign: -4,
+                      background: ACCENT,
+                      opacity: caretOn ? 1 : 0,
+                    }}
+                  />
+                </div>
+              </div>
+              <span
+                className="flex shrink-0 items-center"
+                style={{ height: CAMERA, marginInlineStart: 12, fontSize: 15, fontWeight: 700, color: ACCENT }}
+              >
+                {s.send}
+              </span>
+            </>
+          ) : (
+            <>
+              <span
+                className="flex min-w-0 flex-1 items-center truncate"
+                style={{ height: CAMERA, marginInlineStart: 10, fontSize: 15, color: pal.sub }}
+              >
+                {s.message}
+              </span>
+              <div className="flex shrink-0 items-center" style={{ height: CAMERA, gap: 14, color: pal.fg }}>
+                <MicIcon />
+                <GalleryIcon />
+                <StickerIcon />
+                <PlusCircleIcon />
+              </div>
+            </>
+          )}
         </div>
       </div>
 

@@ -117,6 +117,12 @@ interface Palette {
   dots: string;
   hairline: string;
   imgPlaceholder: string;
+  /** reaction pill fill + its outer shadow */
+  reactBg: string;
+  reactShadow: string;
+  /** washed quoted-reply bubble: fill + text */
+  quoteBg: string;
+  quoteFg: string;
 }
 
 function palette(dark: boolean): Palette {
@@ -131,6 +137,10 @@ function palette(dark: boolean): Palette {
         dots: "#b0b3b8",
         hairline: "rgba(255,255,255,0.12)",
         imgPlaceholder: "#242526",
+        reactBg: "#3a3b3c",
+        reactShadow: "0 1px 3px rgba(0,0,0,0.5)",
+        quoteBg: "#1c1c1c",
+        quoteFg: "#9a9ca0",
       }
     : {
         bg: "#ffffff",
@@ -142,6 +152,10 @@ function palette(dark: boolean): Palette {
         dots: "#8a8d91",
         hairline: "rgba(0,0,0,0.1)",
         imgPlaceholder: "#e4e6eb",
+        reactBg: "#ffffff",
+        reactShadow: "0 0 0 0.5px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.16)",
+        quoteBg: "#f6f6f6",
+        quoteFg: "#7d7f83",
       };
 }
 
@@ -320,6 +334,48 @@ function ReceiptIcon({ status, bg }: { status: Exclude<DeliveryStatus, "read">; 
   );
 }
 
+/** Composer ">" expander that replaces the four leading glyphs while typing. */
+function ExpandIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden className="rtl:-scale-x-100">
+      <path d="m9 5 7 7-7 7" stroke={MSG_BLUE} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** Messenger's filled paper-plane send glyph (replaces the 👍 while typing). */
+function SendIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden className="rtl:-scale-x-100">
+      <path
+        fill={MSG_BLUE}
+        d="M3.4 2.6 21.6 10.6c1.2.5 1.2 2.3 0 2.8L3.4 21.4c-1.2.5-2.4-.7-1.9-1.9L5.2 13l8.3-1-8.3-1-3.7-6.5c-.5-1.2.7-2.4 1.9-1.9Z"
+      />
+    </svg>
+  );
+}
+
+/** Small curved reply arrow that leads the "You replied to …" label. */
+function ReplyArrow({ color }: { color: string }) {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden className="shrink-0 rtl:-scale-x-100">
+      <path
+        fill={color}
+        d="M9.6 4.2c.7-.6 1.8-.1 1.8.8v3.3c6.2.4 10.1 4.5 10.6 11.2.1.7-.8 1-1.2.4-2-3-4.8-4.5-9.4-4.6v3.4c0 .9-1.1 1.4-1.8.8L2.4 12.8a1 1 0 0 1 0-1.6l7.2-7Z"
+      />
+    </svg>
+  );
+}
+
+function MicGlyph({ color }: { color: string }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden className="inline-block shrink-0" style={{ verticalAlign: "-2px" }}>
+      <rect x="7.6" y="1.5" width="8.8" height="13.6" rx="4.4" fill={color} />
+      <path d="M4.6 11.2a7.4 7.4 0 0 0 14.8 0M12 18.6v3.4" stroke={color} strokeWidth="2.4" strokeLinecap="round" fill="none" />
+    </svg>
+  );
+}
+
 /* ------------------------------ motion ------------------------------ */
 
 const ENTER_MS = 380;
@@ -387,7 +443,14 @@ function buildCss(): string {
   css += `@keyframes msgr-ios-dot{${dot}}.msgr-ios-dot{animation:msgr-ios-dot ${DOT_MS}ms linear infinite}`;
   css += `@keyframes msgr-ios-fade{from{opacity:0}to{opacity:1}}.msgr-ios-fade{animation:msgr-ios-fade 220ms ease-out both}`;
   css += `@keyframes msgr-ios-typing-in{from{opacity:0;transform:scale(.7)}to{opacity:1;transform:scale(1)}}.msgr-ios-typing-in{animation:msgr-ios-typing-in 240ms cubic-bezier(.2,.9,.3,1.15) both}`;
-  return css;
+  css += `@keyframes msgr-ios-caret{0%,50%{opacity:1}50.01%,100%{opacity:0}}.msgr-ios-caret{animation:msgr-ios-caret ${CARET_MS}ms linear infinite}`;  return css;
+}
+
+/** iOS text caret: 1.06s cycle, visible for the first half. */
+const CARET_MS = 1060;
+function caretOn(clockMs: number | undefined): boolean | null {
+  if (clockMs === undefined) return null;
+  return clockMs % CARET_MS < CARET_MS / 2;
 }
 const CSS = buildCss();
 
@@ -473,6 +536,130 @@ function VoiceClip({ mine, pal, duration }: { mine: boolean; pal: Palette; durat
   );
 }
 
+/* Reaction pill geometry (pt). */
+const REACT = { h: 22, ring: 2, emoji: 13, overlap: 6, inset: 4, extra: 16 } as const;
+
+/** Reaction pill hanging off the bubble's bottom corner (inner side). */
+function ReactionBadge({ emoji, pal, onRight }: { emoji: string; pal: Palette; onRight: boolean }) {
+  return (
+    <span
+      dir="ltr"
+      className="absolute z-[2] flex items-center justify-center rounded-full"
+      style={{
+        bottom: -(REACT.h - REACT.overlap),
+        ...(onRight ? { left: REACT.inset } : { right: REACT.inset }),
+        height: REACT.h,
+        minWidth: REACT.h,
+        padding: "0 1px",
+        background: pal.reactBg,
+        border: `${REACT.ring}px solid ${pal.bg}`,
+        boxShadow: pal.reactShadow,
+        boxSizing: "border-box",
+        fontSize: REACT.emoji,
+        lineHeight: "16px",
+      }}
+    >
+      {emoji}
+    </span>
+  );
+}
+
+/** Wraps the last segment of a message so the reaction can anchor to it. */
+function withReaction(node: ReactNode, key: string, emoji: string | null | undefined, pal: Palette, onRight: boolean) {
+  if (!emoji) return node;
+  return (
+    <div key={key} className="relative">
+      {node}
+      <ReactionBadge emoji={emoji} pal={pal} onRight={onRight} />
+    </div>
+  );
+}
+
+const QUOTE_TUCK = 14;
+
+/** "You replied to Khalid" + the washed quoted bubble tucked behind the reply. */
+function QuoteBlock({
+  target,
+  mine,
+  label,
+  pal,
+  voiceLabel,
+}: {
+  target: Message;
+  mine: boolean;
+  label: string;
+  pal: Palette;
+  voiceLabel: string;
+}) {
+  const isImage = target.type === "image";
+  const isVoice = target.type === "voice";
+  const text = target.text.trim();
+  return (
+    <div className={`flex flex-col ${mine ? "items-end" : "items-start"}`} style={{ maxWidth: M.maxW }}>
+      <div
+        className="flex items-center"
+        style={{ gap: 4, paddingInline: 12, marginBottom: 4, fontSize: 12, lineHeight: "16px", color: pal.sub }}
+      >
+        <ReplyArrow color={pal.sub} />
+        <span className="truncate" dir="auto">
+          {label}
+        </span>
+      </div>
+      {isImage ? (
+        <div
+          className="overflow-hidden"
+          style={{ width: 120, height: 150 + QUOTE_TUCK, borderRadius: M.radius, marginBottom: -QUOTE_TUCK, background: pal.imgPlaceholder, opacity: 0.55 }}
+        >
+          {target.imageSrc ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={target.imageSrc} alt="" draggable={false} className="block h-full w-full object-cover" />
+          ) : (
+            <div className="flex h-full items-center justify-center">
+              <ImageGlyph color={pal.sub} />
+            </div>
+          )}
+        </div>
+      ) : (
+        <div
+          style={{
+            borderRadius: M.radius,
+            background: pal.quoteBg,
+            color: pal.quoteFg,
+            padding: `8px 12px ${8 + QUOTE_TUCK}px`,
+            marginBottom: -QUOTE_TUCK,
+            maxWidth: "100%",
+          }}
+        >
+          <div
+            dir={isVoice ? undefined : dirOf(text)}
+            className="line-clamp-3 break-words whitespace-pre-wrap"
+            style={{ fontSize: 15, lineHeight: "20px", letterSpacing: -0.2, textAlign: "start" }}
+          >
+            {isVoice ? (
+              <>
+                <MicGlyph color={pal.quoteFg} /> {voiceLabel}
+              </>
+            ) : (
+              text
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Text caret: theme-blue 2pt bar, blinking (clock-driven during export). */
+function Caret({ clockMs }: { clockMs?: number }) {
+  const on = caretOn(clockMs);
+  return (
+    <span
+      className={`inline-block rounded-full ${on === null ? "msgr-ios-caret" : ""}`}
+      style={{ width: 2, height: 21, marginInline: 1, verticalAlign: "-5px", background: MSG_BLUE, opacity: on === false ? 0 : 1 }}
+    />
+  );
+}
+
 function Typing({ person, pal, clockMs, rtl }: { person: Person; pal: Palette; clockMs?: number; rtl: boolean }) {
   const exporting = clockMs !== undefined;
   return (
@@ -519,7 +706,20 @@ export function Messenger({ scenario, playback, lang, rtl }: PlatformProps) {
   const live = playback.isLive;
   const exporting = clockMs !== undefined;
   const showTyping = typing || (!live && !exporting && scenario.presence === "typing");
-  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${showTyping}`);
+  const draft = playback.draft;
+  const draftText = draft?.text ?? "";
+  const composing = draftText.length > 0;
+  // rough wrapped-line estimate so the thread stays pinned while the composer grows
+  const draftLines = draftText ? Math.min(5, Math.ceil(draftText.length / 24)) : 0;
+  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${showTyping}-${draftLines}`);
+
+  const byId = new Map(scenario.messages.map((m) => [m.id, m] as const));
+  const firstName = scenario.them.name.trim().split(/\s+/)[0] || scenario.them.name;
+  const quoteOf = (m: Message): Message | null => (m.replyToId ? (byId.get(m.replyToId) ?? null) : null);
+  const replyLabel = (m: Message, target: Message): string => {
+    if (m.sender === "me") return target.sender === "me" ? s.youRepliedToYourself : s.youRepliedTo(firstName);
+    return target.sender === "me" ? s.repliedToYou(firstName) : s.repliedToThemselves(firstName);
+  };
 
   const active = scenario.presence !== "lastseen";
   const subtitle = active ? s.activeNow : scenario.lastSeenText;
@@ -619,9 +819,13 @@ export function Messenger({ scenario, playback, lang, rtl }: PlatformProps) {
             const onRight = mine ? !rtl : rtl;
             const sep = needsSeparator(messages, i);
             const g = groupInfo(messages, i);
-            const firstOfGroup = g.firstOfGroup || sep;
+            const quote = quoteOf(m);
+            // a quoted reply opens its own run: full corners above, sender-gap spacing
+            const firstOfGroup = g.firstOfGroup || sep || !!quote;
             const nextSep = i + 1 < messages.length && needsSeparator(messages, i + 1);
-            const lastOfGroup = g.lastOfGroup || nextSep;
+            const nextQuoted = i + 1 < messages.length && !!quoteOf(messages[i + 1]);
+            const lastOfGroup = g.lastOfGroup || nextSep || nextQuoted;
+            const reaction = m.reaction?.trim() || null;
 
             const hasImage = m.type === "image";
             const caption = hasImage ? m.text.trim() : "";
@@ -656,7 +860,10 @@ export function Messenger({ scenario, playback, lang, rtl }: PlatformProps) {
                   data-mid={m.id}
                   data-sender={m.sender}
                   className={`flex items-end ${mine ? "justify-end" : "justify-start"} ${enter}`}
-                  style={{ marginTop: firstOfGroup ? (sep ? 0 : M.senderGap) : M.groupGap }}
+                  style={{
+                    marginTop: firstOfGroup ? (sep ? 0 : M.senderGap) : M.groupGap,
+                    marginBottom: reaction ? REACT.extra : 0,
+                  }}
                 >
                   {!mine && (
                     <div className="shrink-0" style={{ width: M.inAvatar, marginInlineEnd: M.avatarGap }}>
@@ -664,19 +871,27 @@ export function Messenger({ scenario, playback, lang, rtl }: PlatformProps) {
                     </div>
                   )}
                   <div className={`flex min-w-0 flex-col ${mine ? "items-end" : "items-start"}`} style={{ maxWidth: M.maxW, gap: M.groupGap }}>
+                    {quote && (
+                      <QuoteBlock target={quote} mine={mine} label={replyLabel(m, quote)} pal={pal} voiceLabel={s.voiceMessage} />
+                    )}
                     {segs.map((seg, k) => {
                       const joinedAbove = k > 0 || !firstOfGroup;
                       const joinedBelow = k < segs.length - 1 || !lastOfGroup;
+                      const react = k === segs.length - 1 ? reaction : null;
                       if (seg === "emoji") {
-                        return (
+                        return withReaction(
                           <div key={seg} dir="ltr" style={{ fontSize: jumbo === 1 ? 44 : 36, lineHeight: jumbo === 1 ? "52px" : "44px", padding: "0 2px" }}>
                             {m.text.trim()}
-                          </div>
+                          </div>,
+                          seg,
+                          react,
+                          pal,
+                          onRight,
                         );
                       }
                       if (seg === "image") {
                         const corners = cornersFor(onRight, joinedAbove, joinedBelow, M.radius, M.joined);
-                        return (
+                        return withReaction(
                           <div key={seg} className="overflow-hidden" style={{ ...corners, width: M.imgW, background: pal.imgPlaceholder }}>
                             {m.imageSrc ? (
                               // eslint-disable-next-line @next/next/no-img-element
@@ -686,14 +901,19 @@ export function Messenger({ scenario, playback, lang, rtl }: PlatformProps) {
                                 <ImageGlyph color={pal.sub} />
                               </div>
                             )}
-                          </div>
+                          </div>,
+                          seg,
+                          react,
+                          pal,
+                          onRight,
                         );
                       }
                       const corners = cornersFor(onRight, joinedAbove, joinedBelow, M.radius, M.joined);
                       const text = hasImage ? caption : m.text;
-                      return (
+                      return withReaction(
                         <div
                           key={seg}
+                          className="relative"
                           style={{
                             ...corners,
                             background: mine ? MSG_BLUE : pal.inBubble,
@@ -712,7 +932,11 @@ export function Messenger({ scenario, playback, lang, rtl }: PlatformProps) {
                               {text}
                             </div>
                           )}
-                        </div>
+                        </div>,
+                        seg,
+                        react,
+                        pal,
+                        onRight,
                       );
                     })}
                   </div>
@@ -740,21 +964,57 @@ export function Messenger({ scenario, playback, lang, rtl }: PlatformProps) {
       </div>
 
       {/* Composer */}
-      <div className="flex shrink-0 items-center" style={{ padding: "8px 12px 8px", gap: 14 }}>
-        <PlusIcon size={M.composerIcon} bg={pal.bg} />
-        <CameraIcon size={M.composerIcon} />
-        <GalleryIcon size={M.composerIcon} />
-        <MicIcon size={M.composerIcon} />
-        <div
-          className="flex min-w-0 flex-1 items-center"
-          style={{ height: M.fieldH, borderRadius: M.fieldH / 2, background: pal.field, paddingInlineStart: 12, paddingInlineEnd: 7, marginInlineStart: 2 }}
-        >
-          <span className="min-w-0 flex-1 truncate" style={{ fontSize: 17, color: pal.sub, textAlign: "start" }}>
-            {s.message}
+      {/* Typing collapses + camera gallery mic into ">" and swaps 👍 for send. */}
+      <div className="flex shrink-0 items-end" style={{ padding: "8px 12px 8px", gap: composing ? 12 : 14 }}>
+        {composing ? (
+          <span className="flex shrink-0 items-center justify-center" style={{ height: M.fieldH, width: M.composerIcon }}>
+            <ExpandIcon size={M.composerIcon} />
           </span>
-          <SmileyIcon size={22} bg={pal.field} />
+        ) : (
+          [
+            <PlusIcon key="p" size={M.composerIcon} bg={pal.bg} />,
+            <CameraIcon key="c" size={M.composerIcon} />,
+            <GalleryIcon key="g" size={M.composerIcon} />,
+            <MicIcon key="m" size={M.composerIcon} />,
+          ].map((icon) => (
+            <span key={icon.key} className="flex shrink-0 items-center" style={{ height: M.fieldH }}>
+              {icon}
+            </span>
+          ))
+        )}
+        <div
+          className="flex min-w-0 flex-1 items-end"
+          style={{ minHeight: M.fieldH, borderRadius: M.fieldH / 2, background: pal.field, paddingInlineStart: 12, paddingInlineEnd: 7, marginInlineStart: 2 }}
+        >
+          <div
+            className="flex min-w-0 flex-1 flex-col justify-end overflow-hidden"
+            style={{ maxHeight: M.lh * 5 + M.padY * 2, paddingBlock: M.padY }}
+          >
+            {draft && draftText ? (
+              <div
+                dir={dirOf(draftText)}
+                className="whitespace-pre-wrap break-words"
+                style={{ fontSize: 17, lineHeight: `${M.lh}px`, letterSpacing: -0.2, color: pal.fg, textAlign: "start" }}
+              >
+                {draftText}
+                <Caret clockMs={clockMs} />
+              </div>
+            ) : (
+              <div className="flex min-w-0 items-center" style={{ height: M.lh }}>
+                {draft && <Caret clockMs={clockMs} />}
+                <span className="min-w-0 flex-1 truncate" style={{ fontSize: 17, color: pal.sub, textAlign: "start" }}>
+                  {s.message}
+                </span>
+              </div>
+            )}
+          </div>
+          <span className="flex shrink-0 items-center" style={{ height: M.fieldH, marginInlineStart: 6 }}>
+            <SmileyIcon size={22} bg={pal.field} />
+          </span>
         </div>
-        <LikeIcon size={26} />
+        <span className="flex shrink-0 items-center justify-center" style={{ height: M.fieldH, width: 26 }}>
+          {composing ? <SendIcon size={24} /> : <LikeIcon size={26} />}
+        </span>
       </div>
 
       <SystemBottomBar device={scenario.device} bg={pal.bg} fg={dark ? "#ffffff" : "#000000"} />

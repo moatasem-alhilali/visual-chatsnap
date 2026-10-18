@@ -39,6 +39,8 @@ export function ShortcutsDialog({
         { label: t.scMove, keys: ["Alt", "↑ ↓"] },
         { label: t.scDuplicate, keys: [mod, "D"] },
         { label: t.scDelete, keys: ["Del"] },
+        { label: t.scUndo, keys: [mod, "Z"] },
+        { label: t.scRedo, keys: [mod, "Shift", "Z"] },
       ],
     },
     {

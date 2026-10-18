@@ -39,6 +39,23 @@
  *    new row fades in. Modelled as a 260ms rise of 10px plus fade on
  *    cubic-bezier(.4,0,.2,1), identical in CSS and in `snapchatAndroidMotion`.
  *
+ *  - Reactions (newsroom "New features, May 2024", Emoji_Reactions.mp4): the
+ *    reactor's Bitmoji composed with the emoji (emoji behind at the upper start,
+ *    Bitmoji in front at the lower end), ~32dp, directly under the reacted chat at
+ *    the bar's edge, outside the bar. Web bundle: reactions list follows the
+ *    message, items aspect-ratio 15/16.
+ *  - Replies (newsroom "New messaging tools" 2022 asset + web quote component
+ *    `.MJ6mo`): a full-width card inside the replier's bar, above the reply text —
+ *    margin 4px 0, padding 4px 8px, 0.5px #eaedef / rgba(255,255,255,.1) border,
+ *    radius 10, #fff / #1e1e1e fill — with the quoted sender's uppercase label in
+ *    their colour ("ME" for mine) and the quoted chat behind a 2dp bar.
+ *  - Compose (web composer `.euyIb`): 22px lines, min-height 36–38, max ≈4 lines
+ *    then it scrolls; caret colour = my chat colour (#f23c57); with text the send
+ *    arrow (#0fadff, mirrored in RTL) replaces the mic at the field's end, the
+ *    camera glyph becomes camera-with-"T", and the sticker/memories/rocket icons
+ *    collapse so the field spans the row. Mobile placeholder casing: "Send a Chat"
+ *    (Play Store chat screenshot).
+ *
  * RTL: the whole screen mirrors (bar and label on the right, back chevron
  * points right, the send/receipt arrow flips). Phone, camcorder, camera, mic,
  * sticker, memories and rocket glyphs and the voice-note play triangle do NOT mirror.
@@ -46,7 +63,7 @@
 
 import type { CSSProperties, ReactNode } from "react";
 
-import type { DeliveryStatus, Message } from "../../types";
+import type { DeliveryStatus, Message, Person } from "../../types";
 import { Avatar, dirOf, SystemBottomBar, useChatScroll } from "../shared";
 import { SamsungStatusBar } from "../devices/SamsungStatusBar";
 import { CHROME, type Lang } from "./chrome";
@@ -69,6 +86,8 @@ interface Pal {
   divider: string;
   voice: string;
   nav: string;
+  quoteBg: string;
+  quoteBorder: string;
 }
 
 function palette(dark: boolean): Pal {
@@ -84,6 +103,8 @@ function palette(dark: boolean): Pal {
         divider: "#2a2a2a",
         voice: "#2a2a2a",
         nav: "#ffffff",
+        quoteBg: "#1e1e1e",
+        quoteBorder: "rgba(255,255,255,0.1)",
       }
     : {
         bg: "#ffffff",
@@ -96,6 +117,8 @@ function palette(dark: boolean): Pal {
         divider: "#ebebeb",
         voice: "#f2f2f2",
         nav: "#000000",
+        quoteBg: "#ffffff",
+        quoteBorder: "#e3e6e9",
       };
 }
 
@@ -114,7 +137,7 @@ function snapFont(androidFont: string): string {
 const STR: Record<Lang, { me: string; sendAChat: string; sending: string; delivered: string; opened: string; today: string }> = {
   en: {
     me: "Me",
-    sendAChat: "Send a chat",
+    sendAChat: "Send a Chat",
     sending: "Sending...",
     delivered: CHROME.en.snapDelivered,
     opened: CHROME.en.snapOpened,
@@ -190,6 +213,9 @@ function dotAt(ms: number, i: number): { opacity: number; y: number } {
   return { opacity: 0.35, y: 0 };
 }
 
+/** Android EditText cursor blink: 500ms on / 500ms off (Editor.BLINK = 500). */
+const CARET_MS = 1000;
+
 const KEYFRAMES = `
 @keyframes snapand-enter{from{opacity:0;transform:translateY(${ENTER_RISE}px)}to{opacity:1;transform:translateY(0)}}
 @keyframes snapand-fade{from{opacity:0}to{opacity:1}}
@@ -199,6 +225,12 @@ const KEYFRAMES = `
 .snapand-fade{animation:snapand-fade 200ms linear both}
 .snapand-peek{animation:snapand-peek 260ms cubic-bezier(.4,0,.2,1) both}
 .snapand-dot{animation:snapand-dot ${DOT_CYCLE}ms linear infinite}
+@keyframes snapand-caret{0%{opacity:1}50%{opacity:0}}
+.snapand-caret{animation:snapand-caret ${CARET_MS}ms step-end infinite}
+@keyframes snapand-send{from{opacity:0;transform:translateX(-70%)}to{opacity:1;transform:none}}
+@keyframes snapand-send-rtl{from{opacity:0;transform:translateX(70%)}to{opacity:1;transform:none}}
+.snapand-send{animation:snapand-send 180ms cubic-bezier(.4,0,.2,1) both}
+.snapand-send-rtl{animation:snapand-send-rtl 180ms cubic-bezier(.4,0,.2,1) both}
 `;
 
 /* --------------------------------- glyphs --------------------------------- */
@@ -316,6 +348,128 @@ function ChatArrow({ opened, color, size = 11 }: { opened: boolean; color: strin
   );
 }
 
+/** Camera button once text is typed: camera with a "T" knocked out (send the text as a Snap). Production path. */
+function CameraTextGlyph({ color }: { color: string }) {
+  return (
+    <svg width="23" height="23" viewBox="0 0 22 22" fill="none">
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M13.803 3.894c-.316-.406-.644-.76-1.688-.764-.673-.003-1.004-.005-1.336-.005-.331 0-.663.002-1.336.005-1.043.005-1.372.358-1.687.764-.082.105-.163.214-.243.322-.18.241-.353.474-.517.64-.6.61-1.077.665-1.274.687a14.675 14.675 0 0 0-1.022.165c-1.057.214-1.554.474-1.776.697-.866.87-1.111 3.494-1.111 5.272 0 1.779.245 4.515 1.11 5.385.471.473 2.182 1.387 7.856 1.387 5.674 0 7.385-.915 7.855-1.387.866-.87 1.112-3.606 1.112-5.385 0-1.778-.246-4.402-1.112-5.272-.221-.223-.718-.483-1.776-.697a16.38 16.38 0 0 0-1.022-.165c-.196-.022-.674-.077-1.274-.686-.164-.167-.338-.4-.517-.641-.08-.108-.16-.217-.242-.322Zm.506 6.173a.3.3 0 0 0 .3-.3V7.691a.3.3 0 0 0-.3-.3H7.691a.3.3 0 0 0-.3.3v2.076a.3.3 0 0 0 .3.3h.503l.049-.183a3.02 3.02 0 0 1 .16-.431l.001-.002c.079-.18.169-.35.27-.508.101-.157.21-.295.325-.415.112-.116.19-.15.235-.155.145-.018.297-.029.457-.032h.005c.165-.008.302-.012.41-.012h.077v6.229a.458.458 0 0 1-.05.24l-.001.002c-.021.035-.062.075-.147.11l-.003.001c-.044.02-.159.045-.37.068-.207.023-.358.037-.456.045a.24.24 0 0 0-.222.239v.359a.3.3 0 0 0 .3.3h3.532a.3.3 0 0 0 .3-.3v-.36a.24.24 0 0 0-.232-.239 2.76 2.76 0 0 1-.45-.069 3.194 3.194 0 0 1-.367-.094c-.085-.039-.124-.082-.144-.12a.53.53 0 0 1-.05-.233V8.329h.077c.141 0 .296.004.464.011.165.008.299.018.402.032.05.009.129.046.235.156l.005.005c.116.114.224.25.324.408v.001c.099.155.188.322.266.5l.003.005c.083.176.135.32.163.432l.045.188h.502Z"
+        fill={color}
+      />
+    </svg>
+  );
+}
+
+/** Send arrow (production glyph); mirrors in RTL. */
+function SendArrowGlyph({ color }: { color: string }) {
+  return (
+    <svg width="21" height="21" viewBox="0 0 16 16" fill="none" className="shrink-0 rtl:-scale-x-100">
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M13.536 7.248 3.218 2.09a.84.84 0 0 0-1.192.956l1.807 4.302c.174.416.174.885 0 1.302l-1.807 4.302a.84.84 0 0 0 1.192.956l10.318-5.157a.842.842 0 0 0 0-1.504Z"
+        fill={color}
+      />
+    </svg>
+  );
+}
+
+/** Reaction: the reactor's Bitmoji (avatar) in front of the emoji; 15:16 box, ~32dp tall. */
+function Reaction({ emoji, person, ring }: { emoji: string; person: Person; ring: string }) {
+  return (
+    <div className="relative shrink-0" style={{ width: 30, height: 32 }} aria-label={emoji}>
+      <span
+        className="absolute select-none"
+        style={{ top: 0, insetInlineStart: 0, fontSize: 20, lineHeight: "22px", fontFamily: "'Noto Color Emoji', 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif" }}
+      >
+        {emoji}
+      </span>
+      <span className="absolute flex rounded-full" style={{ bottom: 0, insetInlineEnd: 0, padding: 1.5, background: ring }}>
+        <Avatar person={person} size={19} />
+      </span>
+    </div>
+  );
+}
+
+function QuoteBody({ target, accent, pal, textAlign }: { target: Message; accent: string; pal: Pal; textAlign: CSSProperties["textAlign"] }) {
+  const snippet: CSSProperties = {
+    color: pal.text,
+    fontSize: 15.5,
+    lineHeight: "20px",
+    fontWeight: 400,
+    overflowWrap: "anywhere",
+    display: "-webkit-box",
+    WebkitBoxOrient: "vertical",
+    WebkitLineClamp: 2,
+    overflow: "hidden",
+    textAlign,
+  };
+  if (target.type === "voice") {
+    return (
+      <div className="flex items-center" style={{ height: 24, gap: 8 }}>
+        <span className="flex shrink-0 items-center justify-center rounded-full" style={{ width: 20, height: 20, background: accent }}>
+          <svg width="9" height="9" viewBox="0 0 24 24" style={{ transform: "translateX(1px)" }}>
+            <path fill="#ffffff" d="M7 4.6v14.8c0 .9 1 1.4 1.7.9l11-7.4a1.1 1.1 0 0 0 0-1.8l-11-7.4C8 3.2 7 3.7 7 4.6z" />
+          </svg>
+        </span>
+        <span className="flex items-center" style={{ height: 16, gap: 2 }} dir="ltr">
+          {WAVE.slice(0, 14).map((h, i) => (
+            <span key={i} className="shrink-0" style={{ width: 2, height: Math.max(3, h * 0.7), borderRadius: 1, background: accent, opacity: 0.55 }} />
+          ))}
+        </span>
+        <span className="tabular-nums" style={{ color: pal.sub, fontSize: 12, fontWeight: 600 }}>
+          {target.voiceDuration || "0:08"}
+        </span>
+      </div>
+    );
+  }
+  if (target.type === "image") {
+    const cap = target.text.trim();
+    return (
+      <div className="flex items-center" style={{ gap: 8 }}>
+        {target.imageSrc ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={target.imageSrc} alt="" draggable={false} className="block shrink-0 object-cover" style={{ width: 36, height: 48, borderRadius: 5 }} />
+        ) : (
+          <span className="shrink-0" style={{ width: 36, height: 48, borderRadius: 5, background: pal.field }} />
+        )}
+        {cap && (
+          <span className="min-w-0 flex-1" dir={dirOf(cap)} style={snippet}>
+            {cap}
+          </span>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div dir={dirOf(target.text)} style={snippet}>
+      {target.text}
+    </div>
+  );
+}
+
+/** Quoted-reply card inside the replier's bar, above the reply. */
+function QuoteCard({ target, label, accent, pal, textAlign }: { target: Message; label: string; accent: string; pal: Pal; textAlign: CSSProperties["textAlign"] }) {
+  return (
+    <div style={{ marginTop: 3, marginBottom: 6, padding: "0 8px 7px", border: `0.5px solid ${pal.quoteBorder}`, borderRadius: 10, background: pal.quoteBg }}>
+      <div
+        className="truncate uppercase"
+        style={{ color: accent, fontSize: LABEL_SIZE - 0.5, lineHeight: "16px", fontWeight: 600, letterSpacing: "0.02em", marginTop: 6, marginBottom: 3 }}
+      >
+        {label}
+      </div>
+      <div className="flex items-stretch">
+        <span className="shrink-0" style={{ width: BAR, borderRadius: 1, background: accent }} />
+        <div className="min-w-0 flex-1" style={{ paddingInlineStart: 8, paddingBlock: 1 }}>
+          <QuoteBody target={target} accent={accent} pal={pal} textAlign={textAlign} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ------------------------------ message parts ------------------------------ */
 
 const EMOJI_ONLY = /^(?:\p{Extended_Pictographic}(?:️|\p{Emoji_Modifier}|‍\p{Extended_Pictographic}️?)*\s*){1,3}$/u;
@@ -394,7 +548,7 @@ export function SnapchatAndroid({ scenario, playback, lang, rtl }: PlatformProps
   const { messages, typing, clockMs } = playback;
   const exporting = clockMs !== undefined;
   const live = playback.isLive && !exporting;
-  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}`);
+  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}-${playback.draft?.text.length ?? -1}`);
 
   const showTyping = typing || (!playback.isLive && scenario.presence === "typing");
   const showPresence = showTyping || scenario.presence === "online";
@@ -403,6 +557,9 @@ export function SnapchatAndroid({ scenario, playback, lang, rtl }: PlatformProps
 
   const last = messages[messages.length - 1];
   const receiptId = last && last.sender === "me" ? last.id : null;
+  const draft = playback.draft;
+  const byId = new Map(scenario.messages.map((x) => [x.id, x] as const));
+  const caretStyle: CSSProperties = exporting ? { opacity: clockMs % CARET_MS < CARET_MS / 2 ? 1 : 0 } : {};
 
   const textAlign: CSSProperties["textAlign"] = rtl ? "right" : "left";
   const textStyle: CSSProperties = {
@@ -473,6 +630,8 @@ export function SnapchatAndroid({ scenario, playback, lang, rtl }: PlatformProps
           const status = playback.statusOf(m);
           const caption = m.type === "image" ? m.text.trim() : "";
           const emoji = m.type === "text" && isEmojiOnly(m.text);
+          const quoted = m.replyToId ? byId.get(m.replyToId) : undefined;
+          const reaction = m.reaction?.trim();
           return (
             <div
               key={m.id}
@@ -509,6 +668,15 @@ export function SnapchatAndroid({ scenario, playback, lang, rtl }: PlatformProps
                   }}
                 />
                 <div className="min-w-0 flex-1" style={{ paddingInlineStart: TEXT_GAP, paddingBlock: m.type === "text" ? 1 : 3 }}>
+                  {quoted && (
+                    <QuoteCard
+                      target={quoted}
+                      label={quoted.sender === "me" ? s.me : themLabel}
+                      accent={quoted.sender === "me" ? ME_RED : THEM_BLUE}
+                      pal={pal}
+                      textAlign={textAlign}
+                    />
+                  )}
                   {m.type === "voice" ? (
                     <VoiceNote accent={accent} pal={pal} duration={m.voiceDuration} />
                   ) : m.type === "image" ? (
@@ -529,6 +697,11 @@ export function SnapchatAndroid({ scenario, playback, lang, rtl }: PlatformProps
                   )}
                 </div>
               </div>
+              {reaction && (
+                <div className="flex" style={{ marginTop: 3, marginBottom: 1 }}>
+                  <Reaction emoji={reaction} person={mine ? scenario.them : scenario.me} ring={pal.bg} />
+                </div>
+              )}
               {mine && m.id === receiptId && (
                 <div
                   key={status}
@@ -598,23 +771,63 @@ export function SnapchatAndroid({ scenario, playback, lang, rtl }: PlatformProps
       </div>
 
       {/* Composer */}
+      {/* With a draft: camera-with-T glyph, send arrow instead of the mic, trailing icons
+          collapse, and the field grows to 4 lines (then scrolls). */}
       <div
-        className="flex shrink-0 items-center"
-        style={{ background: pal.bg, paddingInlineStart: SIDE, paddingInlineEnd: 12, paddingTop: 6, paddingBottom: 8 }}
+        className="flex shrink-0 items-end"
+        style={{ background: pal.bg, paddingInlineStart: SIDE, paddingInlineEnd: draft ? SIDE : 12, paddingTop: 6, paddingBottom: 8 }}
       >
         <span className="flex shrink-0 items-center justify-center rounded-full" style={{ width: 36, height: 36, background: pal.button }}>
-          <CameraGlyph color={pal.icon} />
+          {draft ? <CameraTextGlyph color={pal.icon} /> : <CameraGlyph color={pal.icon} />}
         </span>
         <div
-          className="flex min-w-0 flex-1 items-center"
-          style={{ height: 36, borderRadius: 18, background: pal.field, marginInlineStart: 8, paddingInlineStart: 14, paddingInlineEnd: 8 }}
+          className="flex min-w-0 flex-1 items-end"
+          style={{ minHeight: 36, borderRadius: 18, background: pal.field, marginInlineStart: 8, paddingInlineStart: 14, paddingInlineEnd: draft ? 5 : 8 }}
         >
-          <span className="min-w-0 flex-1 truncate" style={{ color: pal.placeholder, fontSize: 16, fontWeight: 500 }}>
-            {s.sendAChat}
-          </span>
-          <MicGlyph color={pal.icon} />
+          {draft ? (
+            <>
+              <div className="flex min-w-0 flex-1 flex-col justify-end overflow-hidden" style={{ maxHeight: 4 * 22 + 14, paddingBlock: 7 }}>
+                <div
+                  dir={dirOf(draft.text)}
+                  style={{ color: pal.text, fontSize: 16, fontWeight: 400, lineHeight: "22px", whiteSpace: "pre-wrap", overflowWrap: "anywhere", textAlign: "start" }}
+                >
+                  {draft.text}
+                  <span
+                    key={draft.text.length}
+                    aria-hidden
+                    className={exporting ? undefined : "snapand-caret"}
+                    style={{
+                      display: "inline-block",
+                      width: 2,
+                      height: 20,
+                      background: ME_RED,
+                      verticalAlign: "-4px",
+                      marginInlineStart: 1,
+                      marginInlineEnd: -3,
+                      ...caretStyle,
+                    }}
+                  />
+                </div>
+              </div>
+              <span
+                className={`flex shrink-0 items-center justify-center ${exporting ? "" : rtl ? "snapand-send-rtl" : "snapand-send"}`}
+                style={{ width: 30, height: 36, marginInlineStart: 4 }}
+              >
+                <SendArrowGlyph color={CHAT_BLUE} />
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="min-w-0 flex-1 truncate" style={{ color: pal.placeholder, fontSize: 16, fontWeight: 500, lineHeight: "36px" }}>
+                {s.sendAChat}
+              </span>
+              <span className="flex shrink-0 items-center" style={{ height: 36 }}>
+                <MicGlyph color={pal.icon} />
+              </span>
+            </>
+          )}
         </div>
-        <div className="flex shrink-0 items-center" style={{ gap: 14, marginInlineStart: 13 }}>
+        <div className={draft ? "hidden" : "flex shrink-0 items-center"} style={{ gap: 14, marginInlineStart: 13, height: 36 }}>
           <IconSlot>
             <SmileyGlyph color={pal.icon} />
           </IconSlot>

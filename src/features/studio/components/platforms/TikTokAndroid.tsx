@@ -48,6 +48,15 @@
  * standard-decelerate curve (0, 0, 0.2, 1).
  *   https://m3.material.io/styles/motion/easing-and-duration/tokens-specs
  *
+ * Replies / reactions — TikTok's own DM client (tiktok.com async chunks 64027/99682, emotion
+ * labels DivChatItemSenderNameContainer, DivRefTextContent, DivRefMediaContent,
+ * DivReactionContainer + keys guided_reply_youReplied "You replied:", chat_optimize_repliedToYou
+ * "Replied to you:"): 12sp tertiary head text, grey quoted card (UIShapeNeutral4 / UIText3,
+ * 8×12, 2-line clamp; photo → 8dp thumbnail) above the reply bubble; the reaction emoji sits
+ * in a round badge hooked onto the sender-side bottom corner of the reacted message.
+ * Compose typing: chips row hides, sticker/photo/mic → 34dp cyan send disc with a white up
+ * arrow, 2dp cyan cursor (500ms Editor blink), field grows to 5 lines.
+ *
  * RTL (Arabic build): everything mirrors incl. the back chevron and the tail;
  * flag, "•••", play glyph, camera and the waveform do not.
  */
@@ -78,6 +87,11 @@ interface Pal {
   chip: string;
   dots: string;
   imgPlaceholder: string;
+  /** quoted-reply card (TUX UIShapeNeutral4 over the canvas) and its text (UIText3) */
+  quote: string;
+  quoteText: string;
+  /** reaction badge fill */
+  react: string;
 }
 
 function palette(dark: boolean): Pal {
@@ -94,6 +108,9 @@ function palette(dark: boolean): Pal {
         chip: "#262626",
         dots: "#8a8a8a",
         imgPlaceholder: "#262626",
+        quote: "#282828",
+        quoteText: "#8a8a8a",
+        react: "#333333",
       }
     : {
         bg: "#f5f5f5",
@@ -107,14 +124,29 @@ function palette(dark: boolean): Pal {
         chip: "#e9e9e9",
         dots: "#a8a8a8",
         imgPlaceholder: "#e6e6e6",
+        quote: "#e8e8e9",
+        quoteText: "#86878b",
+        react: "#ffffff",
       };
 }
 
+interface Str {
+  activeNow: string;
+  message: string;
+  sent: string;
+  seen: string;
+  nudge: string;
+  sharePost: string;
+  /** quoted-reply head text (1:1 chat keys guided_reply_youReplied / chat_optimize_repliedToYou / …Themself) */
+  youReplied: string;
+  repliedToYou: string;
+  repliedToThemselves: string;
+  voice: string;
+  photo: string;
+}
+
 /** TikTok's own wording (en / ar builds of the app). */
-const STR: Record<
-  Lang,
-  { activeNow: string; message: string; sent: string; seen: string; nudge: string; sharePost: string }
-> = {
+const STR: Record<Lang, Str> = {
   en: {
     activeNow: "Active now",
     message: "Message...",
@@ -122,6 +154,11 @@ const STR: Record<
     seen: "Seen",
     nudge: "Nudge",
     sharePost: "Share post",
+    youReplied: "You replied:",
+    repliedToYou: "Replied to you:",
+    repliedToThemselves: "Replied to themselves",
+    voice: "Voice message",
+    photo: "Photo",
   },
   ar: {
     activeNow: "نشط الآن",
@@ -130,6 +167,11 @@ const STR: Record<
     seen: "تمت المشاهدة",
     nudge: "نكزة",
     sharePost: "مشاركة منشور",
+    youReplied: "لقد رددت:",
+    repliedToYou: "ردّ عليك:",
+    repliedToThemselves: "ردّ على نفسه",
+    voice: "رسالة صوتية",
+    photo: "صورة",
   },
 };
 
@@ -189,6 +231,8 @@ export const tiktokAndroidMotion: PlatformMotion = {
 };
 
 const TYPING_CYCLE = 1200;
+/** Android EditText cursor blink: 500ms on / 500ms off (Editor.BLINK) */
+const CARET_MS = 500;
 const TYPING_STAGGER = 0.2; // fraction of the cycle between dots
 
 /** Same piecewise-linear curve as the `tt-and-dot` keyframes below. */
@@ -217,6 +261,11 @@ const KEYFRAMES = `
 .tt-and-enter { animation: tt-and-enter ${ENTER_MS}ms ${ENTER_EASE_CSS} both; }
 .tt-and-fade { animation: tt-and-fade 200ms ease-out both; }
 .tt-and-dot { animation: tt-and-dot ${TYPING_CYCLE}ms linear infinite; }
+@keyframes tt-and-caret {
+  0%, 49.99% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+.tt-and-caret { animation: tt-and-caret ${CARET_MS * 2}ms linear infinite; }
 `;
 
 /* ------------------------------- icons ------------------------------ */
@@ -267,26 +316,38 @@ function CameraGlyph() {
   );
 }
 
-/** Sticker: smiley with a peeled bottom-end corner. */
+/** Sticker: round face with two dot eyes (no mouth) and a peeled bottom-end corner (2025 render). */
 function StickerIcon({ color }: { color: string }) {
   return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.9" strokeLinejoin="round" strokeLinecap="round">
-      <path d="M21.2 12.6V12A9.2 9.2 0 1 0 12 21.2h.6Z" />
-      <path d="M12.6 21.2v-2.7a5.9 5.9 0 0 1 5.9-5.9h2.7" />
-      <circle cx="8.9" cy="9.8" r="1.15" fill={color} stroke="none" />
-      <circle cx="14.6" cy="9.8" r="1.15" fill={color} stroke="none" />
-      <path d="M7.9 14.2c.9 1.3 2.3 2 3.9 2" />
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.95" strokeLinejoin="round" strokeLinecap="round">
+      <path d="M20.9 13.2A9.4 9.4 0 1 0 13.2 20.9" />
+      <path d="M13.2 20.9c3.9-.8 6.9-3.8 7.7-7.7" />
+      <path d="M13.2 20.9c-.9-4.4 3.3-8.6 7.7-7.7" />
+      <circle cx="8.7" cy="9.6" r="1.35" fill={color} stroke="none" />
+      <circle cx="14.5" cy="9.6" r="1.35" fill={color} stroke="none" />
     </svg>
   );
 }
 
+/** Photo: rounded square, solid sun dot, one ridge running into the bottom-end corner. */
 function PhotoIcon({ color }: { color: string }) {
   return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.9" strokeLinejoin="round" strokeLinecap="round">
-      <rect x="2.8" y="2.8" width="18.4" height="18.4" rx="3.6" />
-      <circle cx="15.6" cy="8.4" r="1.7" />
-      <path d="M3.2 15.8 8.6 10.4l10.6 10.6" />
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.95" strokeLinejoin="round" strokeLinecap="round">
+      <rect x="3" y="3" width="18" height="18" rx="3.4" />
+      <circle cx="15.8" cy="8.2" r="2.1" fill={color} stroke="none" />
+      <path d="M3.4 17.4 7.3 13.5c.6-.6 1.5-.6 2.1 0l7.4 7.3" />
     </svg>
+  );
+}
+
+/** Send (replaces sticker / photo / mic once text is entered): cyan disc, white up arrow. */
+function SendButton({ size }: { size: number }) {
+  return (
+    <span className="flex shrink-0 items-center justify-center rounded-full" style={{ width: size, height: size, background: CYAN }}>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M12 19.5V5M5.6 11.2 12 4.8l6.4 6.4" />
+      </svg>
+    </span>
   );
 }
 
@@ -395,10 +456,7 @@ function kindOf(m: Message): Kind {
   return bigEmoji(m.text) ? "emoji" : "text";
 }
 
-type Corners = Pick<
-  CSSProperties,
-  "borderTopLeftRadius" | "borderTopRightRadius" | "borderBottomLeftRadius" | "borderBottomRightRadius"
->;
+type Corners = Pick<CSSProperties, "borderTopLeftRadius" | "borderTopRightRadius" | "borderBottomLeftRadius" | "borderBottomRightRadius">;
 
 /** Free corners 20, joined corners 4, the tail corner square. Only the sender side changes. */
 function cornersFor(onRight: boolean, joinedAbove: boolean, joinedBelow: boolean, tail: boolean, r: number): Corners {
@@ -416,7 +474,9 @@ function secondsOf(d?: string): number {
 
 /* ---------------------------- sub-views ----------------------------- */
 
-const WAVE = [8, 14, 20, 11, 17, 9, 13, 20, 7, 12, 18, 10, 15, 6, 19, 12, 9, 16, 20, 8, 13, 17, 7, 11, 19, 14, 9, 6, 15, 20, 10, 12, 18, 8, 14, 7, 11, 16, 9, 13];
+const WAVE = [
+  8, 14, 20, 11, 17, 9, 13, 20, 7, 12, 18, 10, 15, 6, 19, 12, 9, 16, 20, 8, 13, 17, 7, 11, 19, 14, 9, 6, 15, 20, 10, 12, 18, 8, 14, 7, 11, 16, 9, 13,
+];
 
 function VoiceContent({ mine, pal, duration, bubble }: { mine: boolean; pal: Pal; duration?: string; bubble: string }) {
   const ink = mine ? "#ffffff" : pal.fg;
@@ -476,6 +536,127 @@ function TypingRow({ person, pal, animate, clockMs }: { person: Person; pal: Pal
   );
 }
 
+/**
+ * Quoted reply — TikTok's own DM client (tiktok.com bundle, DivChatItemSenderNameContainer /
+ * DivRefTextContent / DivRefMediaContent): a 12sp tertiary head text ("You replied:" /
+ * "Replied to you:") on the sender side, then the quoted message as a grey card
+ * (UIShapeNeutral4, UIText3, 8×12 padding, 2-line clamp) — or a small thumbnail for a photo —
+ * stacked ABOVE the reply bubble, 4dp apart.
+ */
+function Quote({ target, pal, s, mine }: { target: Message; pal: Pal; s: Str; mine: boolean }) {
+  const head = mine ? s.youReplied : target.sender === "me" ? s.repliedToYou : s.repliedToThemselves;
+  const snippet = target.type === "voice" ? s.voice : target.type === "image" ? target.text.trim() || s.photo : target.text;
+  return (
+    <div className={`flex flex-col ${mine ? "items-end" : "items-start"}`} style={{ gap: 4, marginBottom: 4, maxWidth: "100%" }}>
+      <div className="truncate" style={{ maxWidth: "100%", fontSize: 12, lineHeight: "16px", color: pal.meta, paddingInline: 2 }}>
+        {head}
+      </div>
+      {target.type === "image" && target.imageSrc ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={target.imageSrc} alt="" draggable={false} className="block object-cover" style={{ width: 60, height: 80, borderRadius: 8 }} />
+      ) : (
+        <div style={{ maxWidth: 228, borderRadius: 12, padding: "8px 12px", background: pal.quote, color: pal.quoteText }}>
+          <div
+            dir={dirOf(snippet)}
+            className="overflow-hidden break-words"
+            style={{ fontSize: 14, lineHeight: "19px", textAlign: "start", display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2 }}
+          >
+            {target.type === "voice" && <span aria-hidden>🎤 </span>}
+            {target.type === "image" && <span aria-hidden>📷 </span>}
+            {snippet}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Reaction: the emoji in a small round badge hooked onto the sender-side bottom corner of the
+ * reacted message, overlapping it by 8dp and ringed in the canvas colour (2dp); the row then
+ * gets 14dp of extra room underneath.
+ */
+const REACT_H = 22;
+const REACT_DROP = 14;
+function ReactionBadge({ emoji, pal, onRight }: { emoji: string; pal: Pal; onRight: boolean }) {
+  return (
+    <span
+      className="pointer-events-none absolute z-[1] flex items-center justify-center"
+      style={{
+        bottom: -REACT_DROP,
+        ...(onRight ? { right: 8 } : { left: 8 }),
+        height: REACT_H,
+        minWidth: 28,
+        paddingInline: 5,
+        borderRadius: REACT_H / 2,
+        background: pal.react,
+        boxShadow: `0 0 0 2px ${pal.bg}, 0 1px 3px 2px rgba(0,0,0,0.06)`,
+        fontSize: 13,
+        lineHeight: "16px",
+      }}
+    >
+      {emoji}
+    </span>
+  );
+}
+
+/**
+ * Composer pill. Empty: camera disc + "Message..." + sticker / photo / mic. With a draft the
+ * three glyphs give way to the cyan send disc, the text fills the field in the normal text
+ * colour with a 2dp cyan cursor, and the pill grows line by line (EditText maxLines 5, then it
+ * scrolls) while both discs stay pinned to the bottom.
+ */
+function Composer({ pal, s, draft, clockMs }: { pal: Pal; s: Str; draft: string | null; clockMs?: number }) {
+  const caretOn = clockMs === undefined ? null : Math.floor(clockMs / CARET_MS) % 2 === 0;
+  const typing = draft !== null;
+  return (
+    <div className="flex items-end" style={{ background: pal.field, minHeight: 42, borderRadius: 21, padding: 4, paddingInlineEnd: typing ? 4 : 13 }}>
+      <div className="flex shrink-0 items-center justify-center rounded-full" style={{ width: 34, height: 34, background: CYAN }}>
+        <CameraGlyph />
+      </div>
+      {typing ? (
+        <div
+          className="flex min-w-0 flex-1 flex-col justify-end overflow-hidden"
+          style={{ marginInlineStart: 10, marginInlineEnd: 10, paddingBlock: 6, maxHeight: 5 * 22 + 12 }}
+        >
+          <div dir={dirOf(draft)} className="whitespace-pre-wrap break-words" style={{ fontSize: 16, lineHeight: "22px", color: pal.fg, textAlign: "start" }}>
+            {draft}
+            <span
+              aria-hidden
+              className={caretOn === null ? "tt-and-caret" : undefined}
+              style={{
+                display: "inline-block",
+                width: 2,
+                height: 19,
+                marginBottom: -4,
+                marginInlineStart: 1,
+                background: CYAN,
+                ...(caretOn === null ? {} : { opacity: caretOn ? 1 : 0 }),
+              }}
+            />
+          </div>
+        </div>
+      ) : (
+        <span
+          className="min-w-0 flex-1 self-center truncate"
+          style={{ marginInlineStart: 10, fontSize: 16, lineHeight: "22px", color: pal.placeholder, textAlign: "start" }}
+        >
+          {s.message}
+        </span>
+      )}
+      {typing ? (
+        <SendButton size={34} />
+      ) : (
+        <div className="flex shrink-0 items-center self-center" style={{ gap: 15 }}>
+          <StickerIcon color={pal.fg} />
+          <PhotoIcon color={pal.fg} />
+          <MicIcon color={pal.fg} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ------------------------------ thread ------------------------------ */
 
 export function TikTokAndroid({ scenario, playback, lang, rtl }: PlatformProps) {
@@ -485,7 +666,16 @@ export function TikTokAndroid({ scenario, playback, lang, rtl }: PlatformProps) 
   const { messages, typing, clockMs } = playback;
   const live = playback.isLive && clockMs === undefined;
   const showTyping = typing || (!playback.isLive && clockMs === undefined && scenario.presence === "typing");
-  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${showTyping}`);
+  const draft = playback.draft ? playback.draft.text : null;
+  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${showTyping}-${draft === null ? "-" : Math.floor(draft.length / 24)}`);
+
+  /** the earlier on-screen message a row quotes (nothing when it is missing) */
+  const quoteOf = (i: number): Message | undefined => {
+    const id = messages[i]?.replyToId;
+    if (!id) return undefined;
+    const j = messages.findIndex((x) => x.id === id);
+    return j >= 0 && j < i ? messages[j] : undefined;
+  };
 
   const last = messages[messages.length - 1];
   const receipt = last && last.sender === "me" ? (playback.statusOf(last) === "read" ? s.seen : s.sent) : null;
@@ -496,8 +686,7 @@ export function TikTokAndroid({ scenario, playback, lang, rtl }: PlatformProps) 
 
   const kinds = messages.map(kindOf);
   /** bubble-like kinds join their neighbours' corners; big emoji and photos break the run */
-  const joins = (a: Kind | undefined, b: Kind | undefined) =>
-    !!a && !!b && (a === "text" || a === "voice") && (b === "text" || b === "voice");
+  const joins = (a: Kind | undefined, b: Kind | undefined) => !!a && !!b && (a === "text" || a === "voice") && (b === "text" || b === "voice");
 
   return (
     <div
@@ -550,11 +739,7 @@ export function TikTokAndroid({ scenario, playback, lang, rtl }: PlatformProps) 
       </div>
 
       {/* Thread */}
-      <div
-        ref={scrollRef}
-        className="rcss-scroll relative min-h-0 flex-1 overflow-y-auto"
-        style={{ background: pal.bg, paddingTop: 20, paddingBottom: 12 }}
-      >
+      <div ref={scrollRef} className="rcss-scroll relative min-h-0 flex-1 overflow-y-auto" style={{ background: pal.bg, paddingTop: 20, paddingBottom: 12 }}>
         <div className="flex flex-col">
           {/* Profile card that opens every TikTok chat */}
           <div className="flex flex-col items-center text-center" style={{ paddingInline: 24, marginBottom: 18 }}>
@@ -573,9 +758,12 @@ export function TikTokAndroid({ scenario, playback, lang, rtl }: PlatformProps) 
             const kind = kinds[i];
             const sep = needsSeparator(messages, i);
             const g = groupInfo(messages, i);
-            const firstOfGroup = g.firstOfGroup || sep;
+            const quote = quoteOf(i);
+            // a quote block breaks the run: the reply starts fresh and the bubble above closes it
+            const firstOfGroup = g.firstOfGroup || sep || !!quote;
             const nextSep = i + 1 < messages.length && needsSeparator(messages, i + 1);
-            const lastOfGroup = g.lastOfGroup || nextSep;
+            const lastOfGroup = g.lastOfGroup || nextSep || (i + 1 < messages.length && !!quoteOf(i + 1));
+            const reaction = m.reaction?.trim() || null;
             const joinAbove = !firstOfGroup && joins(kinds[i - 1], kind);
             const joinBelow = !lastOfGroup && joins(kind, kinds[i + 1]);
             const bubbleColor = mine ? CYAN : pal.inBubble;
@@ -668,6 +856,7 @@ export function TikTokAndroid({ scenario, playback, lang, rtl }: PlatformProps) 
                   className={`flex items-end ${mine ? "justify-end" : "justify-start"} ${live ? "tt-and-enter" : ""}`}
                   style={{
                     marginTop,
+                    marginBottom: reaction ? REACT_DROP : 0,
                     gap: M.gutter,
                     paddingInlineStart: mine ? M.outEdge : M.inEdge,
                     paddingInlineEnd: mine ? M.outEdge : M.inEdge,
@@ -679,7 +868,11 @@ export function TikTokAndroid({ scenario, playback, lang, rtl }: PlatformProps) 
                     </div>
                   )}
                   <div className={`flex min-w-0 flex-col ${mine ? "items-end" : "items-start"}`} style={{ maxWidth: M.maxW }}>
-                    {body}
+                    {quote && <Quote target={quote} pal={pal} s={s} mine={mine} />}
+                    <div className={`relative flex max-w-full flex-col ${mine ? "items-end" : "items-start"}`}>
+                      {body}
+                      {reaction && <ReactionBadge emoji={reaction} pal={pal} onRight={onRight} />}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -704,51 +897,38 @@ export function TikTokAndroid({ scenario, playback, lang, rtl }: PlatformProps) 
         </div>
       </div>
 
-      {/* Quick replies — 30dp chips, overflow off the end edge */}
-      <div className="flex shrink-0 overflow-hidden" style={{ background: pal.bg, gap: 8, paddingInline: 12, paddingTop: 6 }}>
-        {["❤️", "😂", "👍"].map((e) => (
+      {/* Quick replies — 30dp chips, overflow off the end edge; hidden while typing */}
+      {draft === null && (
+        <div className="flex shrink-0 overflow-hidden" style={{ background: pal.bg, gap: 8, paddingInline: 12, paddingTop: 6 }}>
+          {["❤️", "😂", "👍"].map((e) => (
+            <span
+              key={e}
+              className="flex shrink-0 items-center justify-center rounded-full"
+              style={{ height: 30, width: 50, background: pal.chip, fontSize: 17 }}
+            >
+              {e}
+            </span>
+          ))}
           <span
-            key={e}
-            className="flex shrink-0 items-center justify-center rounded-full"
-            style={{ height: 30, width: 50, background: pal.chip, fontSize: 17 }}
+            className="flex shrink-0 items-center rounded-full whitespace-nowrap"
+            style={{ height: 30, paddingInline: 13, gap: 5, background: pal.chip, fontSize: 15 }}
           >
-            {e}
+            <span style={{ fontSize: 16 }}>👆</span>
+            {s.nudge}
           </span>
-        ))}
-        <span
-          className="flex shrink-0 items-center rounded-full whitespace-nowrap"
-          style={{ height: 30, paddingInline: 13, gap: 5, background: pal.chip, fontSize: 15 }}
-        >
-          <span style={{ fontSize: 16 }}>👆</span>
-          {s.nudge}
-        </span>
-        <span
-          className="flex shrink-0 items-center rounded-full whitespace-nowrap"
-          style={{ height: 30, paddingInline: 13, gap: 8, background: pal.chip, fontSize: 15 }}
-        >
-          <ShareTile />
-          {s.sharePost}
-        </span>
-      </div>
+          <span
+            className="flex shrink-0 items-center rounded-full whitespace-nowrap"
+            style={{ height: 30, paddingInline: 13, gap: 8, background: pal.chip, fontSize: 15 }}
+          >
+            <ShareTile />
+            {s.sharePost}
+          </span>
+        </div>
+      )}
 
       {/* Composer — 42dp pill */}
       <div className="shrink-0" style={{ background: pal.bg, padding: "8px 12px 8px" }}>
-        <div
-          className="flex items-center rounded-full"
-          style={{ background: pal.field, height: 42, paddingInlineStart: 4, paddingInlineEnd: 13 }}
-        >
-          <div className="flex shrink-0 items-center justify-center rounded-full" style={{ width: 34, height: 34, background: CYAN }}>
-            <CameraGlyph />
-          </div>
-          <span className="min-w-0 flex-1 truncate" style={{ marginInlineStart: 10, fontSize: 16, color: pal.placeholder }}>
-            {s.message}
-          </span>
-          <div className="flex shrink-0 items-center" style={{ gap: 15 }}>
-            <StickerIcon color={pal.fg} />
-            <PhotoIcon color={pal.fg} />
-            <MicIcon color={pal.fg} />
-          </div>
-        </div>
+        <Composer pal={pal} s={s} draft={draft} clockMs={clockMs} />
       </div>
 
       <SystemBottomBar device="android" bg={pal.bg} fg={dark ? "#ffffff" : "#000000"} />

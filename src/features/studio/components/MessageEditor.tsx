@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocale } from "next-intl";
-import { Timer } from "lucide-react";
+import { ClipboardPaste, LayoutTemplate, Timer, Wand2 } from "lucide-react";
 
 import { Button } from "@/shared/components/ui/button";
+import { Tooltip } from "@/shared/components/ui/tooltip";
 import { useStudioStore } from "../store";
 import type { Scenario, Sender } from "../types";
 import { useStudioUi } from "../hooks/useStudioUi";
@@ -14,9 +15,35 @@ import { Composer } from "./studio/Composer";
 import { MessageRow } from "./studio/MessageRow";
 import { fmt, formatSeconds, stepBounds } from "./studio/timing";
 
-function EmptyState({ t, onAdd }: { t: StudioLabels; onAdd: (s: Sender) => void }) {
+/** Script-level tools: smart timing, paste a transcript, template gallery. */
+export function MessageTools({ t, disabled = false }: { t: StudioLabels; disabled?: boolean }) {
+  const openDialog = useStudioUi((s) => s.openDialog);
+  const { autoTiming } = useMessageActions(t);
   return (
-    <div className="flex flex-col items-center px-6 py-12 text-center">
+    <div className="flex items-center gap-0.5">
+      <Tooltip content={t.autoTimingHint}>
+        <Button variant="ghost" size="icon-xs" aria-label={t.autoTiming} disabled={disabled} onClick={() => autoTiming()}>
+          <Wand2 className="size-3.5" />
+        </Button>
+      </Tooltip>
+      <Tooltip content={t.pasteTranscript}>
+        <Button variant="ghost" size="icon-xs" aria-label={t.pasteTranscript} onClick={() => openDialog("transcript")}>
+          <ClipboardPaste className="size-3.5" />
+        </Button>
+      </Tooltip>
+      <Tooltip content={t.templates}>
+        <Button variant="ghost" size="icon-xs" aria-label={t.templates} onClick={() => openDialog("templates")}>
+          <LayoutTemplate className="size-3.5" />
+        </Button>
+      </Tooltip>
+    </div>
+  );
+}
+
+function EmptyState({ t, onAdd }: { t: StudioLabels; onAdd: (s: Sender) => void }) {
+  const openDialog = useStudioUi((s) => s.openDialog);
+  return (
+    <div className="flex flex-col items-center px-6 py-10 text-center">
       <div aria-hidden className="relative mb-5 h-16 w-24">
         <span className="absolute start-0 top-1 h-7 w-16 rounded-2xl rounded-ss-md border border-border bg-card shadow-studio-card" />
         <span className="absolute end-0 bottom-1 h-7 w-16 rounded-2xl rounded-ee-md bg-primary/15 ring-1 ring-primary/25" />
@@ -31,6 +58,21 @@ function EmptyState({ t, onAdd }: { t: StudioLabels; onAdd: (s: Sender) => void 
         </Button>
         <Button size="sm" onClick={() => onAdd("me")}>
           {t.addFromMe}
+        </Button>
+      </div>
+      <div className="mt-5 flex w-full max-w-72 items-center gap-3 text-[11px] text-muted-foreground">
+        <span className="h-px flex-1 bg-border" />
+        {t.emptyOr}
+        <span className="h-px flex-1 bg-border" />
+      </div>
+      <div className="mt-3 grid w-full max-w-72 grid-cols-2 gap-2">
+        <Button variant="soft" size="sm" onClick={() => openDialog("templates")} className="gap-1.5">
+          <LayoutTemplate className="size-3.5" />
+          {t.templates}
+        </Button>
+        <Button variant="soft" size="sm" onClick={() => openDialog("transcript")} className="gap-1.5">
+          <ClipboardPaste className="size-3.5" />
+          {t.pasteShort}
         </Button>
       </div>
     </div>
@@ -58,17 +100,18 @@ export function MessageEditor({
   const addMessage = useStudioStore((s) => s.addMessage);
   const selectedId = useStudioUi((s) => s.selectedId);
   const select = useStudioUi((s) => s.select);
-  const { remove, duplicate, move, moveTo } = useMessageActions(t);
+  const { remove, duplicate, move, moveTo, autoTiming } = useMessageActions(t);
 
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [drag, setDrag] = useState<{ id: string | null; over: number | null }>({ id: null, over: null });
   const listRef = useRef<HTMLDivElement>(null);
 
   const messages = scenario.messages;
+  const composeTyping = scenario.composeTyping !== false;
   const totalMs = useMemo(() => {
-    const b = stepBounds(messages);
+    const b = stepBounds(messages, { composeTyping });
     return b[b.length - 1];
-  }, [messages]);
+  }, [messages, composeTyping]);
 
   useEffect(() => {
     if (!following || !liveId) return;
@@ -98,13 +141,9 @@ export function MessageEditor({
     [select],
   );
 
-  const addBlank = (sender: Sender) => {
-    addMessage(sender);
-    const list = useStudioStore.getState().scenario.messages;
-    const created = list[list.length - 1];
-    if (created) reveal(created.id, true);
-  };
+  const addBlank = (sender: Sender) => reveal(addMessage(sender), true);
 
+  const onAutoTiming = useCallback((id: string) => autoTiming(id), [autoTiming]);
   const onDragStart = useCallback((id: string) => setDrag({ id, over: null }), []);
   const onDragOver = useCallback((index: number, after: boolean) => {
     setDrag((d) => {
@@ -126,32 +165,38 @@ export function MessageEditor({
   return (
     <div className="flex h-full min-h-0 flex-col">
       {showHeader && (
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
-        <h2 className="text-[13px] font-semibold">{t.messages}</h2>
-        <span
-          className="rounded-full bg-muted px-1.5 py-px text-[11px] font-medium tabular-nums text-muted-foreground"
-          aria-label={fmt(t.messagesCount, { count: messages.length })}
-        >
-          {messages.length}
-        </span>
-        <span className="ms-auto flex items-center gap-1 text-xs text-muted-foreground" title={t.totalLength}>
-          <Timer className="size-3.5" />
-          <span className="sr-only">{t.totalLength}:</span>
-          <span className="tabular-nums" dir="ltr">
-            {formatSeconds(totalMs)}
-            {t.seconds}
+        <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border ps-4 pe-3">
+          <h2 className="text-[13px] font-semibold">{t.messages}</h2>
+          <span
+            className="rounded-full bg-muted px-1.5 py-px text-[11px] font-medium tabular-nums text-muted-foreground"
+            aria-label={fmt(t.messagesCount, { count: messages.length })}
+          >
+            {messages.length}
           </span>
-        </span>
-      </div>
+          <span className="ms-auto flex items-center gap-1 text-xs text-muted-foreground" title={t.totalLength}>
+            <Timer className="size-3.5" />
+            <span className="sr-only">{t.totalLength}:</span>
+            <span className="tabular-nums" dir="ltr">
+              {formatSeconds(totalMs)}
+              {t.seconds}
+            </span>
+          </span>
+          <span aria-hidden className="mx-0.5 h-4 w-px bg-border" />
+          <MessageTools t={t} disabled={messages.length === 0} />
+        </div>
       )}
 
       <div ref={listRef} className="studio-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {messages.length === 0 ? (
           <EmptyState t={t} onAdd={addBlank} />
         ) : (
-          <ol className="flex flex-col gap-2 p-3" onDragLeave={(e) => {
-            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDrag((d) => ({ ...d, over: null }));
-          }}>
+          <ol
+            aria-label={t.messages}
+            className="flex flex-col gap-2 p-3"
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDrag((d) => ({ ...d, over: null }));
+            }}
+          >
             {messages.map((m, i) => (
               <MessageRow
                 key={m.id}
@@ -162,6 +207,7 @@ export function MessageEditor({
                 them={scenario.them}
                 t={t}
                 dir={dir}
+                composeTyping={composeTyping}
                 selected={selectedId === m.id}
                 live={liveId === m.id}
                 expanded={expanded.has(m.id)}
@@ -177,6 +223,7 @@ export function MessageEditor({
                 onDragOver={onDragOver}
                 onDrop={onDrop}
                 onDragEnd={onDragEnd}
+                onAutoTiming={onAutoTiming}
               />
             ))}
           </ol>

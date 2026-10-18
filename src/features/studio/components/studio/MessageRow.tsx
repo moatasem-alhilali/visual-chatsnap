@@ -15,8 +15,11 @@ import {
   Image as ImageIcon,
   Mic,
   PenLine,
+  Reply,
   Trash2,
   Type,
+  Wand2,
+  X,
 } from "lucide-react";
 
 import { Button } from "@/shared/components/ui/button";
@@ -28,16 +31,21 @@ import {
   DropdownMenuTrigger,
 } from "@/shared/components/ui/dropdown-menu";
 import { Input } from "@/shared/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
 import { SegmentedControl } from "@/shared/components/ui/segmented";
 import { Slider } from "@/shared/components/ui/slider";
 import { Tooltip } from "@/shared/components/ui/tooltip";
 import { cn } from "@/shared/lib/utils";
+import { useShallow } from "zustand/react/shallow";
+
 import { useStudioStore } from "../../store";
 import type { DeliveryStatus, Message, MessageType, Person } from "../../types";
 import { Avatar } from "../shared";
 import type { StudioLabels } from "../labels";
 import { fmt, formatSeconds } from "./timing";
 import { readImageFile } from "./image-utils";
+import { ReactionPicker } from "./ReactionPicker";
+import { messageSnippet } from "./snippet";
 
 export type DragState = { dragId: string | null; overIndex: number | null };
 
@@ -49,6 +57,8 @@ type RowProps = {
   them: Person;
   t: StudioLabels;
   dir: "rtl" | "ltr";
+  /** compose typing is on (my text messages are typed into the composer) */
+  composeTyping: boolean;
   selected: boolean;
   live?: boolean;
   expanded: boolean;
@@ -64,6 +74,7 @@ type RowProps = {
   onDragOver: (index: number, after: boolean) => void;
   onDrop: () => void;
   onDragEnd: () => void;
+  onAutoTiming: (id: string) => void;
 };
 
 function StatusIcon({ status, className }: { status: DeliveryStatus; className?: string }) {
@@ -108,25 +119,33 @@ function TimingSlider({
   valueMs,
   onChange,
   unit,
+  autoLabel,
 }: {
   label: string;
   hint: string;
   valueMs: number;
   onChange: (ms: number) => void;
   unit: string;
+  /** shown instead of "0.0 s" when 0 means automatic */
+  autoLabel?: string;
 }) {
   const id = useId();
   const seconds = Math.round(valueMs / 100) / 10;
+  const auto = !!autoLabel && valueMs <= 0;
   return (
     <div>
       <div className="mb-1.5 flex items-baseline justify-between gap-2">
         <label htmlFor={id} className="text-xs font-medium text-foreground">
           {label}
         </label>
-        <span className="text-xs font-semibold tabular-nums text-foreground" dir="ltr">
-          {seconds.toFixed(1)}
-          <span className="ms-0.5 font-normal text-muted-foreground">{unit}</span>
-        </span>
+        {auto ? (
+          <span className="rounded bg-primary/10 px-1.5 text-[11px] font-semibold text-primary">{autoLabel}</span>
+        ) : (
+          <span className="text-xs font-semibold tabular-nums text-foreground" dir="ltr">
+            {seconds.toFixed(1)}
+            <span className="ms-0.5 font-normal text-muted-foreground">{unit}</span>
+          </span>
+        )}
       </div>
       <Slider
         id={id}
@@ -135,9 +154,59 @@ function TimingSlider({
         step={0.1}
         value={Math.min(seconds, 8)}
         onValueChange={(v) => onChange(Math.round(v * 1000))}
-        aria-valuetext={`${seconds.toFixed(1)} ${unit}`}
+        aria-valuetext={auto ? autoLabel : `${seconds.toFixed(1)} ${unit}`}
       />
       <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{hint}</p>
+    </div>
+  );
+}
+
+const NO_REPLY = "__none";
+
+/** "Reply to…" picker: any earlier message of the conversation. */
+function ReplyField({
+  m,
+  index,
+  t,
+  dir,
+  me,
+  them,
+  onChange,
+}: {
+  m: Message;
+  index: number;
+  t: StudioLabels;
+  dir: "rtl" | "ltr";
+  me: Person;
+  them: Person;
+  onChange: (id: string | null) => void;
+}) {
+  const id = useId();
+  const earlier = useStudioStore(useShallow((s) => s.scenario.messages.slice(0, index)));
+  const value = m.replyToId && earlier.some((x) => x.id === m.replyToId) ? m.replyToId : NO_REPLY;
+  return (
+    <div>
+      <label htmlFor={id} className="mb-1.5 flex items-center gap-1 text-xs font-medium text-foreground">
+        <Reply className="size-3 rtl:-scale-x-100" /> {t.replyTo}
+      </label>
+      <Select dir={dir} value={value} onValueChange={(v) => onChange(v === NO_REPLY ? null : v)} disabled={index === 0}>
+        <SelectTrigger id={id} size="sm" data-reply-trigger="" className="w-full min-w-0 text-xs [&>span]:truncate">
+          <SelectValue placeholder={t.noReply} />
+        </SelectTrigger>
+        <SelectContent className="max-w-[min(22rem,calc(100vw-2rem))]">
+          <SelectItem value={NO_REPLY} className="text-xs">
+            {t.noReply}
+          </SelectItem>
+          {earlier.map((x, i) => (
+            <SelectItem key={x.id} value={x.id} className="text-xs">
+              <span className="truncate">
+                #{i + 1} · {x.sender === "me" ? me.name || t.meShort : them.name || t.themShort}: {messageSnippet(x, t, 40)}
+              </span>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {index === 0 && <p className="mt-1 text-[11px] text-muted-foreground">{t.replyFirstHint}</p>}
     </div>
   );
 }
@@ -150,6 +219,7 @@ function MessageRowImpl({
   them,
   t,
   dir,
+  composeTyping,
   selected,
   live = false,
   expanded,
@@ -165,8 +235,11 @@ function MessageRowImpl({
   onDragOver,
   onDrop,
   onDragEnd,
+  onAutoTiming,
 }: RowProps) {
   const update = useStudioStore((s) => s.updateMessage);
+  const quoted = useStudioStore((s) => (m.replyToId ? (s.scenario.messages.find((x) => x.id === m.replyToId) ?? null) : null));
+  const quotedIndex = useStudioStore((s) => (m.replyToId ? s.scenario.messages.findIndex((x) => x.id === m.replyToId) : -1));
   const rowRef = useRef<HTMLLIElement>(null);
   const armed = useRef(false);
   const imageRef = useRef<HTMLInputElement>(null);
@@ -177,6 +250,20 @@ function MessageRowImpl({
   const person = mine ? me : them;
   const who = person.name || (mine ? t.meShort : t.themShort);
   const n = index + 1;
+  const messageLabel = fmt(t.jumpTo, { n });
+  const replyState: "none" | "ok" | "missing" | "later" = !m.replyToId
+    ? "none"
+    : !quoted
+      ? "missing"
+      : quotedIndex > index
+        ? "later"
+        : "ok";
+  const composes = mine && m.type === "text" && composeTyping;
+
+  const requestReply = () => {
+    if (!expanded) onToggleExpand(m.id);
+    window.setTimeout(() => rowRef.current?.querySelector<HTMLElement>("[data-reply-trigger]")?.focus(), 60);
+  };
 
   const onImage = async (file: File | undefined) => {
     if (!file) return;
@@ -334,8 +421,16 @@ function MessageRowImpl({
             "[@media(hover:none)]:visible [@media(hover:none)]:static [@media(hover:none)]:opacity-100 [@media(hover:none)]:shadow-none [@media(hover:none)]:ring-0",
           )}
         >
+          <ReactionPicker
+            value={m.reaction}
+            mine={mine}
+            onChange={(reaction) => update(m.id, { reaction })}
+            t={t}
+            variant="icon"
+            messageLabel={messageLabel}
+          />
           <Tooltip content={t.duplicate} shortcut="Ctrl D">
-            <Button variant="ghost" size="icon-xs" aria-label={t.duplicate} onClick={() => onDuplicate(m.id)}>
+            <Button variant="ghost" size="icon-xs" aria-label={t.duplicate} onClick={() => onDuplicate(m.id)} className="[@media(hover:none)]:hidden">
               <Copy className="size-3.5" />
             </Button>
           </Tooltip>
@@ -345,7 +440,7 @@ function MessageRowImpl({
               size="icon-xs"
               aria-label={t.delete}
               onClick={() => onRemove(m.id)}
-              className="hover:bg-destructive/10 hover:text-destructive"
+              className="hover:bg-destructive/10 hover:text-destructive [@media(hover:none)]:hidden"
             >
               <Trash2 className="size-3.5" />
             </Button>
@@ -366,6 +461,13 @@ function MessageRowImpl({
                 <span className="ms-auto text-[11px] text-muted-foreground" dir="ltr">Alt ↓</span>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
+              <DropdownMenuItem disabled={index === 0} onSelect={requestReply}>
+                <Reply className="rtl:-scale-x-100" /> {t.replyTo}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onAutoTiming(m.id)}>
+                <Wand2 /> {t.autoTimingOne}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => onDuplicate(m.id)}>
                 <Copy /> {t.duplicate}
               </DropdownMenuItem>
@@ -379,6 +481,48 @@ function MessageRowImpl({
 
       {/* Body */}
       <div className="px-3 pt-0.5 pb-2">
+        {replyState !== "none" && (
+          <div
+            className={cn(
+              "mb-1.5 flex items-center gap-2 rounded-md border-s-[3px] py-1 ps-2 pe-1 text-[11.5px]",
+              replyState === "ok"
+                ? quoted?.sender === "me"
+                  ? "border-studio-me bg-studio-me/[0.07]"
+                  : "border-studio-them bg-muted/70"
+                : "border-amber-500 bg-amber-500/10",
+            )}
+          >
+            <Reply aria-hidden className="size-3 shrink-0 text-muted-foreground rtl:-scale-x-100" />
+            <span className="min-w-0 flex-1">
+              {replyState === "ok" && quoted ? (
+                <>
+                  <span className="sr-only">{t.replyingTo}: </span>
+                  <span className="block truncate font-semibold text-foreground">
+                    {quoted.sender === "me" ? me.name || t.meShort : them.name || t.themShort}
+                    <span className="ms-1 font-normal text-muted-foreground">#{quotedIndex + 1}</span>
+                  </span>
+                  <span className="block truncate text-muted-foreground" dir="auto">
+                    {messageSnippet(quoted, t)}
+                  </span>
+                </>
+              ) : (
+                <span className="block text-amber-700 dark:text-amber-400">
+                  {replyState === "missing" ? t.replyMissing : t.replyLater}
+                </span>
+              )}
+            </span>
+            <Tooltip content={t.removeReply}>
+              <button
+                type="button"
+                onClick={() => update(m.id, { replyToId: null })}
+                aria-label={`${t.removeReply} — ${messageLabel}`}
+                className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors outline-none hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40"
+              >
+                <X className="size-3" />
+              </button>
+            </Tooltip>
+          </div>
+        )}
         {m.type === "voice" ? (
           <div className="flex items-center gap-2.5 rounded-lg bg-muted/70 px-2.5 py-2">
             <span className="flex size-7 items-center justify-center rounded-full bg-studio-me/15 text-primary">
@@ -453,6 +597,18 @@ function MessageRowImpl({
             />
           </>
         )}
+        {m.reaction && (
+          <div className="mt-1 flex justify-end">
+            <ReactionPicker
+              value={m.reaction}
+              mine={mine}
+              onChange={(reaction) => update(m.id, { reaction })}
+              t={t}
+              variant="badge"
+              messageLabel={messageLabel}
+            />
+          </div>
+        )}
       </div>
 
       {/* Details */}
@@ -493,6 +649,16 @@ function MessageRowImpl({
               </div>
             </div>
 
+            <ReplyField
+              m={m}
+              index={index}
+              t={t}
+              dir={dir}
+              me={me}
+              them={them}
+              onChange={(replyToId) => update(m.id, { replyToId })}
+            />
+
             {mine && (
               <div>
                 <p className="mb-1.5 text-xs font-medium text-foreground" id={`${detailsId}-status`}>
@@ -512,6 +678,13 @@ function MessageRowImpl({
               </div>
             )}
 
+            <div className="flex items-center justify-between gap-2 border-t border-border/70 pt-3">
+              <p className="text-xs font-semibold text-foreground">{t.timing}</p>
+              <Button variant="soft" size="xs" onClick={() => onAutoTiming(m.id)} className="gap-1">
+                <Wand2 className="size-3.5" />
+                {t.autoTimingOne}
+              </Button>
+            </div>
             <TimingSlider
               label={t.delay}
               hint={t.delayHint}
@@ -525,6 +698,16 @@ function MessageRowImpl({
                 hint={t.typingHint}
                 valueMs={m.typingMs}
                 unit={t.seconds}
+                onChange={(typingMs) => update(m.id, { typingMs })}
+              />
+            )}
+            {composes && (
+              <TimingSlider
+                label={t.composeDur}
+                hint={t.composeDurHint}
+                valueMs={m.typingMs}
+                unit={t.seconds}
+                autoLabel={t.auto}
                 onChange={(typingMs) => update(m.id, { typingMs })}
               />
             )}

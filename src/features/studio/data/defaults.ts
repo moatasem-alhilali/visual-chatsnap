@@ -8,6 +8,7 @@ export function createId(): string {
 
 /** A ready-to-use marketing scenario (Arabic) shown on first load. */
 function defaultMessages(): Message[] {
+  const priceQuestion = createId();
   return [
     {
       id: createId(),
@@ -30,7 +31,7 @@ function defaultMessages(): Message[] {
       status: "read",
     },
     {
-      id: createId(),
+      id: priceQuestion,
       sender: "them",
       type: "text",
       text: "كم يطلع السعر بعد الخصم؟",
@@ -48,6 +49,7 @@ function defaultMessages(): Message[] {
       delayMs: 900,
       typingMs: 0,
       status: "read",
+      replyToId: priceQuestion,
     },
     {
       id: createId(),
@@ -99,6 +101,7 @@ function defaultMessages(): Message[] {
       delayMs: 1000,
       typingMs: 1000,
       status: "read",
+      reaction: "❤️",
     },
   ];
 }

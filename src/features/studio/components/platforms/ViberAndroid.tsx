@@ -54,6 +54,13 @@
  *    52dp mic disc with a #7360F2 -> #9161F2 gradient, 15 from the end edge.
  *  - Dark (the "Dark Blue" theme [E]): surfaces #1E2835; bubbles and text are
  *    derived from it (no current dark capture was available – see report).
+ *  - Reactions (1:1): the heart quick-action circle carries the reaction: a like
+ *    fills it with a solid red heart, other reactions show the emoji instead.
+ *  - Replies: quote inside the bubble top: 2dp purple bar, quoted sender (purple,
+ *    500), one-line grey snippet; photo = 36dp thumbnail + "Photo"; voice = mic +
+ *    "Voice message".
+ *  - Compose typing: text (18sp) + purple cursor, field grows to 5 lines, gallery
+ *    hides, the mic disc becomes the send disc (white paper plane; mirrors in RTL).
  *  - Entrance: RecyclerView-style add – the row fades in while rising 12dp
  *    over 220ms with a decelerate curve. The live CSS keyframes are sampled
  *    from `viberAndroidMotion.enterStyle`, so preview == export.
@@ -101,6 +108,8 @@ interface ViberPalette {
   imgEmptyIcon: string;
   nav: string;
   navFg: string;
+  quoteText: string;
+  likeRed: string;
 }
 
 const LIGHT: ViberPalette = {
@@ -133,6 +142,8 @@ const LIGHT: ViberPalette = {
   imgEmptyIcon: "#afafaf",
   nav: "#ffffff",
   navFg: "#3c3c3c",
+  quoteText: "rgba(0,0,0,0.55)",
+  likeRed: "#f2425a",
 };
 
 const DARK: ViberPalette = {
@@ -165,6 +176,8 @@ const DARK: ViberPalette = {
   imgEmptyIcon: "#5d6878",
   nav: "#1e2835",
   navFg: "#e6e9ee",
+  quoteText: "rgba(255,255,255,0.6)",
+  likeRed: "#f2425a",
 };
 
 /* ======================================================================
@@ -189,10 +202,105 @@ const ACTION_PAIR_GAP = 6; // forward <-> heart
    Localised strings (Viber's own wording)
    ====================================================================== */
 
-const STR: Record<Lang, { today: string; online: string; typing: string; placeholder: string }> = {
-  en: { today: "Today", online: "Online", typing: "typing…", placeholder: "Message…" },
-  ar: { today: "اليوم", online: "متصل", typing: "يكتب…", placeholder: "رسالة…" },
+const STR: Record<
+  Lang,
+  { today: string; online: string; typing: string; placeholder: string; you: string; photo: string; voice: string }
+> = {
+  en: { today: "Today", online: "Online", typing: "typing…", placeholder: "Message…", you: "You", photo: "Photo", voice: "Voice message" },
+  ar: { today: "اليوم", online: "متصل", typing: "يكتب…", placeholder: "رسالة…", you: "أنت", photo: "صورة", voice: "رسالة صوتية" },
 };
+
+/* ======================================================================
+   Replies + reactions
+   ====================================================================== */
+
+interface QuoteInfo {
+  name: string;
+  snippet: string;
+  image: boolean;
+  imageSrc: string | null;
+  voice: boolean;
+}
+
+/** Resolve what a reply quotes; null when it is not a reply or the target is missing. */
+function quoteOf(m: Message, all: Message[], them: Person, s: (typeof STR)[Lang]): QuoteInfo | null {
+  if (!m.replyToId) return null;
+  const t = all.find((x) => x.id === m.replyToId);
+  if (!t) return null;
+  const name = t.sender === "me" ? s.you : them.name;
+  if (t.type === "voice") return { name, snippet: s.voice, image: false, imageSrc: null, voice: true };
+  if (t.type === "image") return { name, snippet: t.text.trim() || s.photo, image: true, imageSrc: t.imageSrc ?? null, voice: false };
+  return { name, snippet: t.text.replace(/\s+/g, " ").trim(), image: false, imageSrc: null, voice: false };
+}
+
+/**
+ * Viber's quoted reply at the top of the replying bubble: 2dp purple bar on the
+ * start side, the quoted sender (purple, medium) and a one-line grey snippet;
+ * photo targets add a 36dp rounded thumbnail, voice targets a mic + label.
+ */
+function Quote({ q, p, uiDir }: { q: QuoteInfo; p: ViberPalette; uiDir: "rtl" | "ltr" }) {
+  const align = uiDir === "rtl" ? "right" : "left";
+  return (
+    <div dir={uiDir} className="flex min-w-0 items-stretch" style={{ gap: 7, marginBottom: 5 }}>
+      <span style={{ width: 2, borderRadius: 1, background: p.accent, flexShrink: 0 }} />
+      {q.image && (
+        <span className="shrink-0 overflow-hidden" style={{ width: 36, height: 36, borderRadius: 4, alignSelf: "center" }}>
+          {q.imageSrc ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={q.imageSrc} alt="" draggable={false} style={{ display: "block", width: 36, height: 36, objectFit: "cover" }} />
+          ) : (
+            <span style={{ display: "block", width: 36, height: 36, background: p.imgEmpty }} />
+          )}
+        </span>
+      )}
+      <div className="min-w-0 flex-1" style={{ paddingBlock: 1 }}>
+        <div className="truncate" dir={dirOf(q.name)} style={{ fontSize: 14, lineHeight: "18px", fontWeight: 500, color: p.accent, textAlign: align }}>
+          {q.name}
+        </div>
+        <div className="flex min-w-0 items-center" style={{ gap: 3 }}>
+          {q.voice && (
+            <svg width="11" height="14" viewBox="0 0 20 22" fill="none" style={{ display: "block", flexShrink: 0 }}>
+              <rect x="6.6" y="1.4" width="6.8" height="11.6" rx="3.4" fill={p.quoteText} />
+              <path d="M3.4 9.8a6.6 6.6 0 0 0 13.2 0M10 16.4v3.6" stroke={p.quoteText} strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          )}
+          <span
+            className="min-w-0 flex-1 truncate"
+            dir={dirOf(q.snippet)}
+            style={{ fontSize: 14, lineHeight: "18px", color: p.quoteText, textAlign: align }}
+          >
+            {q.snippet}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Reaction inside the heart disc: Viber's solid red heart for a like, otherwise the emoji. */
+function ReactionGlyph({ emoji, red }: { emoji: string; red: string }) {
+  const e = emoji.trim();
+  if (/^[❤♥]️?$/u.test(e)) {
+    return (
+      <svg width="16" height="15" viewBox="0 0 24 22" style={{ display: "block" }}>
+        <path d="M12 20.6S1.6 14.5 1.6 7.5A5.4 5.4 0 0 1 12 5.1a5.4 5.4 0 0 1 10.4 2.4c0 7-10.4 13.1-10.4 13.1z" fill={red} />
+      </svg>
+    );
+  }
+  return <span style={{ fontSize: 15, lineHeight: "18px", display: "block" }}>{e}</span>;
+}
+
+/** Viber send: white paper plane on the purple disc (mirrors in Arabic). */
+function SendPlane({ rtl }: { rtl: boolean }) {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" style={{ display: "block", marginInlineStart: 3, transform: rtl ? "scaleX(-1)" : undefined }}>
+      <path
+        d="M3.4 3.2c-.6-.3-1.3.3-1.1.9l2.6 7.1c.1.3.4.5.7.5l8.1.3-8.1.3c-.3 0-.6.2-.7.5l-2.6 7.1c-.2.6.5 1.2 1.1.9l18-8.1c.6-.3.6-1.2 0-1.5z"
+        fill="#ffffff"
+      />
+    </svg>
+  );
+}
 
 /* ======================================================================
    Entrance motion (shared by the live CSS and the video exporter)
@@ -231,6 +339,7 @@ const ENTER_KEYFRAMES = (() => {
 
 const TYPING_PERIOD = 1200;
 const TYPING_STAGGER = 200;
+const CARET_PERIOD = 1000;
 
 /** Typing dot state at time t (ms): each dot brightens and grows in turn. */
 function typingDot(t: number, i: number): { opacity: number; transform: string } {
@@ -246,7 +355,14 @@ ${ENTER_KEYFRAMES}
 .viber-android-enter{animation:viber-android-enter ${ENTER_MS}ms linear both}
 @keyframes viber-android-typing{0%{opacity:.45;transform:scale(.85)}12.5%{opacity:.72;transform:scale(.925)}25%{opacity:1;transform:scale(1)}37.5%{opacity:.72;transform:scale(.925)}50%,100%{opacity:.45;transform:scale(.85)}}
 .viber-android-typing-dot{animation:viber-android-typing ${TYPING_PERIOD}ms ease-in-out infinite}
+@keyframes viber-android-caret{0%,49.9%{opacity:1}50%,100%{opacity:0}}
+.viber-android-caret{animation:viber-android-caret ${CARET_PERIOD}ms step-end infinite}
 `;
+
+/** Android EditText cursor: hard on/off blink, 500 ms each (same as the CSS above). */
+function caretOn(t: number): boolean {
+  return ((t % CARET_PERIOD) + CARET_PERIOD) % CARET_PERIOD < CARET_PERIOD / 2;
+}
 
 /* ======================================================================
    Helpers
@@ -451,7 +567,11 @@ export function ViberAndroid({ scenario, playback, lang, rtl }: PlatformProps) {
   const { messages, typing } = playback;
   const live = playback.isLive;
   const clock = playback.clockMs;
-  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}`);
+  const draft = playback.draft;
+  // keep the newest bubble in view while a growing draft shrinks the thread
+  const scrollRef = useChatScroll<HTMLDivElement>(
+    `${messages.length}-${typing}-${draft ? Math.floor(draft.text.length / 16) : -1}`,
+  );
 
   const subtitle =
     scenario.presence === "typing" ? s.typing : scenario.presence === "online" ? s.online : scenario.lastSeenText;
@@ -516,6 +636,7 @@ export function ViberAndroid({ scenario, playback, lang, rtl }: PlatformProps) {
                 status={playback.statusOf(m)}
                 them={scenario.them}
                 live={live}
+                quote={quoteOf(m, scenario.messages, scenario.them, s)}
               />
             );
           })}
@@ -561,22 +682,52 @@ export function ViberAndroid({ scenario, playback, lang, rtl }: PlatformProps) {
         </div>
       </div>
 
-      {/* Composer */}
-      <div className="flex shrink-0 items-center" style={{ background: p.bg, borderTop: `1px solid ${p.composerDivider}`, padding: "8px 0" }}>
-        <div className="flex shrink-0 items-center justify-center" style={{ width: 40, marginInlineStart: 0 }}>
+      {/* Composer. While typing: text + purple cursor replace "Message…", the
+          field grows to 5 lines (bottom-anchored, ⊕ / send stay on the last
+          line), the gallery shortcut hides (smiley stays), mic -> send. */}
+      <div className="flex shrink-0 items-end" style={{ background: p.bg, borderTop: `1px solid ${p.composerDivider}`, padding: "8px 0" }}>
+        <div className="flex shrink-0 items-center justify-center" style={{ width: 40, height: 52, marginInlineStart: 0 }}>
           <PlusCircle color={p.composerIcon} />
         </div>
         <div
-          className="flex min-w-0 flex-1 items-center"
-          style={{ height: 52, borderRadius: 26, background: p.field, marginInlineStart: 2 }}
+          className="flex min-w-0 flex-1 items-end"
+          style={{ minHeight: 52, borderRadius: 26, background: p.field, marginInlineStart: 2 }}
         >
-          <span className="min-w-0 flex-1 truncate" style={{ fontSize: 18, lineHeight: "24px", color: p.placeholder, paddingInlineStart: 15 }}>
-            {s.placeholder}
-          </span>
+          {draft ? (
+            <div
+              className="flex min-w-0 flex-1 flex-col justify-end overflow-hidden"
+              style={{ paddingBlock: 14, paddingInlineStart: 15, maxHeight: 14 * 2 + 24 * 5 }}
+            >
+              <div
+                dir={dirOf(draft.text)}
+                className="whitespace-pre-wrap break-words"
+                style={{ fontSize: 18, lineHeight: "24px", color: p.text, textAlign: "start" }}
+              >
+                {draft.text}
+                <span
+                  className={clock === undefined ? "viber-android-caret" : undefined}
+                  style={{
+                    display: "inline-block",
+                    width: 2,
+                    height: 22,
+                    background: p.accent,
+                    verticalAlign: -5,
+                    marginInlineStart: 1,
+                    marginInlineEnd: -3,
+                    opacity: clock === undefined ? undefined : caretOn(clock) ? 1 : 0,
+                  }}
+                />
+              </div>
+            </div>
+          ) : (
+            <span className="min-w-0 flex-1 truncate" style={{ fontSize: 18, lineHeight: "52px", color: p.placeholder, paddingInlineStart: 15 }}>
+              {s.placeholder}
+            </span>
+          )}
           {/* smiley centred 72dp and gallery 28dp from the field's end */}
-          <div className="flex shrink-0 items-center" style={{ gap: 19, marginInlineEnd: 15.5 }}>
+          <div className="flex shrink-0 items-center" style={{ height: 52, gap: 19, marginInlineEnd: 15.5, marginInlineStart: draft ? 8 : 0 }}>
             <Smiley color={p.composerIcon} />
-            <Gallery color={p.composerIcon} />
+            {!draft && <Gallery color={p.composerIcon} />}
           </div>
         </div>
         <div
@@ -590,7 +741,7 @@ export function ViberAndroid({ scenario, playback, lang, rtl }: PlatformProps) {
             boxShadow: dark ? "none" : "0 2px 6px rgba(115,96,242,0.32)",
           }}
         >
-          <Mic color="#ffffff" />
+          {draft ? <SendPlane rtl={rtl} /> : <Mic color="#ffffff" />}
         </div>
       </div>
 
@@ -611,6 +762,7 @@ function ViberRow({
   status,
   them,
   live,
+  quote,
 }: {
   m: Message;
   p: ViberPalette;
@@ -619,6 +771,7 @@ function ViberRow({
   status: DeliveryStatus;
   them: Person;
   live: boolean;
+  quote: QuoteInfo | null;
 }) {
   const mine = m.sender === "me";
   const uiDir = rtl ? "rtl" : "ltr";
@@ -626,7 +779,10 @@ function ViberRow({
   const metaColor = mine ? p.metaOut : p.meta;
   const caption = m.type === "image" ? m.text.trim() : "";
   const textDir = dirOf(m.text);
-  const emojiCount = m.type === "text" ? bigEmojiCount(m.text) : 0;
+  // a reply always lives in a bubble, so a replying emoji-only message is not jumbo
+  const emojiCount = m.type === "text" && !quote ? bigEmojiCount(m.text) : 0;
+  const quoteEl = quote ? <Quote q={quote} p={p} uiDir={uiDir} /> : null;
+  const reaction = m.reaction?.trim() || null;
   const media = m.type === "image" || emojiCount > 0;
 
   // Square top-start corner only on the first incoming bubble of a group (beside the avatar).
@@ -658,16 +814,21 @@ function ViberRow({
       </div>
     );
   } else if (m.type === "voice") {
-    content = <ViberVoice m={m} p={p} bg={bg} radius={radius} mine={mine} status={status} rtl={rtl} />;
+    content = <ViberVoice m={m} p={p} bg={bg} radius={radius} mine={mine} status={status} rtl={rtl} quote={quoteEl} />;
   } else if (m.type === "image") {
     const W = 236;
     content = (
       <div
         className="relative overflow-hidden"
         dir={caption ? textDir : uiDir}
-        style={{ width: W, maxWidth: "100%", background: caption ? bg : "transparent", ...radius }}
+        style={{ width: W, maxWidth: "100%", background: caption || quote ? bg : "transparent", ...radius }}
       >
-        <div className="relative overflow-hidden" style={caption ? undefined : radius}>
+        {/* replying photo: the quote sits above the picture inside the bubble */}
+        {quoteEl && <div style={{ padding: "9px 13px 3px" }}>{quoteEl}</div>}
+        <div
+          className="relative overflow-hidden"
+          style={quote ? { marginInline: 4, borderRadius: 8, marginBottom: caption ? 0 : 4 } : caption ? undefined : radius}
+        >
           {m.imageSrc ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={m.imageSrc} alt="" draggable={false} style={{ display: "block", width: "100%", height: "auto", maxHeight: 320, objectFit: "cover" }} />
@@ -697,11 +858,11 @@ function ViberRow({
     );
   } else {
     // Time sits inline after a short single line; otherwise it wraps to its own line at the end.
-    content = (
+    const textRow = (
       <div
         className="flex flex-wrap items-baseline justify-end"
         dir={textDir}
-        style={{ background: bg, color: p.text, padding: "9px 13px 9px", columnGap: 8, ...radius }}
+        style={quote ? { columnGap: 8 } : { background: bg, color: p.text, padding: "9px 13px 9px", columnGap: 8, ...radius }}
       >
         <span className="min-w-0 whitespace-pre-wrap break-words" style={{ fontSize: BODY_FS, lineHeight: `${BODY_LH}px`, flex: "0 1 auto", marginInlineEnd: "auto" }}>
           {m.text}
@@ -709,11 +870,20 @@ function ViberRow({
         {meta(metaColor, p.accent, { marginInlineStart: "auto" })}
       </div>
     );
+    content = quote ? (
+      <div className="min-w-0" style={{ background: bg, color: p.text, padding: "9px 13px 9px", ...radius }}>
+        {quoteEl}
+        {textRow}
+      </div>
+    ) : (
+      textRow
+    );
   }
 
   const heart = (
     <ActionDisc p={p}>
-      <Heart color={p.actionIcon} />
+      {/* the like disc: outline heart, or the reaction left on this message */}
+      {reaction ? <ReactionGlyph emoji={reaction} red={p.likeRed} /> : <Heart color={p.actionIcon} />}
     </ActionDisc>
   );
   const forward = (
@@ -771,6 +941,7 @@ function ViberVoice({
   mine,
   status,
   rtl,
+  quote,
 }: {
   m: Message;
   p: ViberPalette;
@@ -779,10 +950,12 @@ function ViberVoice({
   mine: boolean;
   status: DeliveryStatus;
   rtl: boolean;
+  quote?: ReactNode;
 }) {
   const bars = waveform(m.id, 30, 5, 20);
   return (
     <div dir={rtl ? "rtl" : "ltr"} style={{ background: bg, width: "100%", maxWidth: 258, padding: "11px 13px 9px", ...radius }}>
+      {quote}
       <div className="flex items-center" style={{ height: 40 }}>
         {/* play triangle never mirrors */}
         <span className="flex shrink-0 items-center justify-center rounded-full" style={{ width: 40, height: 40, background: p.accent }}>

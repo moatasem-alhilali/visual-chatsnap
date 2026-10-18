@@ -67,30 +67,56 @@ export interface DeviceGeometry {
 /** Used until the stage has been measured (iPhone footprint). */
 export const FALLBACK_DEVICE: DeviceGeometry = { w: 432, h: 886, body: { x: 2.5, y: 0, w: 427, h: 886, r: 72 } };
 
-export function computeLayout(preset: Preset, device: DeviceGeometry, size: PhoneSize): FrameLayout {
+export interface LayoutOptions {
+  /** resolution multiplier (stills at 2–3×, small GIFs < 1) */
+  mul?: number;
+  /** fractions of the frame height kept free above / below the phone (caption band) */
+  reserveTop?: number;
+  reserveBottom?: number;
+}
+
+/** Can this preset reserve a caption band above/below the phone? (tall formats only) */
+export function supportsCaption(preset: Preset): boolean {
+  return preset.id === "story" || preset.id === "portrait";
+}
+
+export function computeLayout(
+  preset: Preset,
+  device: DeviceGeometry,
+  size: PhoneSize,
+  opts: LayoutOptions = {},
+): FrameLayout {
   const boxCssW = device.w + DEVICE_MARGIN * 2;
   const boxCssH = device.h + DEVICE_MARGIN * 2;
+  const mul = opts.mul ?? 1;
 
   let W: number;
   let H: number;
   let scale: number;
+  let top = 0;
+  let bottom = 0;
 
   if (preset.w === null || preset.h === null) {
-    scale = DEVICE_ONLY_HEIGHT / boxCssH;
+    scale = (DEVICE_ONLY_HEIGHT * mul) / boxCssH;
     W = even(boxCssW * scale);
     H = even(boxCssH * scale);
   } else {
-    W = preset.w;
-    H = preset.h;
+    W = even(preset.w * mul);
+    H = even(preset.h * mul);
+    top = Math.round(H * (opts.reserveTop ?? 0));
+    bottom = Math.round(H * (opts.reserveBottom ?? 0));
     const fill = PHONE_FILL[size];
-    scale = Math.min((H * fill) / device.h, (W * fill) / device.w);
+    const availH = H - top - bottom;
+    // with a caption band the phone fills the remaining height a little more
+    const fillH = top || bottom ? Math.min(0.96, fill + 0.08) : fill;
+    scale = Math.min((availH * fillH) / device.h, (W * fill) / device.w);
   }
 
   const boxW = boxCssW * scale;
   const boxH = boxCssH * scale;
   // snap to whole output pixels so the phone isn't resampled by a sub-pixel offset
   const x = Math.round((W - boxW) / 2);
-  const y = Math.round((H - boxH) / 2);
+  const y = Math.round(top + (H - top - bottom - boxH) / 2);
   const m = DEVICE_MARGIN * scale;
 
   return {
