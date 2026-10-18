@@ -4,7 +4,8 @@ import { getTranslations } from "next-intl/server";
 import { siteConfig } from "@/config/site";
 import { absolute, JsonLd, organizationLd, websiteLd } from "@/core/seo/json-ld";
 import { createPageMetadata } from "@/core/seo/metadata";
-import { LANDING_APPS, StudioApp, landingPath, screenshotSrc } from "@/features/studio";
+import { StudioApp } from "@/features/studio";
+import { LANDING_APPS, landingPath, screenshotSrc } from "@/features/studio/landing";
 
 type Params = { params: Promise<{ locale: string }> };
 

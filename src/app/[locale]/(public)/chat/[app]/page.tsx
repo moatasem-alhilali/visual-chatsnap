@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 
 import { createPageMetadata } from "@/core/seo/metadata";
-import { ChatGeneratorPage, isLandingApp, LANDING_APPS, landingPath, screenshotSrc } from "@/features/studio";
+import { ChatGeneratorPage, isLandingApp, LANDING_APPS, landingPath, screenshotSrc } from "@/features/studio/landing";
 
 type Params = { params: Promise<{ locale: string; app: string }> };
 

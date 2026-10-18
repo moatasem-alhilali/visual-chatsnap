@@ -106,8 +106,13 @@ export default async function RootLayout({
             {children}
           </NextIntlClientProvider>
         </AppProvider>
-        <Analytics />
-        <SpeedInsights />
+        {/* Vercel serves these scripts; elsewhere they would 404 */}
+        {process.env.VERCEL ? (
+          <>
+            <Analytics />
+            <SpeedInsights />
+          </>
+        ) : null}
       </body>
     </html>
   );

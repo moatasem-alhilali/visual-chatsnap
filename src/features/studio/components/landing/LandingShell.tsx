@@ -8,7 +8,11 @@ import { LANDING_APPS, landingPath } from "./landing-data";
 
 type Locale = "ar" | "en";
 
-/** Header + footer shared by the public chat-generator pages (server-rendered). */
+/**
+ * Header + footer shared by the public chat-generator pages (server-rendered).
+ * Links into the studio use prefetch={false}: prefetching would download the
+ * whole studio bundle on these lightweight pages and slow their first paint.
+ */
 export async function LandingShell({
   locale,
   path,
@@ -26,7 +30,7 @@ export async function LandingShell({
     <div className="flex min-h-dvh flex-col bg-background text-foreground">
       <header className="border-b border-border">
         <div className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4">
-          <Link href="/" className="flex items-center gap-2 rounded-md font-semibold focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+          <Link href="/" prefetch={false} className="flex items-center gap-2 rounded-md font-semibold focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
             <Image src="/favicon/android-chrome-192x192.png" alt="" width={28} height={28} className="size-7" />
             <span>{siteConfig.name}</span>
           </Link>
@@ -37,7 +41,7 @@ export async function LandingShell({
             <Link href={path} locale={other} hrefLang={other} className={buttonVariants({ variant: "ghost", size: "sm" })}>
               {other === "ar" ? "العربية" : "English"}
             </Link>
-            <Link href="/" className={buttonVariants({ size: "sm" })}>
+            <Link href="/" prefetch={false} className={buttonVariants({ size: "sm" })}>
               {t("common.breadcrumbHome")}
             </Link>
           </nav>

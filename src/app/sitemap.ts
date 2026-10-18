@@ -1,7 +1,7 @@
 import type { MetadataRoute } from "next";
 
 import { siteConfig } from "@/config/site";
-import { LANDING_APPS, landingPath, screenshotSrc } from "@/features/studio";
+import { LANDING_APPS, landingPath, screenshotSrc } from "@/features/studio/landing";
 
 /** Bump when the public pages' content changes meaningfully. */
 const CONTENT_UPDATED = new Date("2026-10-18");

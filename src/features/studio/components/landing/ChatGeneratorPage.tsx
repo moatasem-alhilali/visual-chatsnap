@@ -77,7 +77,7 @@ export async function ChatGeneratorPage({ locale, app }: { locale: Locale; app: 
         <nav aria-label="Breadcrumb" className="mb-6 text-sm text-muted-foreground">
           <ol className="flex flex-wrap items-center gap-1">
             <li>
-              <Link href="/" className="rounded-sm hover:text-foreground">
+              <Link href="/" prefetch={false} className="rounded-sm hover:text-foreground">
                 {crumbs[0].name}
               </Link>
             </li>
@@ -104,7 +104,7 @@ export async function ChatGeneratorPage({ locale, app }: { locale: Locale; app: 
             <h1 className="text-3xl leading-tight font-bold tracking-tight md:text-5xl">{t(`apps.${app}.h1`)}</h1>
             <p className="max-w-2xl text-lg leading-relaxed text-muted-foreground">{t(`apps.${app}.intro`)}</p>
             <div className="flex flex-wrap items-center gap-3">
-              <Link href={studioHref} className={buttonVariants({ size: "lg" })}>
+              <Link href={studioHref} prefetch={false} className={buttonVariants({ size: "lg" })}>
                 {fill(t.raw("common.openStudio") as string, name)}
               </Link>
               <span className="text-sm text-muted-foreground">{t("common.free")}</span>
@@ -116,7 +116,9 @@ export async function ChatGeneratorPage({ locale, app }: { locale: Locale; app: 
             alt={fill(t.raw("common.screenshotAlt") as string, name)}
             width={SCREENSHOT_SIZE.width}
             height={SCREENSHOT_SIZE.height}
-            priority
+            preload
+            fetchPriority="high"
+            loading="eager"
             sizes="(min-width: 1024px) 340px, (min-width: 768px) 300px, 80vw"
             className="mx-auto h-auto w-full max-w-[300px] md:max-w-none"
           />

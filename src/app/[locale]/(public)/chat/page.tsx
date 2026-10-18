@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 
 import { createPageMetadata } from "@/core/seo/metadata";
-import { ChatGeneratorsHub, landingPath } from "@/features/studio";
+import { ChatGeneratorsHub, landingPath } from "@/features/studio/landing";
 
 type Params = { params: Promise<{ locale: string }> };
 

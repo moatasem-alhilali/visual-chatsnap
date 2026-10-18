@@ -512,8 +512,7 @@
       "metaDescription": "Free chat mockup and video ad maker for WhatsApp, iMessage, Instagram, Telegram, Snapchat, Messenger, TikTok, X, Signal, Discord and Viber. Export MP4 in your browser.",
       "h1": "Chat generator for every app people text on",
       "intro": "Pick an app, write the conversation, and Scenora renders it on a realistic iPhone or Samsung phone, then exports it as an MP4 video, GIF or image. Every app has its own iPhone and Android template rebuilt from the real 2026 design: bubbles, ticks, reactions, keyboards and all.",
-      "appsHeading": "Pick an app",
-      "cardCta": "Open the {app} generator"
+      "appsHeading": "Pick an app"
     },
     "common": {
       "openStudio": "Create a {app} chat",

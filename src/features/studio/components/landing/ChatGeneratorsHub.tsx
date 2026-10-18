@@ -54,7 +54,7 @@ export async function ChatGeneratorsHub({ locale }: { locale: Locale }) {
           <h1 className="text-3xl leading-tight font-bold tracking-tight md:text-5xl">{t("hub.h1")}</h1>
           <p className="text-lg leading-relaxed text-muted-foreground">{t("hub.intro")}</p>
           <div className="flex flex-wrap items-center gap-3">
-            <Link href="/" className={buttonVariants({ size: "lg" })}>
+            <Link href="/" prefetch={false} className={buttonVariants({ size: "lg" })}>
               {t("common.breadcrumbHome")}
             </Link>
             <span className="text-sm text-muted-foreground">{t("common.free")}</span>
@@ -68,7 +68,6 @@ export async function ChatGeneratorsHub({ locale }: { locale: Locale }) {
               <li key={app}>
                 <Link
                   href={landingPath(app)}
-                  aria-label={fill(t.raw("hub.cardCta") as string, names[app])}
                   className="group flex h-full flex-col gap-3 rounded-xl border border-border bg-card p-3 text-card-foreground transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                 >
                   <Image
@@ -76,7 +75,7 @@ export async function ChatGeneratorsHub({ locale }: { locale: Locale }) {
                     alt={fill(t.raw("common.screenshotAlt") as string, names[app])}
                     width={SCREENSHOT_SIZE.width}
                     height={SCREENSHOT_SIZE.height}
-                    priority={i < 4}
+                    preload={i < 4}
                     sizes="(min-width: 1024px) 260px, (min-width: 768px) 30vw, 45vw"
                     className="h-auto w-full"
                   />
