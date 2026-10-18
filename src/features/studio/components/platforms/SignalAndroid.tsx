@@ -294,7 +294,7 @@ const STR: Record<Lang, Strings> = {
     audio: "صوت",
     edited: (t) => `مُعدَّلة ${t}`,
     youDeleted: "حذفتَ هذه الرسالة",
-    deletedBy: (n) => `حذفَ ${n} هذه الرسالة`,
+    deletedBy: (n) => `تم حذف هذه الرسالة من ${n}`,
     missedVoice: "مكالمة صوتية فائتة",
     missedVideo: "مكالمة فيديو فائتة",
     incomingVoice: "مكالمة صوتية واردة",

@@ -261,7 +261,7 @@ const LOCAL: Record<Lang, LocalStrings> = {
     voice: "رسالة صوتية",
     edited: "تمَّ التعديل",
     youDeleted: "حذفتَ هذه الرسالة.",
-    deletedBy: (n) => `حذفَ ${n} هذه الرسالة.`,
+    deletedBy: (n) => `تم حذف هذه الرسالة من ${n}.`,
     missedVoice: "مكالمة صوتية فائتة",
     missedVideo: "مكالمة فيديو فائتة",
     incomingVoice: "مكالمة صوتية واردة",

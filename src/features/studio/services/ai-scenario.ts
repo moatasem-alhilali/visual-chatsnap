@@ -1,4 +1,5 @@
 import { createId } from "../data/defaults";
+import { MEDIA_AVATARS, MEDIA_PHOTOS, mediaSrc, type MediaAsset } from "../data/media-library";
 import type {
   CallEntry,
   ChatTheme,
@@ -60,6 +61,23 @@ const PLATFORM_IDS: Platform[] = [
   "viber",
 ];
 
+/** Phone finishes per device (ids of DEVICE_FINISHES in devices/DeviceFrame). */
+const DEVICE_COLORS: Record<Device, string[]> = {
+  iphone: ["black-titanium", "white-titanium", "blue-titanium", "natural-titanium"],
+  android: ["navy", "icyblue", "silver-shadow", "mint"],
+};
+const ANDROID_FONT_IDS = ["roboto", "cairo", "tajawal"];
+
+/* Video (export) settings the AI may suggest — ids of the export dialog's prefs. */
+const VIDEO_FORMATS = ["story", "portrait", "square", "landscape", "device"] as const;
+const VIDEO_BACKGROUNDS = ["studio", "aurora", "brand", "sunset", "screen", "mist", "mint", "white", "black"] as const;
+const ZOOM_IDS = ["off", "subtle", "medium", "strong"] as const;
+const SAFE_ZONES = ["off", "tiktok", "reels", "shorts", "stories"] as const;
+const SPEED_IDS = [0.75, 1, 1.25, 1.5, 2] as const;
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+
+const assetList = (list: MediaAsset[]) => list.map((a) => `"${a.id}" (${a.label.en})`).join(", ");
+
 const LENGTH_HINT: Record<AiLength, string> = {
   short: "6–8 messages (about 15–20 seconds of video)",
   medium: "9–14 messages (about 25–35 seconds of video)",
@@ -77,8 +95,8 @@ export function buildAiPrompt(o: AiPromptOptions): string {
   return `You are a creative director who writes short, realistic chat-conversation scenarios for marketing videos made with **Scenora** (a studio that renders pixel-accurate WhatsApp / Telegram / Instagram / Snapchat / iMessage / Messenger / TikTok / X / Signal / Discord / Viber chats on an iPhone or Samsung and exports them as video ads).
 
 ## How we work together
-1. ${ar ? "Talk to me in Arabic." : "Talk to me in English."} First ask me a few short questions (max 5, in one message) to understand: the product/service, the audience, the goal of the ad (sales, booking, trust, launch…), the tone, the app to show it in, and whether it's a 1:1 chat or a group.${idea ? " Use my idea below as the starting point and only ask what's missing." : ""}
-2. Then propose a short outline of the conversation (who says what, the hook, the turning point, the call to action). Let me adjust it.
+1. ${ar ? "Talk to me in Arabic." : "Talk to me in English."} First ask me a few short questions (max 6, in one message) to understand: the product/service, the audience, the goal of the ad (sales, booking, trust, launch…), the tone, the app to show it in, whether it's a 1:1 chat or a group, and where the video will be posted (TikTok, Reels, Shorts, Stories, feed, YouTube…).${idea ? " Use my idea below as the starting point and only ask what's missing." : ""}
+2. Then propose a short outline of the conversation (who says what, the hook, the turning point, the call to action) plus the video packaging (format, opening caption, end card). Let me adjust it.
 3. When I say **"generate"** (or «أنشئ» / «جهّز الملف»), reply with **only one fenced \`\`\`json code block** containing the final scenario in the exact format below — no text before or after it. If I ask for changes later, send the full updated JSON again.
 
 ## Writing rules
@@ -86,8 +104,10 @@ export function buildAiPrompt(o: AiPromptOptions): string {
 - A clear hook in the first 1–2 messages, a believable objection or question, and a satisfying ending with the call to action.
 - "me" is the phone owner (usually the brand/store/business account)${o.meName ? ` — currently named "${o.meName}"` : ""}; "them" is the customer/friend.
 - Length: ${length}.
-- Use extra features only when they help the story: reactions, replies to an earlier message, voice notes, photos, a location, a PDF invoice, a missed call, an edited or deleted message, a link preview, a group chat.
-- Times must increase realistically (HH:MM). No real phone numbers, emails or personal data.
+- Use extra features only when they help the story: reactions, replies to an earlier message, voice notes, photos, stickers, a location (or live location), a PDF invoice/brochure, a missed or connected voice/video call, an edited or deleted message, a link preview, a group chat.
+- Times must increase realistically (HH:MM) and the status-bar clock should match the first message. No real phone numbers, emails or personal data.
+- Pick avatars and photos from the built-in library below (by id) so the video looks finished without uploads.
+- Package it for where it will be posted: TikTok/Reels/Shorts/Stories → "story" (9:16) with the matching "safeZone"; feed → "portrait" or "square"; YouTube → "landscape". Write a punchy opening caption (max ~8 words) and an end card with a headline and a call to action.
 
 ## JSON format (${AI_FORMAT})
 \`\`\`json
@@ -97,27 +117,45 @@ export function buildAiPrompt(o: AiPromptOptions): string {
   "platform": "${platform ?? "whatsapp"}",
   "device": "${device ?? "iphone"}",
   "theme": "light",
-  "me": { "name": "Brand or owner name" },
-  "them": { "name": "Customer name" },
+  "deviceColor": null,
+  "me": { "name": "Brand or owner name", "avatar": "av-bag" },
+  "them": { "name": "Customer name", "avatar": "av-peach" },
   "group": null,
   "presence": "online",
   "lastSeenText": "",
-  "statusBar": { "time": "9:41", "battery": 82 },
+  "statusBar": { "time": "10:41", "battery": 82, "wifi": true, "cellular": true, "batteryPct": false },
+  "composeTyping": true,
+  "keyboard": true,
   "messages": [
     { "from": "them", "text": "Hi! Is the weekend offer still on?", "time": "10:41" },
     { "from": "me", "text": "Yes 🎉 until Friday — 30% off everything", "time": "10:41", "status": "read" },
     { "from": "them", "type": "voice", "voiceDuration": "0:09", "time": "10:42" },
-    { "from": "me", "type": "image", "text": "This one is the bestseller", "imageHint": "white sneakers on a pastel background", "time": "10:43", "reaction": "😍" },
+    { "from": "me", "type": "image", "text": "This one is the bestseller", "photo": "ph-sneaker", "time": "10:43", "reaction": "😍" },
     { "from": "them", "text": "Perfect, I'll take it", "time": "10:44", "replyTo": 4, "reaction": "👍" }
-  ]
+  ],
+  "video": {
+    "format": "story",
+    "safeZone": "tiktok",
+    "background": "aurora",
+    "caption": { "text": "She almost missed the sale 😱", "position": "top" },
+    "endCard": { "headline": "30% off ends Friday", "cta": "Shop now" },
+    "notification": true,
+    "zoom": "medium",
+    "speed": 1,
+    "music": true
+  }
 }
 \`\`\`
 
 ### Field reference
 - **platform**: ${PLATFORM_IDS.map((p) => `"${p}"`).join(" | ")}${platform ? ` (use "${platform}")` : " (pick the best app for the audience)"}. "imessage" on "android" shows Samsung Messages.
 - **device**: "iphone" | "android"${device ? ` (use "${device}")` : ""}. **theme**: "light" | "dark".
+- **deviceColor** (optional): iphone ${DEVICE_COLORS.iphone.map((c) => `"${c}"`).join(" | ")}; android ${DEVICE_COLORS.android.map((c) => `"${c}"`).join(" | ")}. **androidFont** (android only): ${ANDROID_FONT_IDS.map((f) => `"${f}"`).join(" | ")}.
 - **presence**: "online" | "typing" | "lastseen" (with **lastSeenText**, e.g. "last seen today at 9:30").
-- **group** (optional, for group chats): \`{ "name": "Family 🏡", "members": [{ "name": "Sara" }, { "name": "Omar" }] }\` — then omit "them" and set each other person's message \`"from"\` to their member name.
+- **statusBar**: \`time\` "H:MM", \`battery\` 1–100, \`wifi\` / \`cellular\` / \`batteryPct\` (show the % number) true/false.
+- **composeTyping**: my messages are typed into the input box before they're sent (default true). **keyboard**: show the phone keyboard while I type (default true; needs composeTyping).
+- **avatar** (on me, them, group and each member): a library id — ${assetList(MEDIA_AVATARS)} — or null for the app's default.
+- **group** (optional, for group chats): \`{ "name": "Family 🏡", "avatar": "ph-gift", "members": [{ "name": "Sara", "avatar": "av-peach" }, { "name": "Omar", "avatar": "av-ocean" }] }\` — then omit "them" and set each other person's message \`"from"\` to their member name.
 - **messages[]** — each message:
   - **from**: "me", "them", or a group member's name.
   - **type** (default "text"): "text" | "voice" | "image" | "sticker" | "location" | "file" | "call" | "deleted".
@@ -126,12 +164,19 @@ export function buildAiPrompt(o: AiPromptOptions): string {
   - **reaction**: one emoji reacting to this message (on my message it's their reaction; on theirs it's mine).
   - **replyTo**: number (1-based) of an earlier message this one quotes.
   - **edited**: true to show "Edited".
-  - **voiceDuration**: "0:14" (for "voice"). **imageHint**: what the photo shows (for "image").
-  - **link**: \`{ "url": "https://…", "title": "…", "description": "…", "siteName": "…" }\` for a text message containing a link.
+  - **voiceDuration**: "0:14" (for "voice").
+  - **photo** (for "image", and optional for "sticker" instead of emoji): a library id — ${assetList(MEDIA_PHOTOS)}. If none fits, give **imageHint** (what the photo shows) and I'll upload my own.
+  - **link**: \`{ "url": "https://…", "title": "…", "description": "…", "siteName": "…", "image": "ph-…" }\` for a text message containing a link (the url must appear in the text).
   - **location**: \`{ "title": "Place name", "subtitle": "Street, City", "live": false }\` (for "location").
   - **file**: \`{ "name": "Invoice-1042.pdf", "size": "245 KB", "pages": "2 pages" }\` (for "file").
   - **call**: \`{ "video": false, "missed": true, "duration": "4:12" }\` (for "call").
   - **delay** / **typing** (optional, seconds): pause before the message and how long "typing…" shows. Omit them to let Scenora time the chat naturally.
+- **video** (export settings, all optional):
+  - **format**: ${VIDEO_FORMATS.map((f) => `"${f}"`).join(" | ")} (9:16, 4:5, 1:1, 16:9, or just the phone). **safeZone**: ${SAFE_ZONES.map((f) => `"${f}"`).join(" | ")} (keeps the chat clear of that app's buttons; 9:16 only).
+  - **background**: ${VIDEO_BACKGROUNDS.map((f) => `"${f}"`).join(" | ")}, or **backgroundColor** "#RRGGBB".
+  - **caption**: \`{ "text": "…", "position": "top" | "bottom" }\` — a fixed headline over the video (or null).
+  - **endCard**: \`{ "headline": "…", "cta": "…" }\` — the closing card with the call to action (or null).
+  - **notification**: true opens the video with the incoming-message notification. **zoom**: ${ZOOM_IDS.map((f) => `"${f}"`).join(" | ")} (camera follows each new message). **speed**: ${SPEED_IDS.join(" | ")}. **music**: true/false.
 ${idea ? `\n## My idea\n${idea}\n` : ""}
 Start now with your questions.`;
 }
@@ -223,8 +268,30 @@ export type AiWarning =
   | { code: "imagesPlaceholder"; count: number }
   | { code: "dropped"; index: number };
 
+/**
+ * Export settings suggested by the AI, as a patch of the export dialog's
+ * prefs (`scenora.export.prefs`); only the keys the reply set are present.
+ */
+export interface AiVideoPrefs {
+  preset?: (typeof VIDEO_FORMATS)[number];
+  safeZone?: (typeof SAFE_ZONES)[number];
+  bg?: string;
+  custom?: string;
+  caption?: boolean;
+  captionText?: string;
+  captionPos?: "top" | "bottom";
+  endCard?: boolean;
+  endHeadline?: string;
+  endCta?: string;
+  notif?: boolean;
+  zoom?: boolean;
+  zoomLevel?: "subtle" | "medium" | "strong";
+  speed?: (typeof SPEED_IDS)[number];
+  music?: boolean;
+}
+
 export type AiParseResult =
-  | { ok: true; scenario: Scenario; warnings: AiWarning[]; title: string | null }
+  | { ok: true; scenario: Scenario; warnings: AiWarning[]; title: string | null; video: AiVideoPrefs | null }
   | { ok: false; error: "empty" | "noJson" | "noMessages" | "invalid" };
 
 type Obj = Record<string, unknown>;
@@ -314,10 +381,101 @@ function normType(v: unknown): MessageType | null {
 const STATUS: DeliveryStatus[] = ["sent", "delivered", "read"];
 const PRESENCE: PresenceStatus[] = ["online", "typing", "lastseen"];
 
+/** A built-in library asset by id ("av-peach", "ph-perfume"); never a remote URL. */
+function libraryImage(v: unknown, kind: "avatar" | "photo" | "any" = "any"): string | null {
+  const id = lower(v);
+  if (!id) return null;
+  if (kind === "avatar" && !id.startsWith("av-")) return null;
+  if (kind === "photo" && !id.startsWith("ph-")) return null;
+  return mediaSrc(id);
+}
+
+/** Best library photo for a free-text hint ("white sneakers", «عطر»…). */
+function photoForHint(hint: string): string | null {
+  const h = hint.toLowerCase();
+  if (!h.trim()) return null;
+  const extra: Record<string, string[]> = {
+    "ph-sneaker": ["shoe", "sneaker", "trainer", "حذاء", "جزمة", "كوتش"],
+    "ph-perfume": ["perfume", "fragrance", "oud", "scent", "cologne", "عطر", "عود", "بخور"],
+    "ph-burger": ["burger", "food", "meal", "sandwich", "برجر", "وجبة", "أكل", "اكل"],
+    "ph-apartment": ["apartment", "flat", "house", "home", "villa", "room", "شقة", "بيت", "فيلا", "غرفة"],
+    "ph-car": ["car", "vehicle", "suv", "سيارة", "سياره"],
+    "ph-phone": ["phone", "mobile", "smartphone", "جوال", "هاتف", "موبايل"],
+    "ph-dress": ["dress", "abaya", "fashion", "outfit", "clothes", "فستان", "عباية", "عبايه", "ملابس"],
+    "ph-coffee": ["coffee", "latte", "cafe", "café", "قهوة", "قهوه", "كوفي"],
+    "ph-gift": ["gift", "present", "box", "هدية", "هديه"],
+  };
+  for (const a of MEDIA_PHOTOS) {
+    const words = [...(extra[a.id] ?? []), a.label.en.toLowerCase(), a.label.ar];
+    if (words.some((w) => h.includes(w))) return a.src;
+  }
+  return null;
+}
+
 function person(v: unknown, fallback: Person): Person {
   if (typeof v === "string") return { name: v, avatar: null };
-  if (isObj(v)) return { name: str(v.name) ?? fallback.name, avatar: null };
+  if (isObj(v)) return { name: str(v.name) ?? fallback.name, avatar: libraryImage(v.avatar, "avatar") };
   return fallback;
+}
+
+const oneOfList = <T extends string | number>(v: unknown, list: readonly T[]): T | undefined =>
+  list.find((x) => (typeof x === "number" ? Number(v) === x : lower(v) === x));
+
+function videoOf(v: unknown): AiVideoPrefs | null {
+  if (!isObj(v)) return null;
+  const p: AiVideoPrefs = {};
+  const format = lower(v.format ?? v.aspect ?? v.preset).replace(/\s+/g, "");
+  const formatAlias: Record<string, AiVideoPrefs["preset"]> = {
+    "9:16": "story",
+    vertical: "story",
+    reels: "story",
+    tiktok: "story",
+    "4:5": "portrait",
+    "1:1": "square",
+    "16:9": "landscape",
+    horizontal: "landscape",
+    youtube: "landscape",
+    phone: "device",
+  };
+  p.preset = oneOfList(format, VIDEO_FORMATS) ?? formatAlias[format];
+  p.safeZone = oneOfList(v.safeZone, SAFE_ZONES);
+  const bg = oneOfList(v.background, VIDEO_BACKGROUNDS);
+  const custom = str(v.backgroundColor) ?? (HEX_COLOR.test(str(v.background) ?? "") ? str(v.background) : undefined);
+  if (custom && HEX_COLOR.test(custom)) {
+    p.bg = "custom";
+    p.custom = custom;
+  } else if (bg) p.bg = bg;
+  if (v.caption === null || v.caption === false) p.caption = false;
+  else if (typeof v.caption === "string" || isObj(v.caption)) {
+    const text = (typeof v.caption === "string" ? v.caption : str(v.caption.text)) ?? "";
+    if (text.trim()) {
+      p.caption = true;
+      p.captionText = text.trim().slice(0, 140);
+      const pos = isObj(v.caption) ? lower(v.caption.position) : "";
+      if (pos === "top" || pos === "bottom") p.captionPos = pos;
+    }
+  }
+  if (v.endCard === null || v.endCard === false) p.endCard = false;
+  else if (isObj(v.endCard)) {
+    const headline = str(v.endCard.headline)?.trim() ?? "";
+    const cta = str(v.endCard.cta)?.trim() ?? "";
+    if (headline || cta) {
+      p.endCard = true;
+      p.endHeadline = headline.slice(0, 140);
+      p.endCta = cta.slice(0, 140);
+    }
+  }
+  if (typeof v.notification === "boolean") p.notif = v.notification;
+  const zoom = v.zoom === false ? "off" : v.zoom === true ? "medium" : oneOfList(v.zoom, ZOOM_IDS);
+  if (zoom === "off") p.zoom = false;
+  else if (zoom) {
+    p.zoom = true;
+    p.zoomLevel = zoom;
+  }
+  p.speed = oneOfList(v.speed, SPEED_IDS);
+  if (typeof v.music === "boolean") p.music = v.music;
+  for (const k of Object.keys(p) as (keyof AiVideoPrefs)[]) if (p[k] === undefined) delete p[k];
+  return Object.keys(p).length ? p : null;
 }
 
 function seconds(v: unknown): number | undefined {
