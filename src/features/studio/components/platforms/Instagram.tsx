@@ -1,10 +1,24 @@
 "use client";
 
 /**
- * Instagram Direct — thread screen (iPhone). The iPhone template is its own
- * renderer (`Instagram`, bottom of this file). `IgThread`/`IgSpec`/`igPalette`/
- * `IG_OUT_*`/`IgPhoneIcon`/`IgVideoIcon` are LEGACY exports kept only for
- * `InstagramAndroid` until it has copied them out.
+ * Instagram Direct — thread screen (iPhone), self-contained renderer.
+ *
+ * Round 4 additions:
+ *  - Reaction: the emoji (15pt) in a 26pt incoming-grey pill with a 2pt
+ *    canvas-coloured ring, overlapping the bubble's bottom edge by 7pt, 10pt
+ *    in from its outer (screen-edge) side; the row grows by the 19pt overhang
+ *    and the avatar stays aligned to the bubble, not the pill. No count (1:1).
+ *  - Reply: 12pt secondary label above ("You replied to Khalid" / "Replied to
+ *    you"; ar "قمت بالرد على خالد" / "قام بالرد عليك"), then the quoted
+ *    message as a muted 14/18 bubble (2 lines max; photos as a 96×128 faded
+ *    thumbnail, voice as "Voice message") beside a 3pt rounded rail on the
+ *    screen-edge side, then the reply bubble. A reply starts a new block
+ *    (corners are not joined across it).
+ *  - Compose typing: the draft replaces the placeholder in the input colour
+ *    with a 2pt theme-blue caret (solid while keys land, then 1s blink); the
+ *    pill grows line by line (radius stays 22pt, up to 5 lines) with the camera
+ *    disc kept bottom-leading; mic / gallery / sticker / "+" are replaced by
+ *    the theme-coloured "Send" text button (ar "إرسال").
  *
  * iOS renderer — key values (pt @ 393pt width):
  *  - Header 54pt under the status bar: 24pt chevron (only mirrored glyph),

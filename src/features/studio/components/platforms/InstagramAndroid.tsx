@@ -40,6 +40,17 @@
  *    bubble rises 14dp and scales 94 % → 100 % from its outer-bottom corner.
  *    https://m3.material.io/styles/motion/easing-and-duration/tokens-specs
  *
+ * Reactions / replies / compose typing (same IG design on both OSes, dp metrics):
+ *  - Reaction: emoji 15sp in a 26dp incoming-grey pill with a 2dp canvas ring,
+ *    overlapping the bubble's bottom by 7dp, 10dp in from its outer side.
+ *  - Reply: 12sp label ("You replied to Khalid" / "Replied to you"; ar
+ *    "قمت بالرد على خالد" / "قام بالرد عليك"), muted 14/18 quoted bubble (2
+ *    lines max; photo thumbnail / "Voice message") beside a 3dp rail on the
+ *    screen-edge side, then the reply bubble.
+ *  - Draft: text in the pill with a 2dp accent caret (500ms on / 500ms off),
+ *    pill grows up to 5 lines, camera disc stays, the trailing icons give way
+ *    to the bold accent "Send" text (ar "إرسال").
+ *
  * Behaviour: no per-message times — a centred 12sp secondary-text timestamp
  * ("Today 10:41") at the top and after ≥1h of silence. Under your newest message
  * only: "Sent" until read, then "Seen" (Instagram has no "Delivered" stage).
