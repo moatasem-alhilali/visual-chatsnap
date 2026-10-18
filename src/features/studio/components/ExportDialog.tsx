@@ -441,7 +441,9 @@ const COPY = {
       cancelled: "أُلغي",
     } as Record<BatchStatus, string>,
     batchDone: (n: number, total: number) =>
-      n === total ? `الملفات الـ${total.toLocaleString("ar-EG")} جاهزة` : `${n.toLocaleString("ar-EG")} من ${total.toLocaleString("ar-EG")} ملفات جاهزة`,
+      n === total
+        ? `جميع الملفات جاهزة (${total.toLocaleString("ar-EG")})`
+        : `${n.toLocaleString("ar-EG")} من ${total.toLocaleString("ar-EG")} ملفات جاهزة`,
     batchSaved: "نُزّل كل ملف فور اكتماله (قد يطلب المتصفح مرة واحدة السماح بتنزيل عدة ملفات).",
     downloadAll: "تنزيل الكل",
     shareAll: "مشاركة الكل",
@@ -584,6 +586,11 @@ const DEFAULT_PREFS: Prefs = {
 const DEVICES: Device[] = ["iphone", "android"];
 const comboKey = (p: Platform, d: Device) => `${p}:${d}`;
 const ALL_COMBOS = PLATFORMS.flatMap((p) => DEVICES.map((d) => comboKey(p.id, d)));
+/** App name as exported: iMessage doesn't exist on Android, the template there is Samsung Messages. */
+function appLabel(p: Platform, d: Device, lang: Lang): string {
+  if (p === "imessage" && d === "android") return lang === "ar" ? "رسائل سامسونج" : "Samsung Messages";
+  return PLATFORM_MAP[p]?.label ?? p;
+}
 function parseCombo(key: string): { platform: Platform; device: Device } {
   const [platform, device] = key.split(":") as [Platform, Device];
   return { platform, device };
@@ -1488,10 +1495,15 @@ export function ExportDialog({
             size: prefs.wmSize,
             color: prefs.wmColor,
             fontFamily,
-            inset: fitZone ? safeInset(fitZone) : null,
+            // inside the safe zone when fitting, and never on top of the caption band
+            inset: {
+              ...(fitZone ? safeInset(fitZone) : { left: 0, right: 0 }),
+              top: reserve.reserveTop,
+              bottom: reserve.reserveBottom,
+            },
           }
         : null,
-    [prefs.wm, prefs.wmText, wmLogo, prefs.wmCorner, prefs.wmOpacity, prefs.wmSize, prefs.wmColor, fontFamily, fitZone],
+    [prefs.wm, prefs.wmText, wmLogo, prefs.wmCorner, prefs.wmOpacity, prefs.wmSize, prefs.wmColor, fontFamily, fitZone, reserve],
   );
 
   const endCard = useMemo<EndCardConfig | null>(
@@ -3491,7 +3503,7 @@ function BatchList({
             <PlatformMark platform={it.platform} device={it.device} size={22} />
             <span className="min-w-0 flex-1">
               <span className="block truncate text-xs font-semibold">
-                {PLATFORM_MAP[it.platform]?.label ?? it.platform} · {c.devices[it.device]}
+                {appLabel(it.platform, it.device, c === COPY.ar ? "ar" : "en")} · {c.devices[it.device]}
               </span>
               <span
                 className={cn(
@@ -3516,7 +3528,7 @@ function BatchList({
                 type="button"
                 onClick={() => onShow(it)}
                 aria-pressed={active}
-                aria-label={`${c.showItem}: ${PLATFORM_MAP[it.platform]?.label ?? it.platform} ${c.devices[it.device]}`}
+                aria-label={`${c.showItem}: ${appLabel(it.platform, it.device, c === COPY.ar ? "ar" : "en")} ${c.devices[it.device]}`}
                 className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
               >
                 <Play className="size-3.5" aria-hidden />
@@ -3575,13 +3587,13 @@ function ComboGrid({
               const key = comboKey(p.id, d);
               const on = selected.includes(key);
               return (
-                <label key={d} className="flex h-7 cursor-pointer items-center justify-center" title={`${p.label} · ${c.devices[d]}`}>
+                <label key={d} className="flex h-7 cursor-pointer items-center justify-center" title={`${appLabel(p.id, d, c === COPY.ar ? "ar" : "en")} · ${c.devices[d]}`}>
                   <input
                     type="checkbox"
                     checked={on}
                     disabled={disabled}
                     data-export-combo={key}
-                    aria-label={`${p.label} · ${c.devices[d]}`}
+                    aria-label={`${appLabel(p.id, d, c === COPY.ar ? "ar" : "en")} · ${c.devices[d]}`}
                     onChange={() => onToggle(key)}
                     className={cn("size-4 accent-[var(--primary)]", key === current && "ring-2 ring-primary/40 ring-offset-1 ring-offset-background")}
                   />

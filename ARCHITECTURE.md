@@ -156,6 +156,14 @@ Feature rules:
   `PlaybackView.draft` (compose typing) the way that app does; derives looping
   animations from `PlaybackView.clockMs` when set; and exports a `PlatformMotion`
   that matches its CSS entrance. Register new templates in `platforms/index.tsx`.
+  Templates also render every `MessageType`, `Scenario.group` (resolving the author
+  through `Message.authorIndex`), `edited`/`link`, and read `useKeyboardInset()` so
+  the composer sits on the on-screen keyboard drawn by `devices/PhoneScreen`.
+- **Create with AI**: `services/ai-scenario.ts` owns the prompt (`buildAiPrompt`)
+  and the lenient `scenora.v1` parser (`parseAiReply`). The parser returns a
+  validated `Scenario` plus an optional patch of export prefs. When a new
+  scenario or export feature is added, document it in the prompt and the
+  parser so the AI can set it.
 - **Timing parity**: `playback/compose.ts` and `export/schedule.ts` mirror
   `usePlayback` exactly, so live preview, the studio timeline and exported video
   agree to the millisecond. Change all three together.

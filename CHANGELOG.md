@@ -6,6 +6,30 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- **Create with AI:**
+  - The studio builds a prompt you paste into any model (ChatGPT, Claude, Gemini). The model interviews you about the ad, then replies with one JSON block in the `scenora.v1` format, which you paste back.
+  - The format covers every studio feature:
+    - app, device and theme;
+    - group chats;
+    - all 8 message kinds, reactions, replies, "Edited", link previews and timing;
+    - library avatars and photos, phone colour and font, status bar, compose typing and keyboard;
+    - the video settings: format, safe zone, background, caption, end card, notification intro, zoom, speed and music.
+  - Parsing is lenient: prose around the JSON, comments, trailing commas, smart quotes and many aliases are accepted. It also reports what it fixed.
+  - Applying is one undoable step (`services/ai-scenario.ts`, `components/studio/AiScenarioDialog.tsx`).
+- **Group chats in all 22 templates:**
+  - each app's own group header, sender names and colours, member avatars, and "Name is typing…";
+  - in the studio, a group editor and a "sent by" picker.
+- **New message kinds in all 22 templates:**
+  - stickers, locations (including live), files and calls;
+  - deleted messages, the "Edited" label and link previews.
+  - Where an app has no such feature, the template follows what that app really shows. For example, Discord and X just remove deleted messages, and Samsung Messages shows calls as a centred line.
+- **Real on-screen keyboards:** the iOS 26 keyboard and the One UI 8 Samsung keyboard, in English and Arabic. They slide up while my messages are typed, show key presses and suggestions, and every template lifts its composer above them.
+- **Studio:** a built-in media library (avatars and product photos), "Generate times" with per-message time locks, editors for every message kind, and four new templates.
+- **Export:**
+  - batch export to many app × phone combinations;
+  - safe-zone guides and fitting for TikTok, Reels, Shorts and Stories;
+  - a logo/text watermark and playback speed (0.75×–2×);
+  - a camera that keeps the keyboard in shot.
 - **Inside every template (22):**
   - **Reactions:** each app's own reaction style.
   - **Quoted replies:** each app's real reply block.

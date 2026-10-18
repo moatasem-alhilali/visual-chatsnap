@@ -25,6 +25,7 @@
 
 - [Why Scenora](#why-scenora)
 - [Features](#features)
+- [Create with AI](#create-with-ai)
 - [Screenshots](#screenshots)
 - [Quick start](#quick-start)
 - [Using the studio](#using-the-studio)
@@ -70,7 +71,15 @@ Every template supports:
 
 - **Light and dark** palettes, using each app's real values.
 - **Full RTL** mirroring for Arabic, matching each app's own behaviour. Telegram, for example, doesn't mirror the thread. Each bubble also detects its own text direction.
-- **Message types:** text, emoji-only (rendered large like the real apps), voice notes, images with or without a caption.
+- **Message types:**
+  - text and emoji-only messages (rendered large like the real apps);
+  - voice notes and images, with or without a caption;
+  - stickers, locations (including live), files with their type icon, and voice/video calls (missed or connected);
+  - deleted messages, the "Edited" label and link previews.
+
+  Each kind looks the way that app really draws it. Where an app has no such feature, the template follows what the app actually shows.
+- **Group chats:** the app's own group header, sender names in member colours, member avatars, and "Name is typing…".
+- **On-screen keyboard:** a real iOS 26 or One UI 8 Samsung keyboard, in English or Arabic, slides up while my messages are typed. It shows key presses and suggestions, and the composer sits on top of it.
 - **Grouping,** with grouped corners and tails per app.
 - **Status:** delivery status (sent → delivered → read) with each app's own glyphs and labels, typing indicators, and presence (online / typing / last seen).
 - **Platform-specific entrance animations,** used by both live playback and video export.
@@ -89,14 +98,18 @@ Every template supports:
 ### Studio
 
 - **Layout:** a three-zone editor (setup · stage · messages) that becomes tabs on tablets and a bottom panel on phones.
-- **Message editor:** inline editing, sender switching, drag to reorder, duplicate and delete with undo, voice and image messages, per-message timing (delay, typing duration) and status.
+- **Create with AI:** copy a ready prompt into ChatGPT, Claude or Gemini, describe your ad, and paste the model's final JSON reply back. It applies everything in one undoable step: the chat, the group, every message kind, avatars and photos from the built-in library, phone settings, and the video settings (format, safe zone, caption, end card, zoom, speed). See [Create with AI](#create-with-ai).
+- **Message editor:** inline editing, a "sent by" picker for group members, drag to reorder, duplicate and delete with undo, per-message timing (delay, typing duration) and status. Each message kind has its own editor, including sticker, location, file, call, deleted, "Edited" and link preview.
+- **Group chats:** set a group name, group photo and members (avatar, name, order).
+- **Media library:** ready-made illustrated avatars and product photos, so a chat looks finished without uploads.
+- **Generate times:** spreads realistic clock labels from a start time and pace, keeps the 12 h / 24 h style, and respects times you lock by hand.
 - **Playback bar:** a segmented timeline you can click to jump to a message, and a **recording mode** (a clean full-screen stage for screen capture).
-- **Templates gallery:** 10 ready-made marketing chats (orders, bookings, real estate, clinics, support, abandoned cart, courses, car rental, testimonials, flash sales) in Gulf Arabic and English.
+- **Templates gallery:** 14 ready-made marketing chats in Gulf Arabic and English, including group chats, live delivery and a missed-call recovery.
 - **Paste a chat:** paste a transcript (`Name: text`) or a WhatsApp export (iOS or Android, Arabic or English) and it becomes messages with senders and times.
 - **Smart timing:** natural delays and typing durations from message length, for the whole chat or one message.
 - **Reactions and replies** from each message's row; **undo / redo** for every edit.
 - **Projects and sharing:** autosave, multiple named projects in the browser, compressed share links (`#s=…`), and scenario JSON import/export.
-- **Motion menu:** turn the auto-zoom camera, message animations and compose typing on or off in the live preview to inspect your work as a still.
+- **Motion menu:** turn the auto-zoom camera, message animations, compose typing and the keyboard on or off in the live preview to inspect your work as a still.
 - **Keyboard and appearance:** keyboard shortcuts, plus light and dark themes for the studio itself.
 - **Bilingual UI** (Arabic / English) with localized SEO metadata.
 
@@ -109,7 +122,20 @@ Every template supports:
 - **Timing and sound:** optional intro/outro holds, synthesized send/receive sounds, and **background music** (upload, trim, volume, fades, loop).
 - **Scenes:** an optional **notification intro** (iOS 26 / One UI 8 lock screen whose banner opens into the chat), an **end card** with your logo, headline and CTA button, and a **caption** above or below the phone for 9:16 and 4:5.
 - **Other outputs:** a high-resolution **image** (PNG/JPEG at 1–3×, any moment of the timeline) and an optimized **GIF**.
+- **Batch export:** render the same chat to many app × phone combinations in one go, with progress per file, cancel, and "Download all" or "Share all".
+- **Safe zones:** guides for TikTok, Reels, Shorts and Stories. An option fits the phone and caption inside the safe area, and the camera respects it.
+- **Watermark and speed:** a logo and/or text watermark in any corner, and playback speed from 0.75× to 2×.
 - **Privacy:** nothing is uploaded. Rendering uses WebCodecs + [snapdom](https://github.com/zumerlab/snapdom) + [mp4-muxer](https://github.com/Vanilagy/mp4-muxer) in your browser.
+
+## Create with AI
+
+1. Click **Create with AI** in the header, or press <kbd>I</kbd>.
+2. Optionally type your idea, then pick the app, device, length and the language the model should talk in.
+3. Copy the prompt into any AI model. It asks a few questions (product, audience, goal, tone, where the video will be posted), then proposes an outline.
+4. Say **"generate"** (or «أنشئ»). The model replies with one ```json block in the `scenora.v1` format.
+5. Paste the whole reply into step 2. The studio shows a summary of the chat and video settings, plus anything it had to fix, and then applies it. You can undo the chat.
+
+The parser is forgiving about AI output: it accepts text around the JSON, comments, trailing commas, smart quotes, names instead of "them" in groups, and aliases such as `twitter` → X and `photo` → image. It never loads remote images; photos come from the built-in library or from your own uploads.
 
 ## Screenshots
 
