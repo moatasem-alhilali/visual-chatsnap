@@ -22,6 +22,7 @@ import { PlatformView } from "../platforms";
  *   &scroll=top|bottom  &play=1 (run the real cinematic playback)
  *   &clock=1234 (simulate the video exporter clock, i.e. PlaybackView.clockMs)
  *   &draft=Hello (show a compose-typing draft in the composer, i.e. PlaybackView.draft)
+ *   &finish=<id> (phone colour from DEVICE_FINISHES)
  *   The full fixture includes a reply (replyToId) and reactions on both sides.
  */
 
@@ -112,6 +113,8 @@ export function PlatformPreview() {
   const clockParam = sp.get("clock");
   // force a compose-typing draft in the composer (e.g. &draft=On%20my%20way)
   const draftParam = sp.get("draft");
+  // phone finish id from DEVICE_FINISHES (e.g. &finish=blue-titanium)
+  const finish = sp.get("finish");
   const clockMs = clockParam === null ? undefined : Number(clockParam);
 
   const scenario = useMemo<Scenario>(() => {
@@ -189,7 +192,7 @@ export function PlatformPreview() {
     >
       {/* keep screenshots clean: no consent banner, no Next dev indicator */}
       <style>{`body{margin:0;background:#fff} nextjs-portal{display:none!important} body > .fixed.bottom-0.z-50, .pointer-events-none.fixed.inset-x-0.bottom-0{display:none!important}`}</style>
-      <DeviceFrame device={device} dir={rtl ? "rtl" : "ltr"} fontFamily={deviceFontFamily(device, scenario.androidFont)}>
+      <DeviceFrame device={device} finish={finish ?? undefined} dir={rtl ? "rtl" : "ltr"} fontFamily={deviceFontFamily(device, scenario.androidFont)}>
         <PlatformView scenario={scenario} playback={play ? live : staticView} lang={lang} rtl={rtl} />
       </DeviceFrame>
     </div>

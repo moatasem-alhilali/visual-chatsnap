@@ -5,9 +5,6 @@ function q(): URLSearchParams | null {
   return typeof window === "undefined" ? null : new URLSearchParams(window.location.search);
 }
 
-export function vFinish(finish: string | undefined): string | undefined {
-  return q()?.get("finish") ?? finish;
-}
 
 export function vSb(sb: StatusBarConfig): StatusBarConfig {
   const p = q();

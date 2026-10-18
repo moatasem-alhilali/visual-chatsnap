@@ -195,8 +195,12 @@ export function captionBandFraction(cfg: CaptionConfig | null, W: number, H: num
   return Math.min(0.3, captionMetrics(ctx, cfg, W, H).band / H);
 }
 
-/** Draw the caption in screen space (it doesn't move with the camera). */
-export function paintCaption(ctx: Ctx2D, W: number, H: number, cfg: CaptionConfig, alpha = 1): void {
+/**
+ * Draw the caption in screen space (it doesn't move with the camera).
+ * `scrim` (0–1) darkens the band behind a pill-less caption while the camera
+ * is zoomed in and the chat slides underneath it.
+ */
+export function paintCaption(ctx: Ctx2D, W: number, H: number, cfg: CaptionConfig, alpha = 1, scrim = 0): void {
   if (!cfg.text.trim() || alpha <= 0) return;
   ctx.save();
   const m = captionMetrics(ctx, cfg, W, H);
@@ -210,6 +214,17 @@ export function paintCaption(ctx: Ctx2D, W: number, H: number, cfg: CaptionConfi
   // keep the text optically centred in its band, nudged toward the outer edge
   const cy = bandTop + m.band / 2 + (cfg.position === "top" ? 1 : -1) * H * 0.004;
   const top = cy - blockH / 2;
+  if (!cfg.pill && scrim > 0) {
+    const reach = m.band * 1.35;
+    const y0 = cfg.position === "top" ? 0 : H;
+    const y1 = cfg.position === "top" ? reach : H - reach;
+    const g = ctx.createLinearGradient(0, y0, 0, y1);
+    g.addColorStop(0, `rgba(0,0,0,${0.62 * scrim})`);
+    g.addColorStop(0.6, `rgba(0,0,0,${0.38 * scrim})`);
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, Math.min(y0, y1), W, reach);
+  }
   if (cfg.pill) {
     const widest = Math.max(...m.lines.map((l) => ctx.measureText(l).width));
     const px = m.font * 0.75;

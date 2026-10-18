@@ -660,7 +660,11 @@ export class FrameRenderer {
         Math.abs(cam.cy - this.lastCam.cy) > 1e-3);
     if (phoneChanged || camChanged || force || this.dirty) {
       this.composite(cam);
-      if (this.o.caption) paintCaption(this.ctx, layout.W, layout.H, this.o.caption);
+      if (this.o.caption) {
+        // pill-less captions get a scrim as the chat zooms in under them
+        const zoomed = Math.min(1, Math.max(0, ((cam?.scale ?? 1) - 1) / 0.18));
+        paintCaption(this.ctx, layout.W, layout.H, this.o.caption, 1, zoomed);
+      }
       this.dirty = false;
     }
     this.lastCam = cam;

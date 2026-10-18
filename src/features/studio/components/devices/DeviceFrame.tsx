@@ -1,7 +1,6 @@
 "use client";
 
 import type { Device } from "../../types";
-import { vFinish } from "./__verify"; // TEMP-VERIFY
 
 /**
  * Physical phone shells drawn in plain CSS (snapdom-safe: gradients, inset /
@@ -359,7 +358,7 @@ export function DeviceFrame({
 }) {
   const isPhone = device === "iphone";
   const s = DEVICE_SPEC[device];
-  const f = resolveFinish(device, vFinish(finish)); // TEMP-VERIFY
+  const f = resolveFinish(device, finish);
   const outer = deviceOuter(device);
   const bodyW = s.w + 2 * s.bezel;
   const bodyH = s.h + 2 * s.bezel;

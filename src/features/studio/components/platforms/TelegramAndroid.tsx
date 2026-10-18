@@ -80,8 +80,14 @@ import { groupInfo, type PlatformMotion, type PlatformProps } from "./types";
 /* Strings                                                             */
 /* ------------------------------------------------------------------ */
 
-const TGA_STRINGS: Record<Lang, { online: string; typing: string; lastSeenRecently: string; message: string; months: string[] }> = {
+const TGA_STRINGS: Record<
+  Lang,
+  { online: string; typing: string; lastSeenRecently: string; message: string; photo: string; voice: string; months: string[] }
+> = {
+  // AttachPhoto / AttachAudio are the reply-snippet labels for media targets
   en: {
+    photo: "Photo",
+    voice: "Voice message",
     online: "online",
     typing: "typing",
     lastSeenRecently: "last seen recently",
@@ -89,6 +95,8 @@ const TGA_STRINGS: Record<Lang, { online: string; typing: string; lastSeenRecent
     months: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
   },
   ar: {
+    photo: "صورة",
+    voice: "رسالة صوتية",
     online: "متصل",
     typing: "يكتب",
     lastSeenRecently: "آخر ظهور كان قريبًا",

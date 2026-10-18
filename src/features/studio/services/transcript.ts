@@ -114,7 +114,8 @@ export function parseTranscript(raw: string): ParsedTranscript {
     }
     if (!exportMode) {
       const p = RE_PLAIN.exec(line);
-      if (p && !/^https?$/i.test(p[1].trim())) {
+      // a speaker name is short and never the start of a URL ("see https://…")
+      if (p && !p[2].startsWith("//") && p[1].trim().split(/\s+/).length <= 4) {
         push(p[1], p[2], null);
         continue;
       }

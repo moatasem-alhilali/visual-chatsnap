@@ -644,8 +644,8 @@ function AndroidReaction({ emoji, p, onRight }: { emoji: string; p: AndroidPalet
         border: `2px solid ${p.pillRing}`,
         background: p.pill,
         boxShadow: p.pillShadow,
-        fontSize: 15,
-        lineHeight: "20px",
+        fontSize: 17,
+        lineHeight: "21px",
         zIndex: 1,
       }}
     >

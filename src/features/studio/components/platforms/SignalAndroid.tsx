@@ -98,6 +98,16 @@ interface Palette {
   imgEmpty: string;
   imgEmptyIcon: string;
   navFg: string;
+  /** reaction pill fills [RX]: surfaceVariant (theirs) / surfaceVariant_32_no_alpha (mine) */
+  pill: string;
+  pillMine: string;
+  /** QuoteViewColorTheme *_NORMAL (no wallpaper) [QV] */
+  quoteInBg: string;
+  quoteOutBg: string;
+  quoteInFg: string;
+  quoteOutFg: string;
+  /** EditText caret = colorPrimary */
+  caret: string;
 }
 
 const ULTRAMARINE = "#315ff4";
@@ -129,6 +139,13 @@ const LIGHT: Palette = {
   imgEmpty: "#dfe3eb",
   imgEmptyIcon: "#808389",
   navFg: "#4a4b50",
+  pill: "#e7ebf3",
+  pillMine: "#b8bcc5",
+  quoteInBg: "rgba(255,255,255,0.561)", // signal_light_colorTransparent3 #8FFFFFFF
+  quoteOutBg: "rgba(255,255,255,0.722)", // signal_light_colorTransparent4 #B8FFFFFF
+  quoteInFg: "#1b1b1d",
+  quoteOutFg: "#1b1b1d", // colorOnSurface
+  caret: "#2c58c3",
 };
 
 const DARK: Palette = {
@@ -158,6 +175,13 @@ const DARK: Palette = {
   imgEmpty: "#2c2f37",
   imgEmptyIcon: "#5c5e65",
   navFg: "#d6d6da",
+  pill: "#303133",
+  pillMine: "#5d5e62",
+  quoteInBg: "rgba(255,255,255,0.161)", // signal_dark_colorTransparent3 #29FFFFFF
+  quoteOutBg: "rgba(0,0,0,0.4)", // transparent_black_40
+  quoteInFg: "#e2e1e5",
+  quoteOutFg: "rgba(255,255,255,0.878)", // colorNeutralInverse #E0FFFFFF
+  caret: "#b6c5fa",
 };
 
 /* ======================================================================
@@ -184,9 +208,9 @@ const CLUSTER_MIN = 3;
    Localised strings [P][R]
    ====================================================================== */
 
-const STR: Record<Lang, { placeholder: string; today: string }> = {
-  en: { placeholder: "Signal message", today: "Today" },
-  ar: { placeholder: "رسالة سيجنال", today: "اليوم" },
+const STR: Record<Lang, { placeholder: string; today: string; you: string; photo: string; audio: string }> = {
+  en: { placeholder: "Signal message", today: "Today", you: "You", photo: "Photo", audio: "Audio" },
+  ar: { placeholder: "رسالة سيجنال", today: "اليوم", you: "أنت", photo: "صورة", audio: "صوت" },
 };
 
 /** Android formats times/durations with the locale's digits (Arabic-Indic in ar, like the status bar). */
