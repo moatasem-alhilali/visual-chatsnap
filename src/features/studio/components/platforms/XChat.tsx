@@ -1144,6 +1144,7 @@ export function XChat({ scenario, playback, lang, rtl }: PlatformProps) {
   const kb = useKeyboardInset();
   const kbUp = kb.inset > 0;
   const prevInset = useRef<number | undefined>(undefined);
+  const kbActive = useRef(false);
 
   const group = scenario.group ?? null;
   const members = group?.members ?? [];
@@ -1170,6 +1171,7 @@ export function XChat({ scenario, playback, lang, rtl }: PlatformProps) {
     const list = scrollRef.current;
     const prev = prevInset.current;
     prevInset.current = kb.inset;
+    kbActive.current = kb.inset > 0 || (prev ?? 0) > 0;
     if (list && prev !== undefined && prev !== kb.inset) list.scrollTop = list.scrollHeight;
   }, [kb.inset, scrollRef]);
   useEffect(() => {
@@ -1178,7 +1180,7 @@ export function XChat({ scenario, playback, lang, rtl }: PlatformProps) {
     let h = list.clientHeight;
     const ro = new ResizeObserver(() => {
       const nh = list.clientHeight;
-      if (nh < h) list.scrollTop = list.scrollHeight;
+      if (nh < h && kbActive.current) list.scrollTop = list.scrollHeight;
       h = nh;
     });
     ro.observe(list);

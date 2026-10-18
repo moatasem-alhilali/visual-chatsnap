@@ -527,6 +527,57 @@ function abbreviation(name: string): string {
   return (first + last).toUpperCase();
 }
 
+/** Default group avatar: AvatarColor fill + the group glyph (symbol_group_24). */
+function GroupAvatar({ group, size }: { group: GroupChat; size: number }) {
+  if (group.avatar) return <SignalAvatar person={{ name: group.name, avatar: group.avatar }} size={size} />;
+  let h = 0;
+  for (let i = 0; i < group.name.length; i++) h = (h * 31 + group.name.charCodeAt(i)) | 0;
+  const [bg, fg] = AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
+  return (
+    <div className="flex shrink-0 items-center justify-center rounded-full" style={{ width: size, height: size, background: bg }}>
+      <Icon size={size * 0.6}>
+        {P.group.map((d, i) => (
+          <path key={i} d={d} fill={fg} fillRule="evenodd" />
+        ))}
+      </Icon>
+    </div>
+  );
+}
+
+/** URLs in a body are linkified (URLSpan: underlined, in the body text colour). */
+const URL_RE = /(https?:\/\/[^\s]+|www\.[^\s]+)/g;
+function richText(text: string): ReactNode {
+  if (!URL_RE.test(text)) return text;
+  URL_RE.lastIndex = 0;
+  return text.split(URL_RE).map((part, i) =>
+    i % 2 === 1 ? (
+      <span key={i} style={{ textDecoration: "underline", textUnderlineOffset: 2 }}>
+        {part}
+      </span>
+    ) : (
+      part
+    ),
+  );
+}
+
+function domainOf(link: LinkPreview): string {
+  if (link.siteName?.trim()) return link.siteName.trim();
+  try {
+    return new URL(link.url).hostname.replace(/^www\./, "");
+  } catch {
+    return link.url;
+  }
+}
+
+/** SignalPlace.getDescription(): "name\naddress\nhttps://maps.google.com/maps?q=lat,lng". */
+function mapsUrl(seed: string): string {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) h = Math.imul(h ^ seed.charCodeAt(i), 16777619);
+  const lat = (24.6 + ((h >>> 0) % 100000) / 1e6).toFixed(7);
+  const lon = (46.6 + ((h >>> 8) % 100000) / 1e6).toFixed(7);
+  return `https://maps.google.com/maps?q=${lat}%2C${lon}`;
+}
+
 function SignalAvatar({ person, size }: { person: Person; size: number }) {
   if (person.avatar) {
     return (
@@ -600,6 +651,13 @@ const P = {
     "M7.88 9.81c0-2.53 1.72-4.69 4.12-4.69 2.4 0 4.13 2.16 4.13 4.7 0 1.27-0.43 2.48-1.15 3.38-0.71 0.9-1.76 1.55-2.98 1.55s-2.27-0.64-2.98-1.55c-0.72-0.9-1.14-2.1-1.14-3.39ZM12 6.87c-1.2 0-2.38 1.13-2.38 2.94 0 0.9 0.3 1.72 0.77 2.3C10.85 12.7 11.43 13 12 13c0.57 0 1.15-0.3 1.61-0.88 0.46-0.59 0.77-1.4 0.77-2.3 0-1.82-1.19-2.95-2.38-2.95Z",
   personCircle2:
     "M1.13 12C1.13 6 5.99 1.12 12 1.12 18 1.13 22.88 6 22.88 12c0 6-4.87 10.88-10.88 10.88C6 22.88 1.12 18 1.12 12ZM12 2.87c-5.04 0-9.13 4.09-9.13 9.13 0 2.44 0.96 4.65 2.52 6.29 1.63-1.58 4.03-2.54 6.61-2.54s4.98 0.96 6.61 2.54c1.56-1.64 2.52-3.85 2.52-6.29 0-5.04-4.09-9.13-9.13-9.13Zm5.28 16.57c-1.26-1.17-3.11-1.94-5.28-1.94-2.17 0-4.03 0.77-5.28 1.94 1.49 1.06 3.31 1.68 5.28 1.68 1.97 0 3.8-0.62 5.28-1.68Z",
+  // symbol_group_24
+  group: [
+    "M13 7.148C13 5.015 14.434 3.125 16.5 3.125C18.566 3.125 20 5.015 20 7.148C20 8.23 19.647 9.259 19.048 10.033C18.449 10.807 17.557 11.375 16.5 11.375C15.443 11.375 14.551 10.807 13.952 10.033C13.353 9.259 13 8.23 13 7.148ZM16.5 4.875C15.667 4.875 14.75 5.692 14.75 7.148C14.75 7.861 14.985 8.509 15.336 8.962C15.687 9.415 16.107 9.625 16.5 9.625C16.893 9.625 17.313 9.415 17.664 8.962C18.015 8.509 18.25 7.861 18.25 7.148C18.25 5.692 17.333 4.875 16.5 4.875Z",
+    "M7.5 12.625C8.615 12.625 9.686 12.867 10.636 13.301C10.169 13.712 9.752 14.175 9.399 14.683C8.818 14.485 8.179 14.375 7.5 14.375C4.825 14.375 2.779 16.08 2.428 18.125L8.151 18.125C8.134 18.33 8.125 18.539 8.125 18.75C8.125 19.135 8.155 19.511 8.212 19.875L1.757 19.875C1.164 19.875 0.625 19.404 0.625 18.75C0.625 15.261 3.816 12.625 7.5 12.625Z",
+    "M16.5 12.625C12.816 12.625 9.625 15.261 9.625 18.75C9.625 19.404 10.164 19.875 10.757 19.875L22.243 19.875C22.836 19.875 23.375 19.404 23.375 18.75C23.375 15.261 20.184 12.625 16.5 12.625ZM16.5 14.375C19.175 14.375 21.221 16.08 21.572 18.125L11.428 18.125C11.779 16.08 13.825 14.375 16.5 14.375Z",
+    "M7.5 3.125C5.434 3.125 4 5.015 4 7.148C4 8.23 4.353 9.259 4.952 10.033C5.551 10.807 6.443 11.375 7.5 11.375C8.557 11.375 9.449 10.807 10.048 10.033C10.647 9.259 11 8.23 11 7.148C11 5.015 9.566 3.125 7.5 3.125ZM5.75 7.148C5.75 5.692 6.667 4.875 7.5 4.875C8.333 4.875 9.25 5.692 9.25 7.148C9.25 7.861 9.015 8.509 8.664 8.962C8.313 9.415 7.893 9.625 7.5 9.625C7.107 9.625 6.687 9.415 6.336 8.962C5.985 8.509 5.75 7.861 5.75 7.148Z",
+  ],
   // ic_profile_circle_outline_16 (16dp viewport)
   profile16:
     "M8,1a7,7 0,1 0,7 7A7,7 0,0 0,8 1ZM8,2.5A5.51,5.51 0,0 1,13.5 8a5.41,5.41 0,0 1,-0.9 3,4 4,0 0,0 -2.14,-0.95 4.43,4.43 0,0 0,0.79 -2.52A3.33,3.33 0,0 0,8 4,3.33 3.33,0 0,0 4.75,7.53a4.43,4.43 0,0 0,0.79 2.52A4,4 0,0 0,3.4 11a5.41,5.41 0,0 1,-0.9 -3A5.51,5.51 0,0 1,8 2.5ZM8,10c-0.9,0 -1.75,-1.2 -1.75,-2.47A1.84,1.84 0,0 1,8 5.5a1.84,1.84 0,0 1,1.75 2C9.75,8.8 8.9,10 8,10ZM4.37,12.12A2.48,2.48 0,0 1,6 11.5h4a2.48,2.48 0,0 1,1.63 0.62,5.46 5.46,0 0,1 -7.26,0Z",
