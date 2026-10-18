@@ -41,23 +41,23 @@ const round = (ms: number) => Math.round(ms / 50) * 50;
 
 /** Reading time for a message the other side has just received. */
 function readMs(m: Message | undefined): number {
-  if (!m) return 500;
-  if (m.type === "voice") return clamp(500 + voiceSeconds(m.voiceDuration) * 90, 900, 2400);
-  if (m.type === "image") return 1100 + charCount(m.text) * 18;
-  return clamp(450 + charCount(m.text) * 24, 650, 2200);
+  if (!m) return 400;
+  if (m.type === "voice") return clamp(400 + voiceSeconds(m.voiceDuration) * 70, 700, 1800);
+  if (m.type === "image") return clamp(900 + charCount(m.text) * 12, 900, 1600);
+  return clamp(300 + charCount(m.text) * 14, 450, 1500);
 }
 
 /** Natural delay + typing for one message given the one before it. */
 export function naturalTiming(m: Message, prev: Message | undefined): Pick<Message, "delayMs" | "typingMs"> {
   const j = jitter(m.id);
   const sameSender = prev?.sender === m.sender;
-  const delayMs = prev ? (sameSender ? clamp(350 + charCount(prev.text) * 4, 350, 800) : readMs(prev)) : 500;
+  const delayMs = prev ? (sameSender ? clamp(250 + charCount(prev.text) * 3, 250, 600) : readMs(prev)) : 400;
 
   let typingMs = 0;
   if (m.sender === "them") {
-    if (m.type === "voice") typingMs = clamp(800 + voiceSeconds(m.voiceDuration) * 60, 1000, 2600);
-    else if (m.type === "image") typingMs = 900 + charCount(m.text) * 30;
-    else typingMs = clamp(550 + charCount(m.text) * 52, 900, 4800);
+    if (m.type === "voice") typingMs = clamp(700 + voiceSeconds(m.voiceDuration) * 50, 900, 2200);
+    else if (m.type === "image") typingMs = clamp(800 + charCount(m.text) * 25, 800, 2200);
+    else typingMs = clamp(400 + charCount(m.text) * 34, 700, 3000);
   }
   // my messages: 0 = the composer types at its own natural speed
 

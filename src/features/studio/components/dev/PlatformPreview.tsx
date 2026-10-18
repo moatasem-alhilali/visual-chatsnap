@@ -157,17 +157,29 @@ export function PlatformPreview() {
     }
   }, [play, startPlay]);
 
-  // Pin the chat body to top/bottom once layout settles (after useChatScroll's smooth scroll).
+  // Pin the chat body to top/bottom and keep re-pinning while layout settles
+  // (lazy template chunk, fonts, images, useChatScroll's smooth scroll, a slow
+  // dev server) — a single timer was flaky under load. Live playback (play=1)
+  // is left alone so the template's own auto-scroll is what gets captured.
   useEffect(() => {
-    const t = setTimeout(() => {
+    if (play) return;
+    const pin = () =>
       document.querySelectorAll<HTMLElement>(".rcss-scroll").forEach((el) => {
         el.style.scrollBehavior = "auto";
-        el.scrollTop = scroll === "top" ? 0 : el.scrollHeight;
+        const target = scroll === "top" ? 0 : el.scrollHeight;
+        if (Math.abs(el.scrollTop - target) > 1) el.scrollTop = target;
+        el.dispatchEvent(new Event("scroll"));
       });
-      document.body.dataset.ready = "1";
-    }, 600);
-    return () => clearTimeout(t);
-  }, [scroll, scenario]);
+    const started = Date.now();
+    const iv = setInterval(() => {
+      pin();
+      if (Date.now() - started > 2500) {
+        clearInterval(iv);
+        document.body.dataset.ready = "1";
+      }
+    }, 150);
+    return () => clearInterval(iv);
+  }, [scroll, scenario, play]);
 
   return (
     <div
