@@ -10,7 +10,8 @@ import { Label, Textarea } from "@/shared/components/ui/input";
 import { SegmentedControl } from "@/shared/components/ui/segmented";
 import { toast } from "@/shared/components/ui/toast";
 import { cn } from "@/shared/lib/utils";
-import { buildAiPrompt, parseAiReply, type AiLength, type AiWarning } from "../../services/ai-scenario";
+import { useLiveZoom } from "../../export/zoomPrefs";
+import { buildAiPrompt, parseAiReply, type AiLength, type AiVideoPrefs, type AiWarning } from "../../services/ai-scenario";
 import { useStudioStore } from "../../store";
 import type { Device, Platform } from "../../types";
 import { PLATFORM_MAP, PLATFORMS } from "../platforms";
@@ -63,6 +64,17 @@ const T = {
       call: "مكالمة",
       deleted: "رسالة محذوفة",
     } as Record<string, string>,
+    video: "إعدادات الفيديو",
+    videoFormat: { story: "عمودي 9:16", portrait: "4:5", square: "مربع 1:1", landscape: "أفقي 16:9", device: "الجوال فقط" } as Record<string, string>,
+    videoCaption: "عنوان",
+    videoEnd: "بطاقة نهاية",
+    videoZoom: "زوم",
+    videoNotif: "إشعار افتتاحي",
+    videoSafe: "منطقة آمنة",
+    videoSpeed: "سرعة",
+    videoNote: "تُطبَّق على نافذة التصدير.",
+    zoomNames: { off: "متوقف", subtle: "خفيف", medium: "متوسط", strong: "قوي" } as Record<string, string>,
+    safeNames: { tiktok: "تيك توك", reels: "ريلز", shorts: "شورتس", stories: "ستوري" } as Record<string, string>,
     group: "مجموعة",
     members: "أعضاء",
     light: "فاتح",
@@ -127,6 +139,17 @@ const T = {
       call: "Call",
       deleted: "Deleted message",
     } as Record<string, string>,
+    video: "Video settings",
+    videoFormat: { story: "Vertical 9:16", portrait: "4:5", square: "Square 1:1", landscape: "Landscape 16:9", device: "Phone only" } as Record<string, string>,
+    videoCaption: "Caption",
+    videoEnd: "End card",
+    videoZoom: "Zoom",
+    videoNotif: "Notification intro",
+    videoSafe: "Safe zone",
+    videoSpeed: "Speed",
+    videoNote: "Applied to the export dialog.",
+    zoomNames: { off: "off", subtle: "subtle", medium: "medium", strong: "strong" } as Record<string, string>,
+    safeNames: { tiktok: "TikTok", reels: "Reels", shorts: "Shorts", stories: "Stories" } as Record<string, string>,
     group: "Group",
     members: "members",
     light: "Light",
@@ -228,6 +251,7 @@ export function AiScenarioDialog({ open, onOpenChange }: { open: boolean; onOpen
   const apply = () => {
     if (!parsed?.ok) return;
     loadScenario(parsed.scenario);
+    if (parsed.video) applyVideoPrefs(parsed.video);
     toast({ title: s.applied, variant: "success", action: { label: s.undo, onClick: undo } });
     onOpenChange(false);
     setReply("");
@@ -462,6 +486,20 @@ export function AiScenarioDialog({ open, onOpenChange }: { open: boolean; onOpen
                   ))}
                   {sum.messages.length > 6 && <li className="text-muted-foreground">…</li>}
                 </ol>
+                {result.video && (
+                  <div className="space-y-1.5 border-t border-border pt-2 text-xs">
+                    <div className="font-medium text-foreground">
+                      {s.video} <span className="font-normal text-muted-foreground">· {s.videoNote}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {videoChips(result.video, s).map((c) => (
+                        <span key={c} className="max-w-full truncate rounded-md bg-muted px-1.5 py-0.5 text-muted-foreground" dir="auto">
+                          {c}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {result.warnings.length > 0 && (
                   <ul className="space-y-1 border-t border-border pt-2 text-xs text-amber-700 dark:text-amber-400">
                     {result.warnings.map((w, i) => (
@@ -479,4 +517,36 @@ export function AiScenarioDialog({ open, onOpenChange }: { open: boolean; onOpen
       </div>
     </Dialog>
   );
+}
+
+type DialogStrings = (typeof T)[Lang];
+
+function videoChips(v: AiVideoPrefs, s: DialogStrings): string[] {
+  const out: string[] = [];
+  if (v.preset) out.push(s.videoFormat[v.preset] ?? v.preset);
+  if (v.safeZone && v.safeZone !== "off") out.push(`${s.videoSafe}: ${s.safeNames[v.safeZone] ?? v.safeZone}`);
+  if (v.caption && v.captionText) out.push(`${s.videoCaption}: «${v.captionText}»`);
+  if (v.endCard) out.push(`${s.videoEnd}: ${[v.endHeadline, v.endCta].filter(Boolean).join(" · ")}`);
+  if (v.notif) out.push(s.videoNotif);
+  if (v.zoom !== undefined) out.push(`${s.videoZoom}: ${s.zoomNames[v.zoom ? (v.zoomLevel ?? "medium") : "off"]}`);
+  if (v.speed && v.speed !== 1) out.push(`${s.videoSpeed}: ${v.speed}×`);
+  return out;
+}
+
+/**
+ * Merge the AI's video settings into the export dialog's saved prefs (the
+ * dialog validates them when it opens) and keep the live camera in step.
+ */
+function applyVideoPrefs(v: AiVideoPrefs) {
+  const KEY = "scenora.export.prefs";
+  try {
+    const raw = window.localStorage.getItem(KEY);
+    const prev = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+    window.localStorage.setItem(KEY, JSON.stringify({ ...prev, ...v }));
+  } catch {
+    /* private mode / quota: the scenario itself is still applied */
+  }
+  if (v.zoom !== undefined || v.zoomLevel) {
+    useLiveZoom.setState((z) => ({ enabled: v.zoom ?? z.enabled, intensity: v.zoomLevel ?? z.intensity, hydrated: true }));
+  }
 }

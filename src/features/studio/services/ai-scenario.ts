@@ -557,7 +557,7 @@ export function parseAiReply(raw: string, base: Scenario): AiParseResult {
   const first = d.messages[0];
   if (isObj(first) && typeof first.id === "string" && typeof first.sender === "string") {
     try {
-      return { ok: true, scenario: parseScenario({ ...base, ...d }), warnings, title: null };
+      return { ok: true, scenario: parseScenario({ ...base, ...d }), warnings, title: null, video: null };
     } catch {
       return { ok: false, error: "invalid" };
     }
@@ -576,7 +576,7 @@ export function parseAiReply(raw: string, base: Scenario): AiParseResult {
   if (isObj(d.group) && Array.isArray(d.group.members) && d.group.members.length > 0) {
     group = {
       name: str(d.group.name) ?? "Group",
-      avatar: null,
+      avatar: libraryImage(d.group.avatar),
       members: d.group.members.map((m) => person(m, { name: "Member", avatar: null })).filter((m) => m.name.trim()),
     };
     if (group.members.length === 0) group = null;
@@ -625,7 +625,11 @@ export function parseAiReply(raw: string, base: Scenario): AiParseResult {
     const time = str(rawMsg.time)?.trim() || lastTime;
     lastTime = time;
     const status = (STATUS as string[]).includes(lower(rawMsg.status)) ? (lower(rawMsg.status) as DeliveryStatus) : "read";
-    if (type === "image") images++;
+    // photos: a library id, else the best match for the hint/caption
+    let imageSrc: string | null = null;
+    if (type === "image" || type === "sticker") imageSrc = libraryImage(rawMsg.photo ?? rawMsg.image, "photo");
+    if (type === "image" && !imageSrc) imageSrc = photoForHint(`${str(rawMsg.imageHint) ?? ""} ${text}`);
+    if (type === "image" && !imageSrc) images++;
 
     const m: Message = {
       id: createId(),
@@ -637,7 +641,7 @@ export function parseAiReply(raw: string, base: Scenario): AiParseResult {
       typingMs: 0,
       status,
       voiceDuration: type === "voice" ? (str(rawMsg.voiceDuration) ?? str(rawMsg.duration) ?? "0:12") : undefined,
-      imageSrc: null,
+      imageSrc,
       reaction: str(rawMsg.reaction)?.slice(0, 16) || null,
       edited: rawMsg.edited === true || undefined,
       link: type === "text" ? linkOf(rawMsg.link, text) : null,
@@ -646,8 +650,9 @@ export function parseAiReply(raw: string, base: Scenario): AiParseResult {
       call: type === "call" ? callOf(rawMsg.call, typeHint) : null,
       authorIndex,
     };
-    // sticker without emoji text: keep a friendly default
-    if (type === "sticker" && !m.text.trim()) m.text = "🎉";
+    // sticker without emoji text or image: keep a friendly default
+    if (type === "sticker" && !m.text.trim() && !imageSrc) m.text = "🎉";
+    if (m.link && isObj(rawMsg.link)) m.link.image = libraryImage(rawMsg.link.image, "photo");
 
     // timing: seconds from the AI, otherwise natural
     const natural = naturalTiming(m, messages[messages.length - 1]);
@@ -673,6 +678,8 @@ export function parseAiReply(raw: string, base: Scenario): AiParseResult {
   if (images > 0) warnings.push({ code: "imagesPlaceholder", count: images });
 
   const sb: Obj = isObj(d.statusBar) ? d.statusBar : {};
+  const bool = (v: unknown, def: boolean | undefined) => (typeof v === "boolean" ? v : def);
+  const deviceColor = DEVICE_COLORS[device].includes(lower(d.deviceColor)) ? lower(d.deviceColor) : base.device === device ? base.deviceColor : undefined;
   const candidate: Scenario = {
     ...base,
     platform: plat.platform ?? base.platform,
@@ -687,12 +694,19 @@ export function parseAiReply(raw: string, base: Scenario): AiParseResult {
       ...base.statusBar,
       time: str(sb.time) ?? base.statusBar.time,
       battery: typeof sb.battery === "number" ? Math.min(100, Math.max(1, Math.round(sb.battery))) : base.statusBar.battery,
+      wifi: bool(sb.wifi, base.statusBar.wifi) ?? true,
+      cellular: bool(sb.cellular, base.statusBar.cellular) ?? true,
+      batteryPct: bool(sb.batteryPct, base.statusBar.batteryPct) ?? false,
     },
+    deviceColor,
+    androidFont: ANDROID_FONT_IDS.includes(lower(d.androidFont)) ? lower(d.androidFont) : base.androidFont,
+    composeTyping: bool(d.composeTyping, base.composeTyping),
+    keyboard: bool(d.keyboard, base.keyboard),
     messages,
   };
 
   try {
-    return { ok: true, scenario: parseScenario(candidate), warnings, title: str(d.title) ?? null };
+    return { ok: true, scenario: parseScenario(candidate), warnings, title: str(d.title) ?? null, video: videoOf(d.video ?? d.export) };
   } catch {
     return { ok: false, error: "invalid" };
   }

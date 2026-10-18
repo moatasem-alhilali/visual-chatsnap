@@ -1317,12 +1317,11 @@ function SafeZoneOverlay({
     <svg
       aria-hidden
       data-export-safezone-overlay={zone.id}
-      width={width}
-      height={height}
       viewBox={`0 0 ${W} ${H}`}
-      className="max-h-full max-w-full rounded-lg"
-      // must match the preview canvas box exactly
-      style={{ aspectRatio: `${W}/${H}` }}
+      preserveAspectRatio="xMidYMid meet"
+      className="h-full w-full"
+      // capped at the canvas' intrinsic size; "meet" then lands the frame exactly on the canvas box
+      style={{ maxWidth: width, maxHeight: height }}
     >
       <defs>
         <pattern id={id} patternUnits="userSpaceOnUse" width={hatch} height={hatch} patternTransform="rotate(45)">
@@ -1436,7 +1435,10 @@ export function ExportDialog({
   const fitZone = zone && prefs.safeFit ? zone : null;
   const currentKey = comboKey(scenario.platform, scenario.device);
   const batchKeys = prefs.batch ? ALL_COMBOS.filter((k) => prefs.batchCombos.includes(k)) : [];
-  const batchOn = prefs.batch && batchKeys.length > 0;
+  // read the count once: runExport captures batchKeys, and the React Compiler treats
+  // reads of a captured array after that point as possibly mutated
+  const batchCount = batchKeys.length;
+  const batchOn = prefs.batch && batchCount > 0;
   const bgDef = BACKGROUNDS.find((b) => b.id === prefs.bg) ?? BACKGROUNDS[0];
   const accent = PLATFORM_MAP[scenario.platform]?.accent ?? "#25d366";
   const paint = useMemo<PaintOptions>(() => ({ accent, custom: prefs.custom }), [accent, prefs.custom]);
@@ -2284,10 +2286,9 @@ export function ExportDialog({
     const cur = prefs.batchCombos;
     update({ batchCombos: cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key] });
   };
-  const nBatch = prefs.batch ? batchKeys.length : 1;
-  // (computed up front: calling copy helpers inside some JSX props trips the React Compiler's mutation analysis)
-  const batchCountLabel = c.batchCount(batchKeys.length);
-  const startLabel = prefs.batch ? c.startBatch(kind, batchKeys.length) : c.start[kind];
+  const nBatch = prefs.batch ? batchCount : 1;
+  const batchCountLabel = c.batchCount(batchCount);
+  const startLabel = prefs.batch ? c.startBatch(kind, batchCount) : c.start[kind];
   const pctLabel = (v: number) => (lang === "ar" ? `${v.toLocaleString("ar-EG")}٪` : `${v}%`);
 
   return (
@@ -3437,7 +3438,7 @@ export function ExportDialog({
                   <Button
                     className="h-11 w-full gap-2 text-sm"
                     onClick={runExport}
-                    disabled={!device || (prefs.batch && !batchKeys.length)}
+                    disabled={!device || (prefs.batch && !batchCount)}
                     data-export-start=""
                   >
                     {device ? (prefs.batch ? <Layers className="size-4" /> : <Download className="size-4" />) : <Loader2 className="size-4 animate-spin" />}
