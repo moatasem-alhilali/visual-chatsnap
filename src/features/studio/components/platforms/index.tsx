@@ -22,6 +22,12 @@ export const PLATFORMS: PlatformMeta[] = [
   { id: "instagram", label: "Instagram", accent: "#e1306c" },
   { id: "snapchat", label: "Snapchat", accent: "#fffc00" },
   { id: "imessage", label: "iMessage", accent: "#0a7cff" },
+  { id: "messenger", label: "Messenger", accent: "#0866ff" },
+  { id: "tiktok", label: "TikTok", accent: "#fe2c55" },
+  { id: "x", label: "X", accent: "#0f1419" },
+  { id: "signal", label: "Signal", accent: "#3a76f0" },
+  { id: "discord", label: "Discord", accent: "#5865f2" },
+  { id: "viber", label: "Viber", accent: "#7360f2" },
 ];
 
 export const PLATFORM_MAP: Record<Platform, PlatformMeta> = PLATFORMS.reduce(
@@ -68,6 +74,34 @@ const LOADERS: Record<Platform, Record<Os, () => Promise<PlatformModule>>> = {
     ios: () => import("./iMessage").then((m) => ({ Component: m.IMessage, motion: m.imessageIosMotion })),
     android: () =>
       import("./SamsungMessages").then((m) => ({ Component: m.SamsungMessages, motion: m.samsungMessagesMotion })),
+  },
+  messenger: {
+    ios: () => import("./Messenger").then((m) => ({ Component: m.Messenger, motion: m.messengerIosMotion })),
+    android: () =>
+      import("./MessengerAndroid").then((m) => ({ Component: m.MessengerAndroid, motion: m.messengerAndroidMotion })),
+  },
+  tiktok: {
+    ios: () => import("./TikTok").then((m) => ({ Component: m.TikTok, motion: m.tiktokIosMotion })),
+    android: () =>
+      import("./TikTokAndroid").then((m) => ({ Component: m.TikTokAndroid, motion: m.tiktokAndroidMotion })),
+  },
+  x: {
+    ios: () => import("./XChat").then((m) => ({ Component: m.XChat, motion: m.xIosMotion })),
+    android: () => import("./XChatAndroid").then((m) => ({ Component: m.XChatAndroid, motion: m.xAndroidMotion })),
+  },
+  signal: {
+    ios: () => import("./Signal").then((m) => ({ Component: m.Signal, motion: m.signalIosMotion })),
+    android: () =>
+      import("./SignalAndroid").then((m) => ({ Component: m.SignalAndroid, motion: m.signalAndroidMotion })),
+  },
+  discord: {
+    ios: () => import("./Discord").then((m) => ({ Component: m.Discord, motion: m.discordIosMotion })),
+    android: () =>
+      import("./DiscordAndroid").then((m) => ({ Component: m.DiscordAndroid, motion: m.discordAndroidMotion })),
+  },
+  viber: {
+    ios: () => import("./Viber").then((m) => ({ Component: m.Viber, motion: m.viberIosMotion })),
+    android: () => import("./ViberAndroid").then((m) => ({ Component: m.ViberAndroid, motion: m.viberAndroidMotion })),
   },
 };
 

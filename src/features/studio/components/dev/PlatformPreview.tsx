@@ -94,7 +94,7 @@ export function PlatformPreview() {
   const lang = locale === "en" ? "en" : "ar";
   const rtl = lang === "ar";
 
-  const platform = pick<Platform>(sp.get("platform"), ["whatsapp", "telegram", "instagram", "snapchat", "imessage"], "whatsapp");
+  const platform = pick<Platform>(sp.get("platform"), ["whatsapp", "telegram", "instagram", "snapchat", "imessage", "messenger", "tiktok", "x", "signal", "discord", "viber"], "whatsapp");
   const device = pick<Device>(sp.get("device"), ["iphone", "android"], "iphone");
   const theme = pick<ChatTheme>(sp.get("theme"), ["light", "dark"], "light");
   const presence = pick<PresenceStatus>(sp.get("presence"), ["online", "typing", "lastseen"], "online");

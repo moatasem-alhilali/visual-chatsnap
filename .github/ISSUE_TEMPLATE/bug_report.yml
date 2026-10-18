@@ -50,6 +50,12 @@ body:
         - Instagram
         - Snapchat
         - iMessage / Samsung Messages
+        - Messenger
+        - TikTok
+        - X
+        - Signal
+        - Discord
+        - Viber
   - type: dropdown
     id: device
     attributes:

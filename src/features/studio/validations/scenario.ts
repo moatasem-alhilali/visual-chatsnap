@@ -8,6 +8,12 @@ const platformSchema = z.enum([
   "instagram",
   "snapchat",
   "imessage",
+  "messenger",
+  "tiktok",
+  "x",
+  "signal",
+  "discord",
+  "viber",
 ]);
 
 const deviceSchema = z.enum(["iphone", "android"]);

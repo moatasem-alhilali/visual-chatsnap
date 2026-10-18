@@ -47,6 +47,12 @@ Templates live in `src/features/studio/components/platforms/`, one file per app 
 | Instagram | `Instagram.tsx` | `InstagramAndroid.tsx` |
 | Snapchat | `Snapchat.tsx` | `SnapchatAndroid.tsx` |
 | iMessage | `iMessage.tsx` | `SamsungMessages.tsx` |
+| Messenger | `Messenger.tsx` | `MessengerAndroid.tsx` |
+| TikTok | `TikTok.tsx` | `TikTokAndroid.tsx` |
+| X | `XChat.tsx` | `XChatAndroid.tsx` |
+| Signal | `Signal.tsx` | `SignalAndroid.tsx` |
+| Discord | `Discord.tsx` | `DiscordAndroid.tsx` |
+| Viber | `Viber.tsx` | `ViberAndroid.tsx` |
 
 ### The contract
 
@@ -82,7 +88,7 @@ node scripts/shot.mjs out/ig-android-dark-ar.png platform=instagram device=andro
 
 | Option | Values |
 | --- | --- |
-| `platform` | `whatsapp` · `telegram` · `instagram` · `snapchat` · `imessage` |
+| `platform` | `whatsapp` · `telegram` · `instagram` · `snapchat` · `imessage` · `messenger` · `tiktok` · `x` · `signal` · `discord` · `viber` |
 | `device` | `iphone` · `android` |
 | `theme` | `light` · `dark` |
 | `lang` | `en` · `ar` |

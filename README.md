@@ -4,7 +4,7 @@
 
 # Scenora
 
-**Pixel-accurate chat mockups for WhatsApp, Telegram, Instagram, Snapchat and iMessage, on a real iPhone or Samsung, exported as video entirely in the browser.**
+**Pixel-accurate chat mockups for WhatsApp, Telegram, Instagram, Snapchat, iMessage, Messenger, TikTok, X, Signal, Discord and Viber, on a real iPhone or Samsung, exported as video entirely in the browser.**
 
 [![CI](https://github.com/moatasem-alhilali/visual-chatsnap/actions/workflows/ci.yml/badge.svg)](https://github.com/moatasem-alhilali/visual-chatsnap/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-0f766e.svg)](LICENSE)
@@ -15,7 +15,7 @@
 
 [**Live demo**](https://visual-chatsnap.vercel.app) · [**العربية**](README.ar.md) · [Report a bug](https://github.com/moatasem-alhilali/visual-chatsnap/issues/new?template=bug_report.yml) · [Request a feature](https://github.com/moatasem-alhilali/visual-chatsnap/issues/new?template=feature_request.yml)
 
-<img src="docs/media/platforms.jpg" alt="Scenora rendering WhatsApp, Telegram, Instagram, Snapchat and iMessage on iPhone (light, English) and Samsung Messages and the Android apps on a Galaxy (dark, Arabic)" />
+<img src="docs/media/platforms.jpg" alt="Scenora rendering eleven chat apps on iPhone (top row, light, English) and on a Samsung Galaxy (bottom row, dark, Arabic)" />
 
 </div>
 
@@ -50,7 +50,7 @@ Scenora treats each app as its own product. **WhatsApp on iOS and WhatsApp on An
 
 ## Features
 
-### Ten app × OS templates
+### 22 app × OS templates (11 apps, iPhone and Samsung)
 
 | App | iPhone (iOS 26) | Samsung Galaxy (One UI 8) |
 | --- | --- | --- |
@@ -59,6 +59,12 @@ Scenora treats each app as its own product. **WhatsApp on iOS and WhatsApp on An
 | **Instagram Direct** | Screen-anchored purple→blue gradient, grouped corners, "Seen" receipts | Android metrics, Material back arrow, same design tokens |
 | **Snapchat** | Sender labels and coloured bars, real production icons, Bitmoji-style presence | Snapchat's cross-platform design on Android chrome |
 | **iMessage** → **Samsung Messages** | iOS 26 tail shape, gradient blue, "Delivered / Read" labels | iMessage doesn't exist on Android, so Galaxy devices get Samsung Messages (One UI 8.5) |
+| **Messenger** | Messenger blue, seen-head receipts, thumbs-up composer | Android toolbar and metrics, same Meta values |
+| **TikTok** (DMs) | Measured from TikTok's 2025 DM product shots: cyan bubbles, quick-reply chips, TikTok Sans | Same design on Android chrome |
+| **X** (Chat) | Measured from X's Oct 2026 App Store screenshot: full pills, "Seen", Lights out dark | Android toolbar, X Chat's own icons and strings |
+| **Signal** | Built from Signal-iOS source: Ultramarine gradient, iOS 26 glass header | Built from Signal-Android source: Material 3 Ultramarine, real capture-checked |
+| **Discord** (DMs) | Aug 2026 mobile refresh: floating chat bar, live client colour tokens | Same refresh on Android chrome. Discord has no Arabic UI, so it stays English/LTR as on a real phone |
+| **Viber** | Measured from the App Store set: light-blue bubbles, heart reactions, purple seen ticks | Measured from Google Play captures on Samsung |
 
 Every template supports:
 
@@ -290,7 +296,7 @@ Scenora is a **creative mockup tool**, intended for advertising concepts, tutori
 
 - **Don't use it to deceive.** Don't fabricate conversations to defraud, impersonate, harass or mislead anyone, or to fake evidence. You are responsible for how you use what you create, and for following the laws and platform policies that apply to you.
 - **Label it where required.** If you publish a mockup as an ad, follow your ad platform's disclosure rules.
-- **Trademarks.** WhatsApp, Instagram and Messenger are trademarks of Meta Platforms, Inc. Telegram is a trademark of Telegram FZ-LLC. Snapchat and Bitmoji are trademarks of Snap Inc. iMessage, iPhone and SF Pro are trademarks of Apple Inc. Samsung, Galaxy and One UI are trademarks of Samsung Electronics Co., Ltd. This project is **not affiliated with, endorsed by or sponsored by** any of them. Their interfaces are recreated from scratch for illustration, and no official assets are bundled.
+- **Trademarks.** WhatsApp, Instagram and Messenger are trademarks of Meta Platforms, Inc. Telegram is a trademark of Telegram FZ-LLC. Snapchat and Bitmoji are trademarks of Snap Inc. TikTok is a trademark of ByteDance Ltd. X is a trademark of X Corp. Signal is a trademark of Signal Technology Foundation. Discord is a trademark of Discord Inc. Viber is a trademark of Viber Media S.à r.l. (Rakuten). iMessage, iPhone and SF Pro are trademarks of Apple Inc. Samsung, Galaxy and One UI are trademarks of Samsung Electronics Co., Ltd. This project is **not affiliated with, endorsed by or sponsored by** any of them. Their interfaces are recreated from scratch for illustration, and no official assets are bundled.
 
 ## Roadmap
 
@@ -299,7 +305,7 @@ Ideas that would make great contributions:
 - [ ] Group chats (sender names, avatars per participant)
 - [ ] Replies / quoted messages and reactions
 - [ ] Message editing ("edited"), deleted messages, link previews, stickers
-- [ ] More apps: Messenger, Discord, Signal, Slack, Google Messages
+- [ ] More apps: Slack, LINE, Google Messages, LinkedIn, Microsoft Teams
 - [ ] More devices: iPhone 17 Pro, Pixel, foldables, Android gesture navigation bar
 - [ ] Notification banner / lock-screen intro scene
 - [ ] Shareable scenario links and a template gallery

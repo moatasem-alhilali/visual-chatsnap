@@ -18,6 +18,12 @@ body:
         - Snapchat
         - iMessage (iPhone)
         - Samsung Messages (Samsung)
+        - Messenger
+        - TikTok
+        - X
+        - Signal
+        - Discord
+        - Viber
     validations:
       required: true
   - type: dropdown

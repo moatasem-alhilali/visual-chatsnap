@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { NextIntlClientProvider, hasLocale } from "next-intl";
-import { Cairo, Geist, Geist_Mono, Inter, Noto_Sans_Arabic, Roboto, Tajawal } from "next/font/google";
+import { Cairo, Geist, Geist_Mono, Inter, Noto_Sans_Arabic, Roboto, Tajawal, TikTok_Sans } from "next/font/google";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
@@ -48,6 +48,13 @@ const deviceArabic = Noto_Sans_Arabic({
   weight: ["400", "500", "600", "700"],
   adjustFontFallback: false,
 });
+// TikTok's own typeface (OFL) for the TikTok templates; only loaded when used.
+const tiktokSans = TikTok_Sans({
+  variable: "--font-tiktok-sans",
+  subsets: ["latin"],
+  preload: false,
+  adjustFontFallback: false,
+});
 const cairo = Cairo({ variable: "--font-cairo", subsets: ["arabic", "latin"] });
 
 export default async function RootLayout({
@@ -71,7 +78,7 @@ export default async function RootLayout({
     <html
       lang={locale}
       dir={isArabic ? "rtl" : "ltr"}
-      className={`${geistSans.variable} ${geistMono.variable} ${tajawal.variable} ${inter.variable} ${roboto.variable} ${deviceArabic.variable} ${cairo.variable}`}
+      className={`${geistSans.variable} ${geistMono.variable} ${tajawal.variable} ${inter.variable} ${roboto.variable} ${deviceArabic.variable} ${tiktokSans.variable} ${cairo.variable}`}
       suppressHydrationWarning
     >
       <body

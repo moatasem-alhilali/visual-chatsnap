@@ -3,7 +3,13 @@ export type Platform =
   | "telegram"
   | "instagram"
   | "snapchat"
-  | "imessage";
+  | "imessage"
+  | "messenger"
+  | "tiktok"
+  | "x"
+  | "signal"
+  | "discord"
+  | "viber";
 
 export type Device = "iphone" | "android";
 
