@@ -167,6 +167,11 @@ export interface CaptionConfig {
   /** pill behind the text (keeps it legible while the camera zooms under it); null = none */
   pill: string | null;
   fontFamily: string;
+  /**
+   * Fractions of the frame height kept clear above / below the caption band
+   * (a platform safe zone): the band moves inward by that much.
+   */
+  inset?: { top: number; bottom: number } | null;
 }
 
 /** font size as a fraction of the frame width */
@@ -210,12 +215,14 @@ export function paintCaption(ctx: Ctx2D, W: number, H: number, cfg: CaptionConfi
   ctx.direction = isRtlText(cfg.text) ? "rtl" : "ltr";
   ctx.globalAlpha = alpha;
   const blockH = m.lines.length * m.lineH;
-  const bandTop = cfg.position === "top" ? 0 : H - m.band;
+  const insetTop = Math.round(H * (cfg.inset?.top ?? 0));
+  const insetBottom = Math.round(H * (cfg.inset?.bottom ?? 0));
+  const bandTop = cfg.position === "top" ? insetTop : H - insetBottom - m.band;
   // keep the text optically centred in its band, nudged toward the outer edge
   const cy = bandTop + m.band / 2 + (cfg.position === "top" ? 1 : -1) * H * 0.004;
   const top = cy - blockH / 2;
   if (!cfg.pill && scrim > 0) {
-    const reach = m.band * 1.35;
+    const reach = m.band * 1.35 + (cfg.position === "top" ? insetTop : insetBottom);
     const y0 = cfg.position === "top" ? 0 : H;
     const y1 = cfg.position === "top" ? reach : H - reach;
     const g = ctx.createLinearGradient(0, y0, 0, y1);
@@ -243,6 +250,80 @@ export function paintCaption(ctx: Ctx2D, W: number, H: number, cfg: CaptionConfi
     ctx.shadowOffsetY = m.font * 0.04;
   }
   m.lines.forEach((l, k) => ctx.fillText(l, W / 2, top + m.lineH * (k + 0.5)));
+  ctx.restore();
+}
+
+/* ------------------------------------------------------------- watermark */
+
+export type WatermarkCorner = "tl" | "tr" | "bl" | "br";
+export type WatermarkSize = "s" | "m" | "l";
+
+export interface WatermarkConfig {
+  /** text next to (or instead of) the logo; empty = logo only */
+  text: string;
+  logo: CanvasImageSource | null;
+  logoW: number;
+  logoH: number;
+  corner: WatermarkCorner;
+  /** 0–1 */
+  opacity: number;
+  size: WatermarkSize;
+  color: string;
+  fontFamily: string;
+  /** fractions of the frame kept clear at each edge (platform safe zone) */
+  inset?: { top: number; bottom: number; left: number; right: number } | null;
+}
+
+/** text cap height as a fraction of the frame's short side */
+const WM_FONT: Record<WatermarkSize, number> = { s: 0.03, m: 0.038, l: 0.05 };
+
+/**
+ * Brand corner, drawn in screen space on top of everything (it never moves
+ * with the camera): an optional logo and/or a short text, at the chosen
+ * corner, with a soft shadow so it reads on light and dark frames.
+ */
+export function paintWatermark(ctx: Ctx2D, W: number, H: number, cfg: WatermarkConfig): void {
+  const text = cfg.text.trim();
+  const hasLogo = !!cfg.logo && cfg.logoW > 0 && cfg.logoH > 0;
+  if ((!text && !hasLogo) || cfg.opacity <= 0) return;
+  const unit = Math.min(W, H);
+  const font = unit * WM_FONT[cfg.size];
+  const logoH = hasLogo ? font * (text ? 1.9 : 2.4) : 0;
+  const logoW = hasLogo ? Math.min(unit * 0.4, (cfg.logoW / cfg.logoH) * logoH) : 0;
+  const lh = hasLogo ? Math.min(logoH, (logoW * cfg.logoH) / cfg.logoW) : 0;
+
+  ctx.save();
+  ctx.font = `700 ${font}px ${cfg.fontFamily}`;
+  const textW = text ? Math.min(W * 0.6, ctx.measureText(text).width) : 0;
+  const gap = hasLogo && text ? font * 0.45 : 0;
+  const boxW = logoW + gap + textW;
+  const boxH = Math.max(lh, text ? font * 1.25 : 0);
+
+  const margin = unit * 0.045;
+  const pad = unit * 0.015;
+  const inset = cfg.inset;
+  const left = Math.max(margin, inset ? W * inset.left + pad : 0);
+  const right = Math.max(margin, inset ? W * inset.right + pad : 0);
+  const top = Math.max(margin, inset ? H * inset.top + pad : 0);
+  const bottom = Math.max(margin, inset ? H * inset.bottom + pad : 0);
+  const onRight = cfg.corner === "tr" || cfg.corner === "br";
+  const onBottom = cfg.corner === "bl" || cfg.corner === "br";
+  const x = onRight ? W - right - boxW : left;
+  const y = onBottom ? H - bottom - boxH : top;
+
+  ctx.globalAlpha = Math.min(1, Math.max(0, cfg.opacity));
+  ctx.shadowColor = "rgba(0,0,0,0.32)";
+  ctx.shadowBlur = font * 0.35;
+  ctx.shadowOffsetY = font * 0.05;
+  if (hasLogo) ctx.drawImage(cfg.logo!, x, y + (boxH - lh) / 2, logoW, lh);
+  if (text) {
+    ctx.fillStyle = cfg.color;
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "left";
+    ctx.direction = isRtlText(text) ? "rtl" : "ltr";
+    // with direction rtl, textAlign "left" still anchors the left edge of the run
+    ctx.fillText(text, x + logoW + gap, y + boxH / 2, textW);
+  }
   ctx.restore();
 }
 

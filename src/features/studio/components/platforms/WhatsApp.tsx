@@ -63,17 +63,38 @@
  *    colour (You = green, contact = purple), one-line snippet, photo thumb on
  *    the trailing side; voice → mic + "Voice message (0:14)".
  *
+ * Round 5 (groups, new kinds, keyboard):
+ *  - Groups (WABetaInfo iOS group capture, 3x, WA_PROFILE_PHOTO_GROUP_CHAT_D4E2_IOS.jpg):
+ *    https://wabetainfo.com/whatsapp-beta-for-ios-22-23-0-70-whats-new/
+ *    header = group photo + name, subtitle = member names then "You" ("WBI, You");
+ *    the coloured sender name (≈14 semibold) opens the first bubble of a run,
+ *    10pt in; the member photo (~28pt) sits beside the LAST bubble of the run
+ *    (next to the tail), ~10pt from the screen edge, bubble body at ~48pt.
+ *    A member without a photo gets the default photo tinted with the name colour
+ *    (https://wabetainfo.com/whatsapp-is-releasing-the-ability-to-view-profile-photos-within-group-chats/).
+ *    Typing: "Khalid is typing…" / «خالد يكتب…».
+ *  - Link preview (same capture): darker inner block 4pt in at the top of the
+ *    bubble (image, semibold title, grey description, grey domain); the URL in
+ *    the text is underlined in the link tint.
+ *  - Calls: icon circle + "Missed voice call" / "Tap to call back"; deleted:
+ *    ⃠ glyph + italic grey "This message was deleted." / "You deleted this
+ *    message."; "Edited" sits before the time in the meta.
+ *  - Keyboard: the floating chat bar rides 8pt above the keyboard (iOS 26
+ *    keyboard-attached accessory spacing), the home indicator band goes away
+ *    and the thread's viewport shrinks so the newest message stays in view.
+ *
  * Shared WhatsApp helpers (doodle wallpaper, ticks, waveform, E2E notice
  * strings) are exported from here; WhatsAppAndroid.tsx may still import them.
  */
 
 import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 
-import type { DeliveryStatus, Message, Person } from "../../types";
+import type { DeliveryStatus, LinkPreview, Message, Person } from "../../types";
 import { dirOf, SystemBottomBar, useChatScroll } from "../shared";
+import { useKeyboardInset } from "../devices/keyboard-context";
 import { StatusBar } from "../devices/StatusBar";
 import { CHROME, type Lang } from "./chrome";
-import { groupInfo, type PlatformMotion, type PlatformProps } from "./types";
+import type { PlatformMotion, PlatformProps } from "./types";
 
 /* ======================================================================
    Shared WhatsApp helpers (kept exported for WhatsAppAndroid.tsx)
@@ -229,6 +250,14 @@ const COMPOSER_BOTTOM = 39; // composer bottom edge above the screen bottom
 const TOP_PAD = STATUS_H + HEADER_H + 10;
 const BOTTOM_PAD = COMPOSER_BOTTOM + CTL + 16;
 const IMG_W = 280;
+const KB_GAP = 8; // chat bar bottom above the keyboard top
+/* groups: member photo 28pt, 10pt from the screen edge, bubble body at 48pt */
+const AV = 28;
+const AV_START = 10;
+const AV_GAP = 10;
+/* new kinds */
+const CARD_W = 268; // location / document bubble width
+const STICKER = 150;
 
 interface Pal {
   ink: string;
@@ -748,10 +777,118 @@ function jumboCount(text: string): number {
 const JUMBO_SIZE = [0, 52, 44, 38];
 
 /** Strings the shared CHROME map does not carry (WhatsApp's own wording). */
-const WA_STR: Record<Lang, { you: string; photo: string; voice: string }> = {
-  en: { you: "You", photo: "Photo", voice: "Voice message" },
-  ar: { you: "أنت", photo: "صورة", voice: "رسالة صوتية" },
+interface WaStrings {
+  you: string;
+  photo: string;
+  voice: string;
+  edited: string;
+  deleted: string;
+  deletedMine: string;
+  missedVoice: string;
+  missedVideo: string;
+  voiceCall: string;
+  videoCall: string;
+  tapToCallBack: string;
+  noAnswer: string;
+  isTyping: (name: string) => string;
+  location: string;
+  liveLocation: string;
+  sticker: string;
+  listSep: string;
+}
+
+const WA_STR: Record<Lang, WaStrings> = {
+  en: {
+    you: "You",
+    photo: "Photo",
+    voice: "Voice message",
+    edited: "Edited",
+    deleted: "This message was deleted.",
+    deletedMine: "You deleted this message.",
+    missedVoice: "Missed voice call",
+    missedVideo: "Missed video call",
+    voiceCall: "Voice call",
+    videoCall: "Video call",
+    tapToCallBack: "Tap to call back",
+    noAnswer: "No answer",
+    isTyping: (n) => `${n} is typing…`,
+    location: "Location",
+    liveLocation: "Live location",
+    sticker: "Sticker",
+    listSep: ", ",
+  },
+  ar: {
+    you: "أنت",
+    photo: "صورة",
+    voice: "رسالة صوتية",
+    edited: "تم التعديل",
+    deleted: "تم حذف هذه الرسالة.",
+    deletedMine: "لقد حذفت هذه الرسالة.",
+    missedVoice: "مكالمة صوتية فائتة",
+    missedVideo: "مكالمة فيديو فائتة",
+    voiceCall: "مكالمة صوتية",
+    videoCall: "مكالمة فيديو",
+    tapToCallBack: "اضغط لمعاودة الاتصال",
+    noAnswer: "لا يوجد رد",
+    isTyping: (n) => `${n} يكتب…`,
+    location: "الموقع",
+    liveLocation: "الموقع المباشر",
+    sticker: "ملصق",
+    listSep: "، ",
+  },
 };
+
+/**
+ * Group sender-name colours (WhatsApp's participant palette: a darker shade on
+ * the light theme, a lighter one on dark), picked by member index so a member
+ * keeps the same colour for the whole chat. The same tint colours the
+ * member's default photo.
+ */
+const MEMBER_COLORS: { light: string; dark: string }[] = [
+  { light: "#d42a66", dark: "#ff72a1" },
+  { light: "#7f66ff", dark: "#a791ff" },
+  { light: "#c4532d", dark: "#fc9775" },
+  { light: "#027eb5", dark: "#53bdeb" },
+  { light: "#1d8b5d", dark: "#3ed38b" },
+  { light: "#a63aa3", dark: "#e48ce0" },
+  { light: "#00838f", dark: "#53bda5" },
+  { light: "#8a6d00", dark: "#ffd279" },
+];
+
+function memberColor(i: number, dark: boolean): string {
+  const c = MEMBER_COLORS[((i % MEMBER_COLORS.length) + MEMBER_COLORS.length) % MEMBER_COLORS.length];
+  return dark ? c.dark : c.light;
+}
+
+/** A group member who wrote an incoming message. */
+interface Author {
+  index: number;
+  person: Person;
+  color: string;
+}
+
+/** URL matcher for in-text links (WhatsApp linkifies http(s) and www. links). */
+const URL_RE = /(https?:\/\/[^\s]+|www\.[^\s]+)/g;
+
+/** The message text with every URL tinted + underlined like WhatsApp's links. */
+function linkify(text: string, color: string): ReactNode {
+  const parts = text.split(URL_RE);
+  if (parts.length === 1) return text;
+  return parts.map((part, i) =>
+    i % 2 === 1 ? (
+      <span key={i} style={{ color, textDecoration: "underline", textUnderlineOffset: 2, textDecorationThickness: 1 }}>
+        {part}
+      </span>
+    ) : (
+      part
+    ),
+  );
+}
+
+function siteOf(link: LinkPreview): string {
+  if (link.siteName) return link.siteName;
+  return link.url.replace(/^https?:\/\//, "").replace(/^www\./, "").split(/[/?#]/)[0];
+}
 
 /* Reaction pill (measured on WABetaInfo iOS captures, 3x → pt): 20pt tall
    including a 1.5pt ring, ≥32pt wide, hangs 17pt below the bubble (3pt overlap),
@@ -767,6 +904,7 @@ function Quote({
   inMine,
   lang,
   themName,
+  themColor,
   uiDir,
 }: {
   target: Message;
@@ -774,17 +912,31 @@ function Quote({
   inMine: boolean;
   lang: Lang;
   themName: string;
+  /** group chats: the quoted member's name colour */
+  themColor?: string;
   uiDir: "rtl" | "ltr";
 }) {
   const s = WA_STR[lang];
   const fromMe = target.sender === "me";
-  const color = fromMe ? p.quoteYou : p.quoteThem;
+  const color = fromMe ? p.quoteYou : (themColor ?? p.quoteThem);
   const snipColor = inMine ? p.quoteSnippetOut : p.quoteSnippetIn;
   const isImg = target.type === "image";
   const caption = target.text.replace(/\s+/g, " ").trim();
   let snippet: ReactNode;
   let snipDir: "rtl" | "ltr" = uiDir;
-  if (target.type === "voice") {
+  if (target.type === "location") {
+    snippet = `📍 ${target.location?.live ? s.liveLocation : target.location?.title || s.location}`;
+  } else if (target.type === "file") {
+    snipDir = "ltr";
+    snippet = `📄 ${target.file?.name ?? ""}`;
+  } else if (target.type === "sticker") {
+    snippet = s.sticker;
+  } else if (target.type === "call") {
+    const k = target.call;
+    snippet = k?.missed ? (k.video ? s.missedVideo : s.missedVoice) : k?.video ? s.videoCall : s.voiceCall;
+  } else if (target.type === "deleted") {
+    snippet = target.sender === "me" ? s.deletedMine : s.deleted;
+  } else if (target.type === "voice") {
     snippet = (
       <>
         <MiniMic color={snipColor} /> {`${s.voice} (${target.voiceDuration || "0:07"})`}
@@ -892,6 +1044,222 @@ function Caret({ p, clockMs, k }: { p: Pal; clockMs?: number; k: number }) {
 }
 
 /* ======================================================================
+   Round 5: groups + new message kinds
+   ====================================================================== */
+
+/** WhatsApp's default group photo: grey disc with two people (SF person.2.fill). */
+function GroupAvatar({ src, size, pal }: { src: string | null; size: number; pal: Pal }) {
+  if (src) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={src}
+        alt=""
+        width={size}
+        height={size}
+        draggable={false}
+        className="shrink-0 rounded-full object-cover"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
+  return (
+    <svg width={size} height={size} viewBox="0 0 40 40" className="shrink-0" style={{ display: "block" }}>
+      <circle cx="20" cy="20" r="20" fill={pal.avatarBg} />
+      <circle cx="24.6" cy="15.4" r="4.6" fill={pal.avatarFg} />
+      <path d="M16.4 29.6c.6-4.9 3.9-7.6 8.2-7.6s7.6 2.7 8.2 7.6c.1.6-.3 1-.9 1H17.3c-.6 0-1-.4-.9-1z" fill={pal.avatarFg} />
+      <circle cx="14.2" cy="17.2" r="3.7" fill={pal.avatarFg} />
+      <path d="M7.1 29.4c.5-4 3.2-6.2 6.6-6.2 1.3 0 2.5.3 3.4.9-1.4 1.4-2.3 3.3-2.6 5.6l-.1.9H8c-.6 0-1-.5-.9-1.2z" fill={pal.avatarFg} />
+    </svg>
+  );
+}
+
+/** A group member's photo, or the default photo tinted with their name colour. */
+function MemberAvatar({ author, size, dark }: { author: Author; size: number; dark: boolean }) {
+  if (author.person.avatar) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={author.person.avatar}
+        alt=""
+        width={size}
+        height={size}
+        draggable={false}
+        className="shrink-0 rounded-full object-cover"
+        style={{ width: size, height: size, display: "block" }}
+      />
+    );
+  }
+  return (
+    <svg width={size} height={size} viewBox="0 0 40 40" className="shrink-0" style={{ display: "block" }}>
+      <circle cx="20" cy="20" r="20" fill={author.color} fillOpacity={dark ? 0.3 : 0.2} />
+      <circle cx="20" cy="15.6" r="6.6" fill={author.color} />
+      <path d="M7.6 33.2c1.9-5.6 6.7-8.6 12.4-8.6s10.5 3 12.4 8.6A19.9 19.9 0 0 1 20 40a19.9 19.9 0 0 1-12.4-6.8z" fill={author.color} />
+    </svg>
+  );
+}
+
+/**
+ * Static map snapshot in the Apple Maps look WhatsApp iOS uses for shared
+ * locations: tilted street grid with white streets on beige land, a yellow
+ * arterial, a park and a pond; red pin (or the sender's photo for live).
+ */
+function MapArt({ w, h, dark, live }: { w: number; h: number; dark: boolean; live?: boolean }) {
+  const c = dark
+    ? { land: "#2c2c2e", block: "#323235", park: "#26392b", water: "#1d3047", edge: "#232325", road: "#47474b", major: "#7a6a3e", majorEdge: "#58502f" }
+    : { land: "#f4f1ea", block: "#ece8df", park: "#cde9c0", water: "#a6d1f4", edge: "#e2ddd2", road: "#ffffff", major: "#fbd77a", majorEdge: "#ecbd4e" };
+  const cx = w / 2;
+  const cy = h / 2;
+  const hs: number[] = [];
+  const vs: number[] = [];
+  for (let k = -5; k <= 5; k++) {
+    hs.push(cy + k * 33 + 9);
+    vs.push(cx + k * 44 - 14);
+  }
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ display: "block" }}>
+      <rect width={w} height={h} fill={c.land} />
+      <g transform={`rotate(-17 ${cx} ${cy})`}>
+        {hs.slice(0, -1).map((y, i) =>
+          vs.slice(0, -1).map((x, j) =>
+            (i * 3 + j) % 4 === 1 ? null : (
+              <rect key={`${i}-${j}`} x={x + 5} y={y + 5} width={34} height={23} rx={2} fill={c.block} />
+            ),
+          ),
+        )}
+        <rect x={vs[6] + 4} y={hs[3] + 4} width={80} height={58} rx={4} fill={c.park} />
+        <ellipse cx={vs[6] + 52} cy={hs[3] + 40} rx={14} ry={9} fill={c.water} />
+        <path d={`M${vs[0] - 60} ${hs[8] + 20} C ${vs[3]} ${hs[6]}, ${vs[5]} ${hs[6] + 10}, ${vs[10] + 60} ${hs[3]}`} fill="none" stroke={c.water} strokeWidth={14} />
+        {hs.map((y) => (
+          <line key={`h${y}`} x1={-w} x2={2 * w} y1={y} y2={y} stroke={c.edge} strokeWidth={6.5} />
+        ))}
+        {vs.map((x) => (
+          <line key={`v${x}`} x1={x} x2={x} y1={-h} y2={2 * h} stroke={c.edge} strokeWidth={6.5} />
+        ))}
+        {hs.map((y) => (
+          <line key={`hr${y}`} x1={-w} x2={2 * w} y1={y} y2={y} stroke={c.road} strokeWidth={4.5} />
+        ))}
+        {vs.map((x) => (
+          <line key={`vr${x}`} x1={x} x2={x} y1={-h} y2={2 * h} stroke={c.road} strokeWidth={4.5} />
+        ))}
+        <line x1={-w} x2={2 * w} y1={hs[5] + 0} y2={hs[5]} stroke={c.majorEdge} strokeWidth={9} />
+        <line x1={-w} x2={2 * w} y1={hs[5]} y2={hs[5]} stroke={c.major} strokeWidth={7} />
+        <line x1={vs[4]} x2={vs[4]} y1={-h} y2={2 * h} stroke={c.majorEdge} strokeWidth={9} />
+        <line x1={vs[4]} x2={vs[4]} y1={-h} y2={2 * h} stroke={c.major} strokeWidth={7} />
+      </g>
+      {live ? null : (
+        <g transform={`translate(${cx} ${cy + 12})`}>
+          <ellipse cx={0} cy={0} rx={4.5} ry={1.8} fill="#000" fillOpacity={0.28} />
+          <path d="M0 0V-17" stroke="#8a8a8e" strokeWidth={1.8} strokeLinecap="round" />
+          <circle cy={-23} r={8} fill="#ff3b30" stroke="#c9241b" strokeWidth={0.8} />
+          <circle cx={-2.6} cy={-25.6} r={2.4} fill="#ffffff" fillOpacity={0.6} />
+        </g>
+      )}
+    </svg>
+  );
+}
+
+/** Document type badge (PDF red, Word blue, Excel green, …). */
+function docKind(name: string): { ext: string; color: string } {
+  const ext = (name.split(".").pop() || "").toLowerCase();
+  const color =
+    ext === "pdf"
+      ? "#e5252a"
+      : ext === "doc" || ext === "docx"
+        ? "#2b579a"
+        : ext === "xls" || ext === "xlsx" || ext === "csv"
+          ? "#1d7044"
+          : ext === "ppt" || ext === "pptx"
+            ? "#d24625"
+            : "#7c8b96";
+  return { ext: ext.toUpperCase() || "FILE", color };
+}
+
+function DocIcon({ name }: { name: string }) {
+  const { ext, color } = docKind(name);
+  return (
+    <svg width="26" height="32" viewBox="0 0 26 32" className="shrink-0" style={{ display: "block" }}>
+      <path d="M3.5 0H17l9 9v19.5a3.5 3.5 0 0 1-3.5 3.5h-19A3.5 3.5 0 0 1 0 28.5v-25A3.5 3.5 0 0 1 3.5 0z" fill={color} />
+      <path d="M17 0l9 9h-6a3 3 0 0 1-3-3z" fill="#ffffff" fillOpacity={0.45} />
+      <text x="13" y="25" textAnchor="middle" fontSize={ext.length > 3 ? 6 : 7.2} fontWeight={700} fill="#ffffff" fontFamily="system-ui, sans-serif">
+        {ext.slice(0, 4)}
+      </text>
+    </svg>
+  );
+}
+
+/** First-page thumbnail of a PDF (a generic invoice-like page). */
+function PdfPage({ w, h }: { w: number; h: number }) {
+  const lines = [0.62, 0.88, 0.8, 0.92, 0.55, 0.85, 0.74, 0.9];
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ display: "block" }}>
+      <rect width={w} height={h} fill="#ffffff" />
+      <rect x={20} y={16} width={56} height={9} rx={1.5} fill="#e5252a" fillOpacity={0.75} />
+      <rect x={w - 86} y={16} width={66} height={5} rx={1} fill="#c9ccd0" />
+      <rect x={w - 70} y={24} width={50} height={4} rx={1} fill="#dfe1e4" />
+      {lines.map((f, i) => (
+        <rect key={i} x={20} y={38 + i * 9} width={(w - 40) * f} height={4} rx={1} fill={i === 3 ? "#b9bdc2" : "#dfe1e4"} />
+      ))}
+    </svg>
+  );
+}
+
+/** Call-entry glyph: SF phone.fill / video.fill with the incoming/outgoing arrow. */
+function CallIcon({ video, missed, mine, color }: { video: boolean; missed: boolean; mine: boolean; color: string }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" style={{ display: "block", direction: "ltr" }}>
+      {video ? (
+        <path d="M3.5 6.2h10.6a2.4 2.4 0 0 1 2.4 2.4v6.8a2.4 2.4 0 0 1-2.4 2.4H3.5a2.4 2.4 0 0 1-2.4-2.4V8.6a2.4 2.4 0 0 1 2.4-2.4zM17.6 10.3l4-2.7c.6-.4 1.3 0 1.3.7v7.4c0 .7-.7 1.1-1.3.7l-4-2.7z" fill={color} />
+      ) : (
+        <path d="M6.6 2.4c.5 0 .9.3 1.1.7l1.6 3.6c.2.5.1 1-.3 1.4L7.3 9.8c1.2 2.6 3.4 4.8 6 6l1.7-1.7c.4-.4.9-.5 1.4-.3l3.6 1.6c.4.2.7.6.7 1.1v2.9c0 1.1-.9 2-2 2C9.9 21.4 2.6 14.1 2.6 4.4c0-1.1.9-2 2-2z" fill={color} />
+      )}
+      {missed && !video && <path d="M14.6 3.2 20.4 9M20.4 4.6V9h-4.4" stroke={color} strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round" />}
+      {!missed && !video && (
+        <path d={mine ? "M15 9l5.6-5.6M16.4 3.4h4.2v4.2" : "M20.6 3.4 15 9M15 4.8V9h4.2"} stroke={color} strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      )}
+    </svg>
+  );
+}
+
+/** WhatsApp's deleted-message glyph (a circle with a slash). */
+function BlockGlyph({ color }: { color: string }) {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" style={{ display: "inline-block", verticalAlign: "-2.5px", flexShrink: 0 }}>
+      <circle cx="8" cy="8" r="6.4" fill="none" stroke={color} strokeWidth="1.5" />
+      <path d="M3.6 12.4 12.4 3.6" stroke={color} strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+/** Emoji drawn as a die-cut sticker (white outline + soft shadow). */
+function StickerArt({ m, size }: { m: Message; size: number }) {
+  if (m.imageSrc) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={m.imageSrc} alt="" width={size} height={size} draggable={false} style={{ width: size, height: size, objectFit: "contain", display: "block" }} />
+    );
+  }
+  const glyphs = m.text.trim() || "🙂";
+  const n = Math.max(1, Math.min(3, Array.from(glyphs).filter((g) => /\p{Extended_Pictographic}/u.test(g)).length));
+  return (
+    <div
+      className="flex items-center justify-center"
+      style={{
+        width: size,
+        height: size,
+        fontSize: Math.round(size * (n === 1 ? 0.72 : n === 2 ? 0.44 : 0.31)),
+        lineHeight: 1,
+        whiteSpace: "nowrap",
+        filter:
+          "drop-shadow(2.5px 0 0 #fff) drop-shadow(-2.5px 0 0 #fff) drop-shadow(0 2.5px 0 #fff) drop-shadow(0 -2.5px 0 #fff) drop-shadow(0 1.5px 2px rgba(0,0,0,0.22))",
+      }}
+    >
+      {glyphs}
+    </div>
+  );
+}
+
+/* ======================================================================
    Component
    ====================================================================== */
 
@@ -905,9 +1273,39 @@ export function WhatsApp({ scenario, playback, lang, rtl }: PlatformProps) {
   const live = playback.isLive;
   const clockMs = playback.clockMs;
   const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${typing}`);
+  const s = WA_STR[lang];
 
-  const subtitle = waPresence(typing, scenario.presence, scenario.lastSeenText, c.online, c.typing);
-  const lastSender = messages.length ? messages[messages.length - 1].sender : null;
+  // OS keyboard: the chat bar rides KB_GAP above it, the thread's viewport
+  // shrinks with it (both continuous in the inset, so export frames match)
+  const kb = useKeyboardInset();
+  const barBottom = Math.max(COMPOSER_BOTTOM, kb.inset + KB_GAP);
+  const listBottom = barBottom - COMPOSER_BOTTOM;
+  const kbTrans = (prop: string) => (kb.transition === "none" ? undefined : `${prop} ${kb.transition}`);
+
+  // group chat: members, authors, runs per author, who is typing
+  const group = scenario.group && scenario.group.members.length ? scenario.group : null;
+  const memberAt = (idx: number): Author | null => {
+    if (!group) return null;
+    const n = group.members.length;
+    const i = ((idx % n) + n) % n;
+    return { index: i, person: group.members[i], color: memberColor(i, dark) };
+  };
+  const authorOf = (m: Message): Author | null => (m.sender === "them" ? memberAt(m.authorIndex ?? 0) : null);
+  const sameRun = (a?: Message, b?: Message) =>
+    !!a && !!b && a.sender === b.sender && (!group || a.sender === "me" || (a.authorIndex ?? 0) === (b.authorIndex ?? 0));
+  const shown = new Set(messages.map((m) => m.id));
+  const nextThem = scenario.messages.find((m) => !shown.has(m.id) && m.sender === "them");
+  const typer = group ? memberAt(nextThem?.authorIndex ?? 0) : null;
+
+  const subtitle = group
+    ? typing || scenario.presence === "typing"
+      ? s.isTyping(typer?.person.name ?? "")
+      : [...group.members.map((x) => x.name), s.you].join(s.listSep)
+    : waPresence(typing, scenario.presence, scenario.lastSeenText, c.online, c.typing);
+  const lastMsg = messages.length ? messages[messages.length - 1] : undefined;
+  // the typing bubble continues the last run when the same person is typing
+  const typingContinues =
+    !!lastMsg && lastMsg.sender === "them" && (!group || authorOf(lastMsg)?.index === typer?.index);
   const byId = new Map(scenario.messages.map((m) => [m.id, m] as const));
 
   // compose typing: the draft replaces the (empty) field; with text in it the
@@ -926,15 +1324,24 @@ export function WhatsApp({ scenario, playback, lang, rtl }: PlatformProps) {
     const spacer = spacerRef.current;
     const el = scrollRef.current;
     if (!bar || !spacer || !el) return;
+    // pinned = the newest message is in view; kept across viewport resizes
+    // (the keyboard shrinking the thread) so the latest message stays visible
+    let pinned = true;
+    const onScroll = () => {
+      pinned = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    };
     const ro = new ResizeObserver(() => {
       const extra = Math.max(0, Math.round(bar.offsetHeight - CTL));
-      if (spacer.offsetHeight === extra) return;
-      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-      spacer.style.height = `${extra}px`;
-      if (atBottom) el.scrollTop = el.scrollHeight;
+      if (spacer.offsetHeight !== extra) spacer.style.height = `${extra}px`;
+      if (pinned) el.scrollTop = el.scrollHeight;
     });
+    el.addEventListener("scroll", onScroll, { passive: true });
     ro.observe(bar);
-    return () => ro.disconnect();
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      ro.disconnect();
+    };
   }, [scrollRef]);
 
   const glassCircle: CSSProperties = {
@@ -963,8 +1370,8 @@ export function WhatsApp({ scenario, playback, lang, rtl }: PlatformProps) {
       {/* Scrolling thread (runs under the transparent header and the floating chat bar) */}
       <div
         ref={scrollRef}
-        className="rcss-scroll absolute inset-0 overflow-y-auto"
-        style={{ paddingTop: TOP_PAD, paddingBottom: BOTTOM_PAD }}
+        className="rcss-scroll absolute inset-x-0 top-0 overflow-y-auto"
+        style={{ bottom: listBottom, transition: kbTrans("bottom"), paddingTop: TOP_PAD, paddingBottom: BOTTOM_PAD }}
       >
         {/* Date chip */}
         <div className="flex justify-center" style={{ padding: "4px 0 8px" }}>
@@ -1011,9 +1418,13 @@ export function WhatsApp({ scenario, playback, lang, rtl }: PlatformProps) {
 
         <div className="flex flex-col">
           {messages.map((m, i) => {
-            const { firstOfGroup, lastOfGroup } = groupInfo(messages, i);
+            const firstOfGroup = !sameRun(messages[i - 1], m);
+            const lastOfGroup = !sameRun(m, messages[i + 1]);
             // the typing bubble continues the incoming run, so it takes the tail
-            const tail = lastOfGroup && !(typing && m.sender === "them" && i === messages.length - 1);
+            const tail = lastOfGroup && !(typing && typingContinues && i === messages.length - 1);
+            const author = group ? authorOf(m) : null;
+            const quote = m.replyToId ? (byId.get(m.replyToId) ?? null) : null;
+            const quoteAuthor = quote && group ? authorOf(quote) : null;
             return (
               <Row
                 key={m.id}
@@ -1024,11 +1435,16 @@ export function WhatsApp({ scenario, playback, lang, rtl }: PlatformProps) {
                 firstOfGroup={firstOfGroup}
                 tail={tail}
                 status={playback.statusOf(m)}
-                person={m.sender === "me" ? scenario.me : scenario.them}
+                person={m.sender === "me" ? scenario.me : (author?.person ?? scenario.them)}
                 live={live}
-                quote={m.replyToId ? (byId.get(m.replyToId) ?? null) : null}
+                quote={quote}
                 lang={lang}
-                themName={scenario.them.name}
+                themName={quoteAuthor?.person.name ?? scenario.them.name}
+                themColor={quoteAuthor?.color}
+                author={author}
+                showName={!!author && firstOfGroup}
+                showAvatar={!!author && tail}
+                dark={dark}
               />
             );
           })}
@@ -1037,11 +1453,16 @@ export function WhatsApp({ scenario, playback, lang, rtl }: PlatformProps) {
             <div
               className={`flex justify-start ${enterClass(live, false, rtl)}`}
               style={{
-                padding: `0 ${SIDE}px`,
-                marginTop: lastSender === "them" ? 3 : 8,
+                paddingInline: `${typer ? AV_START : SIDE}px ${SIDE}px`,
+                marginTop: typingContinues ? 3 : 8,
                 transformOrigin: `${rtl ? "right" : "left"} bottom`,
               }}
             >
+              {typer && (
+                <div className="shrink-0 self-end" style={{ width: AV, marginInlineEnd: AV_GAP }}>
+                  <MemberAvatar author={typer} size={AV} dark={dark} />
+                </div>
+              )}
               <div className="relative" style={{ filter: p.bubbleShadow }}>
                 <Tail side={rtl ? "right" : "left"} color={p.inBubble} />
                 <div
@@ -1090,14 +1511,18 @@ export function WhatsApp({ scenario, playback, lang, rtl }: PlatformProps) {
               <Chevron color={p.icon} />
             </div>
             <div style={{ marginInlineStart: 10 }}>
-              <WaAvatar person={scenario.them} size={CTL} pal={p} />
+              {group ? (
+                <GroupAvatar src={group.avatar} size={CTL} pal={p} />
+              ) : (
+                <WaAvatar person={scenario.them} size={CTL} pal={p} />
+              )}
             </div>
             <div className="min-w-0 flex-1" style={{ paddingInline: "9px 6px" }}>
               <div
                 className="truncate"
                 style={{ fontSize: 17, lineHeight: "21px", fontWeight: 600, color: p.ink, letterSpacing: -0.43 }}
               >
-                {scenario.them.name}
+                {group ? group.name : scenario.them.name}
               </div>
               {subtitle && (
                 <div
@@ -1120,16 +1545,26 @@ export function WhatsApp({ scenario, playback, lang, rtl }: PlatformProps) {
       </div>
 
       {/* Bottom: scroll-edge fade + floating chat bar + home indicator */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0" style={{ zIndex: 10 }}>
+      {/* home indicator (above the fade; gone while the keyboard is up) */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0" style={{ zIndex: 11 }}>
+        <SystemBottomBar device={scenario.device} bg="transparent" fg={p.home} />
+      </div>
+      <div
+        className="pointer-events-none absolute inset-x-0"
+        style={{ zIndex: 10, bottom: barBottom, transition: kbTrans("bottom") }}
+      >
         <div
-          className="absolute inset-x-0 bottom-0"
+          className="absolute inset-x-0"
           style={{
-            // grows with a multi-line chat bar (30pt of fade above the bar)
+            // grows with a multi-line chat bar (30pt of fade above the bar) and
+            // always reaches the screen bottom
             top: -30,
+            bottom: -barBottom,
+            transition: kbTrans("bottom"),
             background: edgeFade(p.wallRgb, "to top", 0.85),
           }}
         />
-        <div ref={barRef} className="relative flex items-end" style={{ minHeight: CTL, paddingInline: 14, marginBottom: 20 }}>
+        <div ref={barRef} className="relative flex items-end" style={{ minHeight: CTL, paddingInline: 14 }}>
           <div style={glassCircle}>
             <PlusGlyph color={p.icon} />
           </div>
@@ -1172,9 +1607,6 @@ export function WhatsApp({ scenario, playback, lang, rtl }: PlatformProps) {
             {hasText ? <SendGlyph color={p.onGreen} flip={rtl} /> : <MicGlyph color={p.onGreen} />}
           </div>
         </div>
-        <div className="relative">
-          <SystemBottomBar device={scenario.device} bg="transparent" fg={p.home} />
-        </div>
       </div>
     </div>
   );
@@ -1197,6 +1629,11 @@ function Row({
   quote,
   lang,
   themName,
+  themColor,
+  author,
+  showName,
+  showAvatar,
+  dark,
 }: {
   m: Message;
   p: Pal;
@@ -1210,42 +1647,57 @@ function Row({
   quote: Message | null;
   lang: Lang;
   themName: string;
+  themColor?: string;
+  /** group chats: the member who wrote this incoming message */
+  author: Author | null;
+  showName: boolean;
+  showAvatar: boolean;
+  dark: boolean;
 }) {
+  const s = WA_STR[lang];
   const mine = m.sender === "me";
   const onRight = mine ? !rtl : rtl;
   const bg = mine ? p.outBubble : p.inBubble;
   const metaColor = mine ? p.metaOut : p.metaIn;
   const isImage = m.type === "image";
   const isVoice = m.type === "voice";
+  const isText = m.type === "text";
   const caption = isImage ? m.text.trim() : "";
   const textDir = dirOf(m.text);
   // a reply always gets a bubble (the quote lives inside it)
-  const jumbo = !isImage && !isVoice && !quote ? jumboCount(m.text) : 0;
+  const jumbo = isText && !quote && !m.link ? jumboCount(m.text) : 0;
   const reaction = m.reaction?.trim() || "";
+  const deleted = m.type === "deleted";
 
   const meta = (overlay: boolean, color = metaColor) => (
-    <span
-      className="inline-flex items-center whitespace-nowrap"
-      style={{
-        fontSize: 11,
-        lineHeight: "13px",
-        gap: 4,
-        color: overlay ? "#ffffff" : color,
-        fontVariantNumeric: "tabular-nums",
-        textShadow: overlay ? "0 0 4px rgba(0,0,0,0.35)" : undefined,
-        direction: "ltr",
-      }}
-    >
-      {m.time}
-      {mine && <WaTicks status={status} color={overlay ? "#ffffff" : color} readColor={p.read} width={16} />}
+    <span className="inline-flex items-center whitespace-nowrap" dir={uiDir} style={{ gap: 4 }}>
+      {m.edited && !deleted && (
+        <span style={{ fontSize: 11, lineHeight: "13px", color: overlay ? "#ffffff" : color }}>{s.edited}</span>
+      )}
+      <span
+        className="inline-flex items-center whitespace-nowrap"
+        style={{
+          fontSize: 11,
+          lineHeight: "13px",
+          gap: 4,
+          color: overlay ? "#ffffff" : color,
+          fontVariantNumeric: "tabular-nums",
+          textShadow: overlay ? "0 0 4px rgba(0,0,0,0.35)" : undefined,
+          direction: "ltr",
+        }}
+      >
+        {m.time}
+        {mine && !deleted && <WaTicks status={status} color={overlay ? "#ffffff" : color} readColor={p.read} width={16} />}
+      </span>
     </span>
   );
   // spacer reserved at the end of the last text line for the meta block
-  const reserve = waMetaWidth(m.time, mine, 6.6, 16) + (mine ? 0 : 2);
+  const reserve =
+    waMetaWidth(m.time, mine && !deleted, 6.6, 16) + (mine ? 0 : 2) + (m.edited && !deleted ? Math.ceil(s.edited.length * 6.1) + 4 : 0);
   const metaEnd = mine ? 9 : 12;
 
   const rowStyle: CSSProperties = {
-    padding: `0 ${SIDE}px`,
+    paddingInline: `${author ? AV_START : SIDE}px ${SIDE}px`,
     marginTop: firstOfGroup ? 8 : 3,
     // the reaction pill hangs below the bubble and pushes the next row down
     paddingBottom: reaction ? PILL_H - PILL_OVERLAP : 0,
@@ -1254,38 +1706,92 @@ function Row({
   const rowClass = `flex ${mine ? "justify-end" : "justify-start"} ${enterClass(live, mine, rtl)}`;
   const pill = reaction ? <ReactionPill emoji={reaction} p={p} onRight={onRight} /> : null;
   const quoteEl = quote ? (
-    <Quote target={quote} p={p} inMine={mine} lang={lang} themName={themName} uiDir={uiDir} />
+    <Quote target={quote} p={p} inMine={mine} lang={lang} themName={themName} themColor={themColor} uiDir={uiDir} />
+  ) : null;
+  // group chats: the member photo sits beside the last bubble of a run
+  const row = (node: ReactNode) => (
+    <div data-mid={m.id} data-sender={m.sender} className={rowClass} style={rowStyle}>
+      {author && (
+        <div className="shrink-0 self-end" style={{ width: AV, marginInlineEnd: AV_GAP }}>
+          {showAvatar && <MemberAvatar author={author} size={AV} dark={dark} />}
+        </div>
+      )}
+      {node}
+    </div>
+  );
+  // the coloured sender name that opens the first bubble of a run
+  const nameText = showName && author ? author.person.name : "";
+  const nameLine = (pad: string) =>
+    nameText ? (
+      <div
+        className="truncate"
+        dir={uiDir}
+        style={{
+          fontSize: 14,
+          lineHeight: "18px",
+          fontWeight: 600,
+          letterSpacing: -0.15,
+          color: author?.color,
+          textAlign: "start",
+          padding: pad,
+        }}
+      >
+        {nameText}
+      </div>
+    ) : null;
+  // bubble-less kinds (jumbo emoji, stickers) carry the name in a small chip
+  const nameChip = nameText ? (
+    <span
+      className="truncate"
+      style={{
+        alignSelf: "flex-start",
+        maxWidth: 220,
+        background: bg,
+        borderRadius: 10,
+        padding: "2px 8px",
+        marginBottom: 3,
+        fontSize: 13,
+        lineHeight: "16px",
+        fontWeight: 600,
+        color: author?.color,
+        filter: p.bubbleShadow,
+      }}
+    >
+      {nameText}
+    </span>
   ) : null;
 
-  /* --- emoji-only: big, no bubble, time in a small pill under it --- */
-  if (jumbo) {
-    return (
-      <div data-mid={m.id} data-sender={m.sender} className={rowClass} style={rowStyle}>
-        <div className="relative flex flex-col" style={{ alignItems: "flex-end" }}>
+  /* --- emoji-only and stickers: big, no bubble, time in a small pill under it --- */
+  if (jumbo || m.type === "sticker") {
+    return row(
+      <div className="relative flex flex-col" style={{ alignItems: "flex-end" }}>
+        {nameChip}
+        {jumbo ? (
           <span style={{ fontSize: JUMBO_SIZE[jumbo], lineHeight: 1.18, letterSpacing: 2, paddingInline: 2 }}>
             {m.text.trim()}
           </span>
-          <span
-            style={{
-              background: bg,
-              borderRadius: 10,
-              padding: "2px 7px",
-              marginTop: 1,
-              filter: p.bubbleShadow,
-            }}
-          >
-            {meta(false)}
-          </span>
-          {pill}
-        </div>
-      </div>
+        ) : (
+          <StickerArt m={m} size={STICKER} />
+        )}
+        <span
+          style={{
+            background: bg,
+            borderRadius: 10,
+            padding: "2px 7px",
+            marginTop: 1,
+            filter: p.bubbleShadow,
+          }}
+        >
+          {meta(false)}
+        </span>
+        {pill}
+      </div>,
     );
   }
 
-  /* --- frameless photo (no caption, not a reply) --- */
-  if (isImage && !caption && !quote) {
-    return (
-      <div data-mid={m.id} data-sender={m.sender} className={rowClass} style={rowStyle}>
+  /* --- frameless photo (no caption, not a reply, no sender name) --- */
+  if (isImage && !caption && !quote && !nameText) {
+    return row(
         <div className="relative">
           <div className="relative overflow-hidden" dir={uiDir} style={{ width: IMG_W, borderRadius: R, background: bg }}>
             <Photo m={m} dark={p === DARK} />
@@ -1298,20 +1804,151 @@ function Row({
             </span>
           </div>
           {pill}
-        </div>
-      </div>
+        </div>,
     );
   }
 
   let body: ReactNode;
   let padding: string | number = "7px 12px 8px";
   let dir: "rtl" | "ltr" = textDir;
+  let width: number | undefined;
+  const subColor = mine ? p.quoteSnippetOut : p.quoteSnippetIn;
+  const innerFill = mine ? p.quoteOut : p.quoteIn;
 
-  if (isVoice) {
+  if (m.type === "location" || m.type === "file") {
+    // cards: 4pt inner padding, the media block concentric with the bubble
     dir = uiDir;
-    padding = quote ? "4px 12px 6px 10px" : "9px 12px 6px 10px";
+    padding = 4;
+    width = CARD_W;
+    const loc = m.location;
+    const file = m.file;
+    const kind = file ? docKind(file.name) : null;
+    const metaLine = file ? [file.pages, file.size, kind?.ext].filter(Boolean).join(" • ") : "";
+    body =
+      m.type === "location" ? (
+        <>
+          {nameLine("2px 8px 4px")}
+          {quoteEl && <div style={{ marginBottom: 4 }}>{quoteEl}</div>}
+          <div className="relative overflow-hidden" style={{ borderRadius: R - 5, height: 150 }}>
+            <MapArt
+              w={CARD_W - 8}
+              h={150}
+              dark={dark}
+              live={!!loc?.live}
+            />
+            {loc?.live && (
+              <span
+                className="absolute rounded-full"
+                style={{ left: "50%", top: "50%", transform: "translate(-50%,-50%)", padding: 3, background: "#ffffff", boxShadow: "0 1px 4px rgba(0,0,0,0.3)" }}
+              >
+                <WaAvatar person={person} size={34} pal={p} />
+              </span>
+            )}
+          </div>
+          <div className="relative" style={{ padding: "6px 8px 4px" }}>
+            {loc?.live && (
+              <div style={{ fontSize: 15, lineHeight: "20px", fontWeight: 600, color: p.text, letterSpacing: -0.24 }}>
+                {s.liveLocation}
+              </div>
+            )}
+            <div dir="auto" style={{ fontSize: 15, lineHeight: "20px", fontWeight: loc?.live ? 400 : 500, color: loc?.live ? subColor : p.text, letterSpacing: -0.24, textAlign: "start" }}>
+              {loc?.title || s.location}
+            </div>
+            <div dir="auto" style={{ fontSize: 13, lineHeight: "17px", color: subColor, letterSpacing: -0.08, textAlign: "start" }}>
+              {loc?.subtitle}
+              <span style={{ display: "inline-block", width: reserve, height: 1 }} />
+            </div>
+            <span className="absolute" style={{ bottom: 4, insetInlineEnd: metaEnd - 4 }}>
+              {meta(false)}
+            </span>
+          </div>
+        </>
+      ) : (
+        <>
+          {nameLine("2px 8px 4px")}
+          {quoteEl && <div style={{ marginBottom: 4 }}>{quoteEl}</div>}
+          <div className="overflow-hidden" style={{ borderRadius: R - 5 }}>
+            {kind?.ext === "PDF" && <PdfPage w={CARD_W - 8} h={96} />}
+            <div className="flex items-center" style={{ background: innerFill, padding: "10px 12px 10px 10px", gap: 10 }}>
+              <DocIcon name={file?.name ?? ""} />
+              <div
+                dir="auto"
+                className="min-w-0 flex-1"
+                style={{
+                  fontSize: 15,
+                  lineHeight: "19px",
+                  color: p.text,
+                  letterSpacing: -0.24,
+                  overflow: "hidden",
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical",
+                  wordBreak: "break-all",
+                  textAlign: "start",
+                }}
+              >
+                {file?.name}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center justify-between" style={{ padding: "5px 5px 2px 6px", gap: 8 }}>
+            <span className="truncate" style={{ fontSize: 12, lineHeight: "15px", color: subColor }}>
+              {metaLine}
+            </span>
+            {meta(false)}
+          </div>
+        </>
+      );
+  } else if (m.type === "call") {
+    const k = m.call ?? { video: false, missed: false };
+    const title = k.missed && !mine ? (k.video ? s.missedVideo : s.missedVoice) : k.video ? s.videoCall : s.voiceCall;
+    const sub = k.missed ? (mine ? s.noAnswer : s.tapToCallBack) : k.duration || s.noAnswer;
+    const red = dark ? "#ff6b6b" : "#ea0038";
+    dir = uiDir;
+    padding = "8px 12px 8px 8px";
     body = (
       <>
+        {nameLine("0 4px 6px")}
+        <div className="flex items-center" style={{ gap: 10, minWidth: 214 }}>
+          <span
+            className="flex shrink-0 items-center justify-center rounded-full"
+            style={{ width: 38, height: 38, background: dark ? "rgba(255,255,255,0.1)" : "rgba(11,20,26,0.06)" }}
+          >
+            <CallIcon video={k.video} missed={k.missed} mine={mine} color={k.missed ? red : p.text} />
+          </span>
+          <div className="min-w-0">
+            <div style={{ fontSize: 16, lineHeight: "21px", fontWeight: 600, letterSpacing: -0.3, color: p.text }}>{title}</div>
+            <div style={{ fontSize: 14, lineHeight: "18px", color: subColor, letterSpacing: -0.15, direction: uiDir }}>
+              {sub}
+              <span style={{ display: "inline-block", width: reserve, height: 1 }} />
+            </div>
+          </div>
+        </div>
+        <span className="absolute" style={{ bottom: 7, insetInlineEnd: metaEnd }}>
+          {meta(false)}
+        </span>
+      </>
+    );
+  } else if (deleted) {
+    dir = uiDir;
+    body = (
+      <>
+        {nameLine("0 0 1px")}
+        <span style={{ fontSize: 17, lineHeight: "22px", letterSpacing: -0.43, fontStyle: "italic", color: subColor }}>
+          <BlockGlyph color={subColor} /> {mine ? s.deletedMine : s.deleted}
+        </span>
+        <span style={{ display: "inline-block", width: reserve, height: 1 }} />
+        <span className="absolute" style={{ bottom: 4, insetInlineEnd: metaEnd }}>
+          {meta(false)}
+        </span>
+      </>
+    );
+  } else if (isVoice) {
+    dir = uiDir;
+    padding = quote || nameText ? "4px 12px 6px 10px" : "9px 12px 6px 10px";
+    body = (
+      <>
+        {nameLine("2px 0 2px 2px")}
         {quoteEl && <div style={{ margin: "0 -8px 7px -6px" }}>{quoteEl}</div>}
         <Voice m={m} p={p} mine={mine} status={status} person={person} meta={meta(false)} />
       </>
@@ -1322,11 +1959,12 @@ function Row({
     // a reply with a photo: quote on top, the photo inset below it
     body = (
       <div style={{ width: IMG_W }}>
+        {nameLine("6px 12px 0")}
         {quoteEl && <div style={{ padding: "4px 4px 0" }}>{quoteEl}</div>}
         <div
           className="relative overflow-hidden"
           style={
-            quote
+            quote || nameText
               ? { margin: "4px 4px 0", borderRadius: caption ? `${R - 5}px ${R - 5}px 0 0` : R - 5, marginBottom: caption ? 0 : 4 }
               : { borderRadius: `${R}px ${R}px 0 0` }
           }
@@ -1358,12 +1996,21 @@ function Row({
       </div>
     );
   } else {
+    const link = m.link ?? null;
+    // a link preview stretches the bubble to its max width
+    const fullWidth = !!link;
     body = (
       <>
+        {nameLine("0 0 2px")}
         {/* quoted reply: 4pt in from the bubble edges, 6pt above the text */}
-        {quoteEl && <div style={{ margin: "-3px -8px 5px" }}>{quoteEl}</div>}
+        {quoteEl && <div style={{ margin: nameText ? "0 -8px 5px" : "-3px -8px 5px" }}>{quoteEl}</div>}
+        {link && (
+          <div style={{ margin: nameText || quoteEl ? "0 -8px 6px" : "-3px -8px 6px" }}>
+            <LinkCard link={link} p={p} mine={mine} uiDir={uiDir} />
+          </div>
+        )}
         <span className="whitespace-pre-wrap break-words" style={{ fontSize: 17, lineHeight: "22px", letterSpacing: -0.43 }}>
-          {m.text}
+          {linkify(m.text, p.link)}
         </span>
         <span style={{ display: "inline-block", width: reserve, height: 1 }} />
         <span className="absolute" style={{ bottom: 4, insetInlineEnd: metaEnd }}>
@@ -1371,23 +2018,54 @@ function Row({
         </span>
       </>
     );
+    if (fullWidth) width = 307 - (author ? AV_START + AV + AV_GAP - SIDE : 0);
   }
 
-  return (
-    <div data-mid={m.id} data-sender={m.sender} className={rowClass} style={rowStyle}>
-      <div className="relative" style={{ maxWidth: "calc(100% - 54px)" }}>
-        <div className="relative" style={{ filter: p.bubbleShadow }}>
-          {/* tail first so the bubble content (meta, ticks) paints over it */}
-          {tail && <Tail side={onRight ? "right" : "left"} color={bg} />}
-          <div
-            className="relative"
-            dir={dir}
-            style={{ background: bg, color: p.text, borderRadius: R, padding, minWidth: 48 }}
-          >
-            {body}
-          </div>
+  return row(
+    <div className="relative" style={{ maxWidth: author ? "calc(100% - 92px)" : "calc(100% - 54px)" }}>
+      <div className="relative" style={{ filter: p.bubbleShadow }}>
+        {/* tail first so the bubble content (meta, ticks) paints over it */}
+        {tail && <Tail side={onRight ? "right" : "left"} color={bg} />}
+        <div
+          className="relative"
+          dir={dir}
+          style={{ background: bg, color: p.text, borderRadius: R, padding, minWidth: 48, width, boxSizing: "border-box" }}
+        >
+          {body}
         </div>
-        {pill}
+      </div>
+      {pill}
+    </div>,
+  );
+}
+
+/** Link preview block at the top of a text bubble: image, title, description, domain. */
+function LinkCard({ link, p, mine, uiDir }: { link: LinkPreview; p: Pal; mine: boolean; uiDir: "rtl" | "ltr" }) {
+  const sub = mine ? p.quoteSnippetOut : p.quoteSnippetIn;
+  const clamp = (n: number): CSSProperties => ({
+    overflow: "hidden",
+    display: "-webkit-box",
+    WebkitLineClamp: n,
+    WebkitBoxOrient: "vertical",
+  });
+  return (
+    <div className="overflow-hidden" dir={uiDir} style={{ background: mine ? p.quoteOut : p.quoteIn, borderRadius: R - 5 }}>
+      {link.image && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={link.image} alt="" draggable={false} style={{ display: "block", width: "100%", height: 150, objectFit: "cover" }} />
+      )}
+      <div style={{ padding: "8px 12px 9px" }}>
+        <div dir="auto" style={{ ...clamp(2), fontSize: 15, lineHeight: "19px", fontWeight: 600, letterSpacing: -0.24, color: p.text, textAlign: "start" }}>
+          {link.title}
+        </div>
+        {link.description && (
+          <div dir="auto" style={{ ...clamp(2), marginTop: 2, fontSize: 14, lineHeight: "18px", letterSpacing: -0.15, color: sub, textAlign: "start" }}>
+            {link.description}
+          </div>
+        )}
+        <div dir="ltr" className="truncate" style={{ marginTop: 2, fontSize: 14, lineHeight: "18px", letterSpacing: -0.15, color: sub, textAlign: uiDir === "rtl" ? "right" : "left" }}>
+          {siteOf(link)}
+        </div>
       </div>
     </div>
   );

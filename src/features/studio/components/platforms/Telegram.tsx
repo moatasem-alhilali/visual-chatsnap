@@ -132,6 +132,23 @@ const TGI_STRINGS: Record<
     placeholder: string;
     photo: string;
     voice: string;
+    /** Conversation.MessageEditedLabel */
+    edited: string;
+    /** Conversation.StatusMembers_* */
+    members: (n: number) => string;
+    /** group typing ("%@ is typing") */
+    userTyping: (name: string) => string;
+    /** Notification.Call* / VideoCall* */
+    call: { out: string; in: string; missed: string; cancelled: string; vOut: string; vIn: string; vMissed: string; vCancelled: string };
+    /** callDurationString: Call.Minutes / Call.Seconds */
+    duration: (secs: number) => string;
+    liveLocation: string;
+    updatedJustNow: string;
+    location: string;
+    file: string;
+    sticker: string;
+    /** Notification.CallFormat separator ("%1$@, %2$@") */
+    callSep: string;
   }
 > = {
   // Message.Photo / Message.Audio (reply snippets for media targets)
@@ -143,6 +160,26 @@ const TGI_STRINGS: Record<
     placeholder: "Message",
     photo: "Photo",
     voice: "Voice Message",
+    edited: "edited",
+    members: (n) => (n === 1 ? "1 member" : `${n} members`),
+    userTyping: (name) => `${name} is typing`,
+    call: {
+      out: "Outgoing Call",
+      in: "Incoming Call",
+      missed: "Missed Call",
+      cancelled: "Cancelled Call",
+      vOut: "Outgoing Video Call",
+      vIn: "Incoming Video Call",
+      vMissed: "Missed Video Call",
+      vCancelled: "Cancelled Video Call",
+    },
+    duration: (s) => (s < 60 ? `${s} ${s === 1 ? "second" : "seconds"}` : `${Math.floor(s / 60)} ${Math.floor(s / 60) === 1 ? "minute" : "minutes"}`),
+    liveLocation: "Live Location",
+    updatedJustNow: "updated just now",
+    location: "Location",
+    file: "File",
+    sticker: "Sticker",
+    callSep: ", ",
   },
   ar: {
     online: "متصل",
@@ -152,8 +189,39 @@ const TGI_STRINGS: Record<
     placeholder: "الرسالة",
     photo: "صورة",
     voice: "رسالة صوتية",
+    edited: "معدلة",
+    members: (n) => arPlural(n, "عضو واحد", "عضوان", "أعضاء", "عضوًا", "عضو"),
+    userTyping: (name) => `${name} يكتب`,
+    call: {
+      out: "مكالمة صادرة",
+      in: "مكالمة واردة",
+      missed: "مكالمة فائتة",
+      cancelled: "مكالمة ملغاة",
+      vOut: "مكالمة فيديو صادرة",
+      vIn: "مكالمة فيديو واردة",
+      vMissed: "مكالمة فيديو فائتة",
+      vCancelled: "مكالمة فيديو ملغاة",
+    },
+    duration: (s) =>
+      s < 60 ? arPlural(s, "ثانية واحدة", "ثانيتان", "ثوانٍ", "ثانية", "ثانية") : arPlural(Math.floor(s / 60), "دقيقة واحدة", "دقيقتان", "دقائق", "دقيقة", "دقيقة"),
+    liveLocation: "الموقع المباشر",
+    updatedJustNow: "تم التحديث الآن",
+    location: "الموقع",
+    file: "ملف",
+    sticker: "ملصق",
+    callSep: "، ",
   },
 };
+
+/** Arabic plural forms as Telegram's ar localisation uses them (1, 2, 3–10, 11–99, 100+). */
+function arPlural(n: number, one: string, two: string, few: string, many: string, other: string): string {
+  if (n === 1) return one;
+  if (n === 2) return two;
+  const m = n % 100;
+  if (m >= 3 && m <= 10) return `${n} ${few}`;
+  if (m >= 11 && m <= 99) return `${n} ${many}`;
+  return `${n} ${other}`;
+}
 
 /*
  * Reactions (ReactionButtonListComponent + ChatMessageDateAndStatusNode, trailingContent): always chips now
@@ -178,6 +246,21 @@ const TGI_STRINGS: Record<
 /* ------------------------------------------------------------------ */
 /* Theme                                                              */
 /* ------------------------------------------------------------------ */
+
+interface PartColors {
+  link: string;
+  /** accentTextColor (webpage site name, bar) */
+  accent: string;
+  /** accentControlColor / mediaActiveControlColor (file circle, call button) */
+  control: string;
+  /** glyph inside the file circle (mediaControlInnerBackgroundColor) */
+  controlInner: string;
+  fileTitle: string;
+  fileDesc: string;
+  /** fileDurationColor (call label) */
+  fileDuration: string;
+  secondary: string;
+}
 
 interface IosTheme {
   dark: boolean;
@@ -204,6 +287,10 @@ interface IosTheme {
   names: string[];
   /** panelControlAccentColor — send button + caret */
   sendFill: string;
+  /** per-direction bubble colours (PresentationThemePartedColors) used by links, files, calls, webpages */
+  part: { in: PartColors; out: PartColors };
+  /** map snapshot palette (Apple Maps light / dark) */
+  map: { land: string; block: string; park: string; water: string; road: string; major: string; stroke: string };
   voice: {
     in: { active: string; inactive: string; glyph: string; duration: string; dot: string };
     out: { active: string; inactive: string; glyph: string; duration: string; dot: string };
@@ -236,6 +323,30 @@ const IOS_LIGHT: IosTheme = {
   replyOut: "#00a700",
   names: ["#cc5049", "#d67722", "#955cdb", "#40a920", "#309eba", "#368ad1", "#c7508b"],
   sendFill: "#0088ff",
+  // DefaultDayPresentationTheme `message` (dayClassic) incoming / outgoing parted colours
+  part: {
+    in: {
+      link: "#004bad",
+      accent: "#0088ff",
+      control: "#0088ff",
+      controlInner: "#ffffff",
+      fileTitle: "#0b8bed",
+      fileDesc: "#999999",
+      fileDuration: "rgba(82, 82, 82, 0.6)",
+      secondary: "#8e8e93",
+    },
+    out: {
+      link: "#004bad",
+      accent: "#00a700",
+      control: "#3fc33b",
+      controlInner: "#e1ffc7",
+      fileTitle: "#3faa3c",
+      fileDesc: "#6fb26a",
+      fileDuration: "rgba(0, 140, 9, 0.8)",
+      secondary: "rgba(0, 140, 9, 0.8)",
+    },
+  },
+  map: { land: "#f3f0e9", block: "#e9e5dc", park: "#cfe8b9", water: "#a9d3f2", road: "#ffffff", major: "#fbd88c", stroke: "#d8d3c8" },
   voice: {
     in: { active: "#0088ff", inactive: "#cacaca", glyph: "#ffffff", duration: "rgba(82, 82, 82, 0.6)", dot: "#0088ff" },
     out: { active: "#3fc33b", inactive: "#93d987", glyph: "#e1ffc7", duration: "rgba(0, 140, 9, 0.8)", dot: "#3fc33b" },
@@ -271,6 +382,30 @@ const IOS_DARK: IosTheme = {
   // server peer_colors dark variants
   names: ["#ff8e86", "#ffa357", "#b18fff", "#4fd635", "#45e8d1", "#52bfff", "#ff7fd5"],
   sendFill: "#3e88f7",
+  // DefaultDarkPresentationTheme (customizeDefaultDarkTheme: incoming link/accent/file title = accent)
+  part: {
+    in: {
+      link: "#3e88f7",
+      accent: "#3e88f7",
+      control: "#3e88f7",
+      controlInner: "#1d1d1d",
+      fileTitle: "#3e88f7",
+      fileDesc: "rgba(255, 255, 255, 0.5)",
+      fileDuration: "rgba(255, 255, 255, 0.5)",
+      secondary: "rgba(255, 255, 255, 0.5)",
+    },
+    out: {
+      link: "#ffffff",
+      accent: "#ffffff",
+      control: "#ffffff",
+      controlInner: "#1a8cfb",
+      fileTitle: "#ffffff",
+      fileDesc: "rgba(255, 255, 255, 0.65)",
+      fileDuration: "rgba(255, 255, 255, 0.65)",
+      secondary: "rgba(255, 255, 255, 0.65)",
+    },
+  },
+  map: { land: "#2c2c2e", block: "#353538", park: "#2b3a2c", water: "#1d2c3f", road: "#4a4a4e", major: "#7a6a45", stroke: "#3c3c40" },
   voice: {
     in: { active: "#3e88f7", inactive: "rgba(62, 136, 247, 0.4)", glyph: "#1d1d1d", duration: "rgba(255, 255, 255, 0.5)", dot: "#3e88f7" },
     out: { active: "#ffffff", inactive: "rgba(255, 255, 255, 0.5)", glyph: "#1a8cfb", duration: "rgba(255, 255, 255, 0.5)", dot: "#ffffff" },
@@ -596,7 +731,20 @@ function avatarLetters(name: string): string {
   return (first + last).toUpperCase();
 }
 
-function TgAvatar({ person, size }: { person: Person; size: number }) {
+/** Peer.displayLetters for a group title: first letters of the first two words that start with a letter. */
+function groupLetters(title: string): string {
+  const words = title
+    .trim()
+    .split(/\s+/)
+    .filter((w) => /^\p{L}/u.test(w));
+  return words
+    .slice(0, 2)
+    .map((w) => Array.from(w)[0] ?? "")
+    .join("")
+    .toUpperCase();
+}
+
+function TgAvatar({ person, size, colorIdx, letters }: { person: Person; size: number; colorIdx?: number; letters?: string }) {
   if (person.avatar) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
@@ -611,7 +759,7 @@ function TgAvatar({ person, size }: { person: Person; size: number }) {
   }
   let h = 0;
   for (const ch of person.name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  const [bottom, top] = AVATAR_GRADIENTS[h % AVATAR_GRADIENTS.length];
+  const [bottom, top] = AVATAR_GRADIENTS[(colorIdx ?? h) % AVATAR_GRADIENTS.length];
   return (
     <span
       className="flex shrink-0 items-center justify-center rounded-full text-white"
@@ -625,7 +773,7 @@ function TgAvatar({ person, size }: { person: Person; size: number }) {
         lineHeight: 1,
       }}
     >
-      {avatarLetters(person.name)}
+      {letters ?? avatarLetters(person.name)}
     </span>
   );
 }
@@ -905,6 +1053,11 @@ interface RowCtx {
   animate: boolean;
   react: Reaction | null;
   quote: Quote | null;
+  /** date label incl. the "edited" prefix (ChatMessageDateAndStatusNode) */
+  time: string;
+  /** group chats: the author name drawn inside the first bubble of a run */
+  name: { text: string; color: string } | null;
+  s: (typeof TGI_STRINGS)[Lang];
 }
 
 /** PeerNameColor preset for a peer without a custom colour (id % 7); the name stands in for the id. */
@@ -914,11 +1067,24 @@ function nameColorIndex(name: string): number {
   return h % 7;
 }
 
-function quoteOf(target: Message | undefined, me: Person, them: Person, s: (typeof TGI_STRINGS)[Lang]): Quote | null {
+function quoteOf(
+  target: Message | undefined,
+  authorOf: (m: Message) => { person: Person; idx: number },
+  s: (typeof TGI_STRINGS)[Lang],
+): Quote | null {
   if (!target) return null;
-  const author = target.sender === "me" ? me : them;
-  const base = { name: author.name, nameIdx: nameColorIndex(author.name) };
+  const author = authorOf(target);
+  const base = { name: author.person.name, nameIdx: author.idx };
   if (target.type === "voice") return { ...base, text: s.voice, media: true, thumb: null, hasThumb: false };
+  if (target.type === "sticker") return { ...base, text: `${target.text.trim()} ${s.sticker}`.trim(), media: true, thumb: null, hasThumb: false };
+  if (target.type === "location") return { ...base, text: target.location?.live ? s.liveLocation : s.location, media: true, thumb: null, hasThumb: false };
+  if (target.type === "file") return { ...base, text: target.file?.name || s.file, media: false, thumb: null, hasThumb: false };
+  if (target.type === "call") {
+    const c = target.call;
+    const k = target.sender === "me" ? (c?.missed ? "cancelled" : "out") : c?.missed ? "missed" : "in";
+    const key = (c?.video ? `v${k[0].toUpperCase()}${k.slice(1)}` : k) as keyof (typeof TGI_STRINGS)[Lang]["call"];
+    return { ...base, text: s.call[key], media: true, thumb: null, hasThumb: false };
+  }
   if (target.type === "image") {
     const caption = target.text.replace(/\s+/g, " ").trim();
     return { ...base, text: caption || s.photo, media: !caption, thumb: target.imageSrc ?? null, hasThumb: true };
@@ -1032,12 +1198,34 @@ function metaColors(ctx: RowCtx) {
 }
 
 /** Text with the status either trailing the last line or dropped to its own 14pt line. */
-function TextWithMeta({ ctx, text }: { ctx: RowCtx; text: string }) {
+function TextWithMeta({ ctx, text, meta = true }: { ctx: RowCtx; text: string; meta?: boolean }) {
   const dir = dirOf(text);
   const { color, check } = metaColors(ctx);
+  const part = ctx.mine ? ctx.t.part.out : ctx.t.part.in;
+  // links are underlined only where their colour equals the text colour (dark outgoing)
+  const body = linkify(text, part.link, part.link === ctx.t.text);
+  if (!meta) {
+    return (
+      <div
+        dir={dir}
+        style={{
+          fontSize: 17,
+          lineHeight: `${LINE_PITCH}px`,
+          letterSpacing: "-0.4px",
+          color: ctx.t.text,
+          textAlign: "start",
+          whiteSpace: "pre-wrap",
+          overflowWrap: "break-word",
+          wordBreak: "break-word",
+        }}
+      >
+        {body}
+      </div>
+    );
+  }
   const run = (hidden: boolean) => (
     <MetaRun
-      time={ctx.m.time}
+      time={ctx.time}
       mine={ctx.mine}
       status={ctx.status}
       color={color}
@@ -1061,7 +1249,7 @@ function TextWithMeta({ ctx, text }: { ctx: RowCtx; text: string }) {
           wordBreak: "break-word",
         }}
       >
-        <span style={{ lineHeight: `${LINE_PITCH}px` }}>{text}</span>
+        <span style={{ lineHeight: `${LINE_PITCH}px` }}>{body}</span>
         {ctx.react ? null : dir === "rtl" ? (
           <span aria-hidden className="flex justify-end" style={{ height: 14, visibility: "hidden", letterSpacing: 0 }} dir="ltr">
             {run(true)}
@@ -1100,18 +1288,37 @@ function ReactionRow({ ctx, meta }: { ctx: RowCtx; meta: ReactNode }) {
 
 function TextBubble({ ctx }: { ctx: RowCtx }) {
   const radius = radiiFor(ctx.mine, ctx.first, ctx.last, R_MAIN, R_AUX);
+  const link = ctx.m.link ?? null;
+  const top = ctx.quote ? 6 + 1 / 3 - HALF_LEAD : ctx.name ? 2 - HALF_LEAD : TEXT_PAD_TOP;
   return (
-    <BubbleShell ctx={ctx} radius={radius} tail={ctx.last} style={{ maxWidth: BODY_MAX, minWidth: 38 }}>
-      {ctx.quote && <ReplyHeader q={ctx.quote} t={ctx.t} outgoing={ctx.mine} style={{ margin: "10px 10px 0" }} />}
-      <div
-        className="relative flex flex-col justify-center"
-        style={{
-          minHeight: ctx.quote ? undefined : 33,
-          padding: `${ctx.quote ? 6 + 1 / 3 - HALF_LEAD : TEXT_PAD_TOP}px 10px ${TEXT_PAD_BOTTOM}px`,
-        }}
-      >
-        <TextWithMeta ctx={ctx} text={ctx.m.text} />
-      </div>
+    <BubbleShell ctx={ctx} radius={radius} tail={ctx.last} style={{ maxWidth: BODY_MAX, minWidth: 38, width: link ? WEBPAGE_W : undefined }}>
+      <NameHeader ctx={ctx} />
+      {ctx.quote && <ReplyHeader q={ctx.quote} t={ctx.t} outgoing={ctx.mine} style={{ margin: `${ctx.name ? 3 : 10}px 10px 0` }} />}
+      {link ? (
+        <div className="relative" style={{ padding: `${top}px 10px ${TEXT_PAD_BOTTOM}px` }}>
+          <TextWithMeta ctx={ctx} text={ctx.m.text} meta={false} />
+          <WebpageBlock ctx={ctx} link={link} />
+          {ctx.react && <ReactionRow ctx={ctx} meta={<StatusLine ctx={ctx} hidden />} />}
+          <div className="flex justify-end" style={{ height: 14 }}>
+            {!ctx.react && <StatusLine ctx={ctx} />}
+          </div>
+          {ctx.react && (
+            <span className="pointer-events-none absolute" style={{ right: 10, bottom: META_BOTTOM }}>
+              <StatusLine ctx={ctx} />
+            </span>
+          )}
+        </div>
+      ) : (
+        <div
+          className="relative flex flex-col justify-center"
+          style={{
+            minHeight: ctx.quote || ctx.name ? undefined : 33,
+            padding: `${top}px 10px ${TEXT_PAD_BOTTOM}px`,
+          }}
+        >
+          <TextWithMeta ctx={ctx} text={ctx.m.text} />
+        </div>
+      )}
     </BubbleShell>
   );
 }
@@ -1134,8 +1341,9 @@ function VoiceBubble({ ctx }: { ctx: RowCtx }) {
   const glyph = ctx.mine && ctx.t.dark ? "var(--tgi-tail, #1a8cfb)" : v.glyph;
   return (
     <BubbleShell ctx={ctx} radius={radius} tail={ctx.last} style={{ minWidth: bodyW, maxWidth: BODY_MAX }}>
-      {ctx.quote && <ReplyHeader q={ctx.quote} t={ctx.t} outgoing={ctx.mine} style={{ margin: "10px 10px -4px" }} />}
-      <div className="relative" style={{ height: ctx.react ? 66 : 70 }}>
+      <NameHeader ctx={ctx} />
+      {ctx.quote && <ReplyHeader q={ctx.quote} t={ctx.t} outgoing={ctx.mine} style={{ margin: `${ctx.name ? 3 : 10}px 10px -4px` }} />}
+      <div className="relative" style={{ height: (ctx.react ? 66 : 70) - (ctx.name && !ctx.quote ? 6 : 0), marginTop: ctx.name && !ctx.quote ? -4 : 0 }}>
       <span className="absolute rounded-full" style={{ left: 11, top: 11, width: 44, height: 44, background: v.active }}>
         <svg width="44" height="44" viewBox="0 0 44 44" aria-hidden className="block">
           <path
@@ -1161,7 +1369,7 @@ function VoiceBubble({ ctx }: { ctx: RowCtx }) {
         </div>
       )}
       <span className="pointer-events-none absolute" style={{ right: 8, bottom: 3 }}>
-        <MetaRun time={ctx.m.time} mine={ctx.mine} status={ctx.status} color={color} checkColor={check} inset={0} animate={ctx.animate} />
+        <MetaRun time={ctx.time} mine={ctx.mine} status={ctx.status} color={color} checkColor={check} inset={0} animate={ctx.animate} />
       </span>
     </BubbleShell>
   );
@@ -1182,8 +1390,9 @@ function ImageBubble({ ctx }: { ctx: RowCtx }) {
   const senderTop = ctx.first ? IMG_R_MAIN : IMG_R_AUX;
   const senderBottom = ctx.last ? IMG_R_MAIN : IMG_R_AUX;
   // a reply header above / a caption or reaction footer below merge those corners
-  const tl = ctx.quote ? 0 : onRight ? IMG_R_MAIN : senderTop;
-  const tr = ctx.quote ? 0 : onRight ? senderTop : IMG_R_MAIN;
+  const header = !!ctx.quote || !!ctx.name;
+  const tl = header ? 0 : onRight ? IMG_R_MAIN : senderTop;
+  const tr = header ? 0 : onRight ? senderTop : IMG_R_MAIN;
   const bl = caption || footer ? 0 : onRight ? IMG_R_MAIN : senderBottom;
   const br = caption || footer ? 0 : onRight ? senderBottom : IMG_R_MAIN;
   const ext = tailOnImage ? 6 : 0;
@@ -1193,7 +1402,8 @@ function ImageBubble({ ctx }: { ctx: RowCtx }) {
   const placeholder = ctx.mine ? ctx.t.mediaPlaceholderOut : ctx.t.mediaPlaceholderIn;
   return (
     <BubbleShell ctx={ctx} radius={radius} tail={ctx.last} style={{ width: w + 2 }}>
-      {ctx.quote && <ReplyHeader q={ctx.quote} t={ctx.t} outgoing={ctx.mine} style={{ margin: "10px 10px 5px" }} />}
+      <NameHeader ctx={ctx} style={{ paddingBottom: ctx.quote ? 0 : 4 }} />
+      {ctx.quote && <ReplyHeader q={ctx.quote} t={ctx.t} outgoing={ctx.mine} style={{ margin: `${ctx.name ? 3 : 10}px 10px 5px` }} />}
       <div className="relative" style={{ height: h + 2 }}>
         <div
           className="absolute overflow-hidden"
@@ -1228,7 +1438,7 @@ function ImageBubble({ ctx }: { ctx: RowCtx }) {
         </div>
         {!caption && (
           <MetaPill
-            time={ctx.m.time}
+            time={ctx.time}
             mine={ctx.mine}
             status={ctx.status}
             bg="rgba(0, 0, 0, 0.3)"
@@ -1269,7 +1479,7 @@ function EmojiMessage({ ctx, count, freeBg }: { ctx: RowCtx; count: number; free
         {ctx.m.text.trim()}
       </div>
       <MetaPill
-        time={ctx.m.time}
+        time={ctx.time}
         mine={ctx.mine}
         status={ctx.status}
         bg={freeBg}

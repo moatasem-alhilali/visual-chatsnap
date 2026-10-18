@@ -85,6 +85,12 @@ interface Palette {
   quoteOut: string;
   quoteBarIn: string;
   caret: string;
+  /** missed-call red */
+  red: string;
+  /** outline of the "deleted" placeholder bubble */
+  deletedStroke: string;
+  /** Google Maps style map tiles in location cards */
+  map: { land: string; block: string; road: string; casing: string; major: string; park: string; water: string };
 }
 
 const LIGHT: Palette = {
@@ -114,6 +120,9 @@ const LIGHT: Palette = {
   quoteOut: "rgba(255,255,255,0.2)",
   quoteBarIn: "#167efa",
   caret: "#167efa",
+  red: "#f0473c",
+  deletedStroke: "#d9d9d9",
+  map: { land: "#f1f3f4", block: "#e8eaed", road: "#ffffff", casing: "#dadce0", major: "#fde293", park: "#c4e9c7", water: "#9fd0f5" },
 };
 
 const DARK: Palette = {
@@ -143,13 +152,30 @@ const DARK: Palette = {
   quoteOut: "rgba(255,255,255,0.2)",
   quoteBarIn: "#3e95ff",
   caret: "#3e95ff",
+  red: "#ff5c50",
+  deletedStroke: "#3a3a3a",
+  map: { land: "#202124", block: "#28292d", road: "#3c4043", casing: "#17181a", major: "#6b5a2e", park: "#1f3527", water: "#17263c" },
 };
 
 /** Strings Samsung Messages uses that CHROME lacks or words differently. */
-const SM: Record<
-  Lang,
-  { placeholder: string; delivered: string; read: string; locale: string; you: string; voice: string; photo: string }
-> = {
+interface SmStrings {
+  placeholder: string;
+  delivered: string;
+  read: string;
+  locale: string;
+  you: string;
+  voice: string;
+  photo: string;
+  edited: string;
+  deleted: string;
+  sticker: string;
+  location: string;
+  liveLocation: string;
+  file: string;
+  /** Samsung Phone call-log wording, shown as a centred line in the thread */
+  call: (c: { video: boolean; missed: boolean }, mine: boolean) => string;
+}
+const SM: Record<Lang, SmStrings> = {
   en: {
     placeholder: "Enter chat message",
     delivered: "Delivered",
@@ -158,6 +184,18 @@ const SM: Record<
     you: "You",
     voice: "🎤 Voice message",
     photo: "📷 Photo",
+    edited: "Edited",
+    deleted: "This message was deleted.",
+    sticker: "Sticker",
+    location: "📍 Location",
+    liveLocation: "Live location",
+    file: "📄 File",
+    call: (c, mine) =>
+      c.missed
+        ? c.video
+          ? "Missed video call"
+          : "Missed call"
+        : `${mine ? "Outgoing" : "Incoming"} ${c.video ? "video call" : "call"}`,
   },
   ar: {
     placeholder: "أدخل رسالة دردشة",
@@ -167,6 +205,20 @@ const SM: Record<
     you: "أنت",
     voice: "🎤 رسالة صوتية",
     photo: "📷 صورة",
+    edited: "تم التعديل",
+    deleted: "تم حذف هذه الرسالة.",
+    sticker: "ملصق",
+    location: "📍 الموقع",
+    liveLocation: "الموقع المباشر",
+    file: "📄 ملف",
+    call: (c, mine) =>
+      c.missed
+        ? c.video
+          ? "مكالمة فيديو فائتة"
+          : "مكالمة فائتة"
+        : c.video
+          ? `مكالمة فيديو ${mine ? "صادرة" : "واردة"}`
+          : `مكالمة ${mine ? "صادرة" : "واردة"}`,
   },
 };
 
@@ -405,40 +457,60 @@ export function SamsungMessages({ scenario, playback, lang, rtl }: PlatformProps
   const draftText = draft?.text ?? "";
   const draftHasText = draftText.length > 0;
 
-  // The input grows with the draft and pushes the thread up; keep it pinned to the bottom.
-  const composerRef = useRef<HTMLDivElement>(null);
-  const [composerH, setComposerH] = useState(0);
-  useLayoutEffect(() => {
-    const el = composerRef.current;
-    if (!el) return;
-    const measure = () => {
-      const h = el.offsetHeight;
-      setComposerH((prev) => (prev === h ? prev : h));
-    };
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [draftText]);
+  // Group chats: "them" messages belong to a member; a run breaks on a new author.
+  const group = scenario.group && scenario.group.members.length > 0 ? scenario.group : null;
+  const authorOf = (m: Message): Person =>
+    m.sender === "me" ? scenario.me : group ? (group.members[m.authorIndex ?? 0] ?? group.members[0]) : scenario.them;
+  const sameRun = (a: Message | undefined, b: Message | undefined): boolean =>
+    !!a &&
+    !!b &&
+    a.sender === b.sender &&
+    a.type !== "call" &&
+    b.type !== "call" &&
+    (a.sender === "me" || !group || (a.authorIndex ?? 0) === (b.authorIndex ?? 0));
+
+  // OS keyboard: the composer sits on it; the nav bar is drawn by the keyboard.
+  const kb = useKeyboardInset();
+  const kbT = kb.transition === "none" ? undefined : kb.transition;
 
   const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${showTyping}`);
-  // keep the thread anchored above the composer while the field grows/shrinks
-  const prevComposerH = useRef(composerH);
+  // Keep the thread's bottom anchored whenever its viewport changes height: the
+  // input growing with the draft, or the keyboard resizing the window (adjustResize).
   useLayoutEffect(() => {
     const sc = scrollRef.current;
-    const d = composerH - prevComposerH.current;
-    const had = prevComposerH.current > 0;
-    prevComposerH.current = composerH;
-    if (sc && d && had) sc.scrollTop += d;
-  }, [composerH, scrollRef]);
+    if (!sc || typeof ResizeObserver === "undefined") return;
+    let h = sc.clientHeight;
+    const ro = new ResizeObserver(() => {
+      const nh = sc.clientHeight;
+      if (nh !== h) sc.scrollTop += h - nh;
+      h = nh;
+    });
+    ro.observe(sc);
+    return () => ro.disconnect();
+  }, [scrollRef]);
   const [today] = useState(() => new Date());
 
+  // the member about to speak shows beside the typing bubble
+  const shownIds = new Set(messages.map((x) => x.id));
+  const upcoming = scenario.messages.find((x) => x.sender === "them" && !shownIds.has(x.id));
+  const typingAuthor = group ? (group.members[upcoming?.authorIndex ?? 0] ?? group.members[0]) : scenario.them;
   const last = messages[messages.length - 1];
-  const typingStartsGroup = !last || last.sender !== "them";
+  const typingStartsGroup =
+    !last ||
+    last.sender !== "them" ||
+    last.type === "call" ||
+    (!!group && (last.authorIndex ?? 0) !== (upcoming?.authorIndex ?? 0));
 
   return (
-    <div className="flex h-full w-full flex-col" style={{ background: p.bg, color: p.ink }}>
+    <div
+      className="flex h-full w-full flex-col"
+      style={{
+        background: p.bg,
+        color: p.ink,
+        paddingBottom: kb.inset,
+        transition: kbT ? `padding-bottom ${kbT}` : undefined,
+      }}
+    >
       <style>{KEYFRAMES}</style>
       <SamsungStatusBar tint={dark ? "light" : "dark"} background={p.bg} lang={lang} />
 
@@ -454,12 +526,17 @@ export function SamsungMessages({ scenario, playback, lang, rtl }: PlatformProps
           </div>
 
           {messages.map((m, i) => {
-            const { firstOfGroup } = groupInfo(messages, i);
+            const prev = messages[i - 1];
             const next = messages[i + 1];
+            const firstOfGroup = !sameRun(prev, m);
+            if (m.type === "call") {
+              return <CallRow key={m.id} m={m} p={p} lang={lang} live={live} isFirst={i === 0} />;
+            }
             // One timestamp per same-minute run, but a run splits where the receipt changes.
             const showMeta =
+              !!m.edited ||
+              !sameRun(m, next) ||
               !next ||
-              next.sender !== m.sender ||
               next.time !== m.time ||
               (m.sender === "me" && playback.statusOf(next) !== playback.statusOf(m));
             return (
@@ -472,16 +549,18 @@ export function SamsungMessages({ scenario, playback, lang, rtl }: PlatformProps
                 firstOfGroup={firstOfGroup}
                 showMeta={showMeta}
                 status={playback.statusOf(m)}
-                them={scenario.them}
+                author={authorOf(m)}
+                showName={!!group && m.sender === "them" && firstOfGroup}
                 live={live}
                 isFirst={i === 0}
                 parent={m.replyToId ? messages.find((x) => x.id === m.replyToId && x.id !== m.id) : undefined}
+                nameOf={(x) => (x.sender === "me" ? s.you : authorOf(x).name)}
               />
             );
           })}
 
           {showTyping && (
-            <TypingRow p={p} them={scenario.them} startsGroup={typingStartsGroup} live={live} clockMs={clockMs} rtl={rtl} />
+            <TypingRow p={p} them={typingAuthor} startsGroup={typingStartsGroup} live={live} clockMs={clockMs} rtl={rtl} />
           )}
         </div>
 
@@ -506,13 +585,21 @@ export function SamsungMessages({ scenario, playback, lang, rtl }: PlatformProps
             className="flex min-w-0 flex-1 items-center rounded-full"
             style={{ height: 48, background: p.float, boxShadow: p.floatShadow, paddingInlineStart: 8, paddingInlineEnd: 14 }}
           >
-            <SamsungAvatar person={scenario.them} size={32} />
+            {group ? (
+              group.avatar ? (
+                <SamsungAvatar person={{ name: group.name, avatar: group.avatar }} size={32} />
+              ) : (
+                <GroupAvatar name={group.name} size={32} />
+              )
+            ) : (
+              <SamsungAvatar person={scenario.them} size={32} />
+            )}
             <span
               className="min-w-0 truncate"
-              dir={dirOf(scenario.them.name)}
+              dir={dirOf(group ? group.name : scenario.them.name)}
               style={{ fontSize: 21, fontWeight: 700, lineHeight: "26px", color: p.ink, paddingInlineStart: 11, letterSpacing: -0.2 }}
             >
-              {scenario.them.name}
+              {group ? group.name : scenario.them.name}
             </span>
             <span style={{ paddingInlineStart: 8 }}>
               <Chevron dir="down" color={p.icon} size={18} stroke={1.8} />
@@ -529,7 +616,6 @@ export function SamsungMessages({ scenario, playback, lang, rtl }: PlatformProps
 
       {/* Composer: grows up to 5 lines; the voice button becomes the blue send button once text is entered */}
       <div
-        ref={composerRef}
         className="flex shrink-0 items-end"
         style={{ minHeight: 58, padding: "9px 8px 9px 6px", background: p.bg }}
       >

@@ -6,6 +6,7 @@ import { persist } from "zustand/middleware";
 import type {
   ChatTheme,
   Device,
+  GroupChat,
   Message,
   Person,
   Platform,
@@ -24,6 +25,27 @@ import {
 import { clearScenarioStorage } from "./services/scenario-storage";
 import { clearProjects } from "./services/project-storage";
 import { applyNaturalTiming, naturalTiming } from "./services/smart-timing";
+import type { TimeLock } from "./services/auto-times";
+
+/** Message patch the editor may apply (contract fields + studio-only flags). */
+export type MessagePatch = Partial<Message> & TimeLock;
+
+/** Group chats always have at least this many other members. */
+export const MIN_GROUP_MEMBERS = 2;
+
+/**
+ * Re-point every "them" message's author after the member list changed.
+ * `map[i]` is the new index of old member i, or -1 when it was removed
+ * (those messages fall back to the first member).
+ */
+function remapAuthors(messages: Message[], map: number[]): Message[] {
+  return messages.map((m) => {
+    if (m.sender !== "them" || m.authorIndex === undefined) return m;
+    const next = map[m.authorIndex] ?? -1;
+    const authorIndex = next < 0 ? 0 : next;
+    return authorIndex === m.authorIndex ? m : { ...m, authorIndex };
+  });
+}
 
 /** One undo step: the scenario and the project it belonged to. */
 type Snapshot = { scenario: Scenario; projectId: string | null };
@@ -47,14 +69,29 @@ type StudioState = {
   setLastSeenText: (text: string) => void;
   setAndroidFont: (font: string) => void;
   setComposeTyping: (on: boolean) => void;
+  setKeyboard: (on: boolean) => void;
   setDeviceColor: (finish: string | undefined) => void;
   updateStatusBar: (patch: Partial<StatusBarConfig>) => void;
 
   updatePerson: (who: Sender, patch: Partial<Person>) => void;
   swapRoles: () => void;
 
-  addMessage: (sender?: Sender, patch?: Partial<Message>) => string;
-  updateMessage: (id: string, patch: Partial<Message>) => void;
+  /**
+   * 1:1 ⇄ group. Turning a group on keeps `them` as the first member and adds
+   * `extra` members up to the minimum; turning it off makes the first member
+   * the 1:1 contact again.
+   */
+  setGroupMode: (on: boolean, defaults?: { name: string; extra: Person[] }) => void;
+  updateGroup: (patch: Partial<Pick<GroupChat, "name" | "avatar">>) => void;
+  addMember: (person: Person) => void;
+  updateMember: (index: number, patch: Partial<Person>) => void;
+  removeMember: (index: number) => void;
+  moveMember: (index: number, direction: -1 | 1) => void;
+
+  addMessage: (sender?: Sender, patch?: MessagePatch) => string;
+  updateMessage: (id: string, patch: MessagePatch) => void;
+  /** set many time labels at once (one undo step), keyed by message id */
+  setMessageTimes: (times: Record<string, string>) => void;
   deleteMessage: (id: string) => void;
   moveMessage: (id: string, direction: -1 | 1) => void;
   moveMessageTo: (id: string, insertAt: number) => void;
@@ -121,6 +158,7 @@ export const useStudioStore = create<StudioState>()(
         setLastSeenText: (lastSeenText) => patch({ lastSeenText }, "lastSeen"),
         setAndroidFont: (androidFont) => patch({ androidFont }),
         setComposeTyping: (composeTyping) => patch({ composeTyping }),
+        setKeyboard: (keyboard) => patch({ keyboard }),
         setDeviceColor: (deviceColor) => patch({ deviceColor }),
         updateStatusBar: (p) =>
           commit(
@@ -131,8 +169,68 @@ export const useStudioStore = create<StudioState>()(
         updatePerson: (who, p) =>
           commit((s) => ({ ...s, [who]: { ...s[who], ...p } }), `person:${who}:${Object.keys(p).sort().join(",")}`),
 
+        setGroupMode: (on, defaults) =>
+          commit((s) => {
+            if (on === !!s.group) return s;
+            if (!on) {
+              const first = s.group?.members[0];
+              return {
+                ...s,
+                them: first ?? s.them,
+                group: null,
+                messages: s.messages.map((m) => (m.authorIndex === undefined ? m : { ...m, authorIndex: undefined })),
+              };
+            }
+            // existing "them" lines stay with the first member (authorIndex defaults to 0)
+            const members = [s.them, ...(defaults?.extra ?? [])];
+            return { ...s, group: { name: defaults?.name ?? "", avatar: null, members } };
+          }),
+
+        updateGroup: (p) =>
+          commit(
+            (s) => (s.group ? { ...s, group: { ...s.group, ...p } } : s),
+            `group:${Object.keys(p).sort().join(",")}`,
+          ),
+
+        addMember: (member) =>
+          commit((s) => (s.group ? { ...s, group: { ...s.group, members: [...s.group.members, member] } } : s)),
+
+        updateMember: (index, p) =>
+          commit(
+            (s) =>
+              s.group && s.group.members[index]
+                ? {
+                    ...s,
+                    group: {
+                      ...s.group,
+                      members: s.group.members.map((x, i) => (i === index ? { ...x, ...p } : x)),
+                    },
+                  }
+                : s,
+            `member:${index}:${Object.keys(p).sort().join(",")}`,
+          ),
+
+        removeMember: (index) =>
+          commit((s) => {
+            if (!s.group || s.group.members.length <= MIN_GROUP_MEMBERS || !s.group.members[index]) return s;
+            const members = s.group.members.filter((_, i) => i !== index);
+            const map = s.group.members.map((_, i) => (i === index ? -1 : i > index ? i - 1 : i));
+            return { ...s, group: { ...s.group, members }, messages: remapAuthors(s.messages, map) };
+          }),
+
+        moveMember: (index, direction) =>
+          commit((s) => {
+            if (!s.group) return s;
+            const target = index + direction;
+            const list = [...s.group.members];
+            if (!list[index] || target < 0 || target >= list.length) return s;
+            [list[index], list[target]] = [list[target], list[index]];
+            const map = s.group.members.map((_, i) => (i === index ? target : i === target ? index : i));
+            return { ...s, group: { ...s.group, members: list }, messages: remapAuthors(s.messages, map) };
+          }),
+
         swapRoles: () =>
-          commit((s) => ({
+          commit((s) => s.group ? s : ({
             ...s,
             me: s.them,
             them: s.me,
@@ -157,6 +255,18 @@ export const useStudioStore = create<StudioState>()(
             (s) => ({ ...s, messages: s.messages.map((m) => (m.id === id ? { ...m, ...p } : m)) }),
             `msg:${id}:${Object.keys(p).sort().join(",")}`,
           ),
+
+        setMessageTimes: (times) =>
+          commit((s) => {
+            let changed = false;
+            const messages = s.messages.map((m) => {
+              const time = times[m.id];
+              if (time === undefined || time === m.time) return m;
+              changed = true;
+              return { ...m, time };
+            });
+            return changed ? { ...s, messages } : s;
+          }),
 
         deleteMessage: (id) =>
           commit((s) => ({
@@ -204,12 +314,21 @@ export const useStudioStore = create<StudioState>()(
           }),
 
         insertMessages: (messages, mode, people) =>
-          commit((s) => ({
-            ...s,
-            me: people?.me ?? s.me,
-            them: people?.them ?? s.them,
-            messages: mode === "replace" ? messages : [...s.messages, ...messages],
-          })),
+          commit((s) => {
+            // in a group the imported "other person" name lands on the first member
+            const named = people?.them;
+            const group =
+              s.group && named
+                ? { ...s.group, members: s.group.members.map((x, i) => (i === 0 ? named : x)) }
+                : s.group;
+            return {
+              ...s,
+              me: people?.me ?? s.me,
+              them: people?.them ?? s.them,
+              group,
+              messages: mode === "replace" ? messages : [...s.messages, ...messages],
+            };
+          }),
 
         loadScenario: (scenario, projectId) =>
           commit(() => ({ ...scenario, version: SCENARIO_VERSION }), undefined, projectId),

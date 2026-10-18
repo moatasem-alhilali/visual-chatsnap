@@ -53,20 +53,157 @@
 
 import type { CSSProperties, ReactNode } from "react";
 
-import type { DeliveryStatus, Message, Person } from "../../types";
+import type { DeliveryStatus, FileShare, LinkPreview, Message, Person, Scenario } from "../../types";
+import { useKeyboardInset } from "../devices/keyboard-context";
 import { StatusBar } from "../devices/StatusBar";
 import { dirOf, SystemBottomBar, useChatScroll } from "../shared";
 import { CHROME, type Lang } from "./chrome";
-import { groupInfo, type PlatformMotion, type PlatformProps } from "./types";
+import { type PlatformMotion, type PlatformProps } from "./types";
 
 /* ======================================================================
    Strings (Viber's own wording)
    ====================================================================== */
 
-const VB: Record<Lang, { online: string; typing: string; placeholder: string; you: string; photo: string; voice: string }> = {
-  en: { online: "Online", typing: "typing…", placeholder: "Message…", you: "You", photo: "Photo", voice: "Voice message" },
-  ar: { online: "متصل", typing: "يكتب…", placeholder: "رسالة…", you: "أنت", photo: "صورة", voice: "رسالة صوتية" },
+interface VbStrings {
+  online: string;
+  typing: string;
+  isTyping: (name: string) => string;
+  placeholder: string;
+  you: string;
+  photo: string;
+  voice: string;
+  edited: string;
+  deleted: string;
+  sticker: string;
+  location: string;
+  missedCall: string;
+  missedVideo: string;
+  inCall: string;
+  inVideo: string;
+  outCall: string;
+  outVideo: string;
+  noAnswer: string;
+}
+
+const VB: Record<Lang, VbStrings> = {
+  en: {
+    online: "Online",
+    typing: "typing…",
+    isTyping: (n) => `${n} is typing…`,
+    placeholder: "Message…",
+    you: "You",
+    photo: "Photo",
+    voice: "Voice message",
+    edited: "Edited",
+    deleted: "Message deleted",
+    sticker: "Sticker",
+    location: "Location",
+    missedCall: "Missed call",
+    missedVideo: "Missed video call",
+    inCall: "Incoming call",
+    inVideo: "Incoming video call",
+    outCall: "Outgoing call",
+    outVideo: "Outgoing video call",
+    noAnswer: "No answer",
+  },
+  ar: {
+    online: "متصل",
+    typing: "يكتب…",
+    isTyping: (n) => `${n} يكتب…`,
+    placeholder: "رسالة…",
+    you: "أنت",
+    photo: "صورة",
+    voice: "رسالة صوتية",
+    edited: "تم التعديل",
+    deleted: "تم حذف الرسالة",
+    sticker: "ملصق",
+    location: "الموقع",
+    missedCall: "مكالمة فائتة",
+    missedVideo: "مكالمة فيديو فائتة",
+    inCall: "مكالمة واردة",
+    inVideo: "مكالمة فيديو واردة",
+    outCall: "مكالمة صادرة",
+    outVideo: "مكالمة فيديو صادرة",
+    noAnswer: "لا يوجد رد",
+  },
 };
+
+/* ======================================================================
+   Group chats
+   ====================================================================== */
+
+/** Per-member sender-name colours (picked by member index), light / dark. */
+const MEMBER_LIGHT = ["#d6457a", "#2b9a62", "#e0782c", "#3b7dd8", "#8e55e6", "#cc463c", "#1e9bb0", "#a8850f"];
+const MEMBER_DARK = ["#ff7eaa", "#62d197", "#ffa466", "#7aacff", "#b896ff", "#ff8278", "#62d1e4", "#e6c250"];
+
+/** The person who wrote a message (group member, the 1-on-1 contact, or me). */
+function authorIndexOf(m: Message, scenario: Scenario): number {
+  const n = scenario.group?.members.length ?? 0;
+  const i = m.authorIndex ?? 0;
+  return n ? Math.min(Math.max(0, i), n - 1) : 0;
+}
+
+function authorOf(m: Message, scenario: Scenario): Person {
+  if (m.sender === "me") return scenario.me;
+  const g = scenario.group;
+  return g && g.members.length ? g.members[authorIndexOf(m, scenario)] : scenario.them;
+}
+
+/** Viber's group subtitle: the participants by name, me last ("Khalid, Sara, Omar, You"). */
+function memberList(scenario: Scenario, s: VbStrings, lang: Lang): string {
+  const names = (scenario.group?.members ?? []).map((x) => x.name.trim()).filter(Boolean);
+  return [...names, s.you].join(lang === "ar" ? "، " : ", ");
+}
+
+/** A run continues while the same person keeps writing (in groups: same member). */
+function startsRun(messages: Message[], i: number, group: boolean): boolean {
+  const m = messages[i];
+  const prev = messages[i - 1];
+  if (!prev || prev.sender !== m.sender) return true;
+  return group && m.sender === "them" && (prev.authorIndex ?? 0) !== (m.authorIndex ?? 0);
+}
+
+const URL_RE = /((?:https?:\/\/|www\.)[^\s]+)/;
+
+/** URLs in a message are tinted and underlined, like Viber's auto-linked text. */
+function Linkified({ text, color }: { text: string; color: string }) {
+  const parts = text.split(URL_RE);
+  return (
+    <>
+      {parts.map((part, i) =>
+        i % 2 ? (
+          <span key={i} style={{ color, textDecoration: "underline", textUnderlineOffset: 2 }}>
+            {part}
+          </span>
+        ) : (
+          part
+        ),
+      )}
+    </>
+  );
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url.startsWith("http") ? url : `https://${url}`).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
+
+function extOf(name: string): string {
+  const m = /\.([a-z0-9]{1,5})$/i.exec(name.trim());
+  return m ? m[1].toLowerCase() : "";
+}
+
+function fileColor(ext: string): string {
+  if (ext === "pdf") return "#e5493a";
+  if (["doc", "docx", "rtf", "txt"].includes(ext)) return "#2f6fd8";
+  if (["xls", "xlsx", "csv"].includes(ext)) return "#1f9d57";
+  if (["ppt", "pptx", "key"].includes(ext)) return "#e2692b";
+  if (["zip", "rar", "7z"].includes(ext)) return "#8e8e93";
+  return "#7d8796";
+}
 
 /* ======================================================================
    Metrics + palette
@@ -81,6 +218,9 @@ const DISC_GAP = 6;
 const RESERVE = DISC + DISC_GAP + 38; // inner side kept free (disc + breathing room)
 const HEADER_H = 58;
 const IMG_W = 236;
+const NAME_H = 19; // group sender name line (16) + gap to the bubble (3)
+const STICKER = 150; // Viber sticker box
+const STICKER_EMOJI = [0, 112, 76, 56]; // emoji drawn as a sticker, by count
 
 interface Pal {
   bg: string;
@@ -515,16 +655,30 @@ interface QuoteInfo {
   voice: boolean;
 }
 
-function quoteOf(m: Message, all: Message[], them: Person, s: (typeof VB)[Lang]): QuoteInfo | null {
+function quoteOf(m: Message, scenario: Scenario, s: VbStrings): QuoteInfo | null {
   if (!m.replyToId) return null;
-  const t = all.find((x) => x.id === m.replyToId);
+  const t = scenario.messages.find((x) => x.id === m.replyToId);
   if (!t) return null;
-  const name = t.sender === "me" ? s.you : them.name;
+  const name = t.sender === "me" ? s.you : authorOf(t, scenario).name;
   if (t.type === "voice") return { name, snippet: s.voice, image: false, imageSrc: null, voice: true };
   if (t.type === "image") {
     return { name, snippet: t.text.trim() || s.photo, image: true, imageSrc: t.imageSrc ?? null, voice: false };
   }
-  return { name, snippet: t.text.replace(/\s+/g, " ").trim(), image: false, imageSrc: null, voice: false };
+  const plain = (snippet: string) => ({ name, snippet, image: false, imageSrc: null, voice: false });
+  if (t.type === "sticker") return plain(s.sticker);
+  if (t.type === "location") return plain(t.location?.title || s.location);
+  if (t.type === "file") return plain(t.file?.name || "");
+  if (t.type === "deleted") return plain(s.deleted);
+  if (t.type === "call") return plain(callTitle(t, s));
+  return plain(t.text.replace(/\s+/g, " ").trim());
+}
+
+/** Viber's call-log wording for a call entry. */
+function callTitle(m: Message, s: VbStrings): string {
+  const video = !!m.call?.video;
+  if (m.sender === "me") return video ? s.outVideo : s.outCall;
+  if (m.call?.missed) return video ? s.missedVideo : s.missedCall;
+  return video ? s.inVideo : s.inCall;
 }
 
 /**
@@ -631,22 +785,41 @@ export function Viber({ scenario, playback, lang, rtl }: PlatformProps) {
   const live = playback.isLive;
   const clockMs = playback.clockMs;
   const draft = playback.draft;
-  // keep the newest bubble in view while a growing draft shrinks the thread
+  const kb = useKeyboardInset();
+  const group = scenario.group && scenario.group.members.length ? scenario.group : null;
+  // keep the newest bubble in view while a growing draft / the keyboard shrinks the thread
   const scrollRef = useChatScroll<HTMLDivElement>(
-    `${messages.length}-${typing}-${draft ? Math.floor(draft.text.length / 16) : -1}`,
+    `${messages.length}-${typing}-${draft ? Math.floor(draft.text.length / 16) : -1}-${Math.round(kb.inset / 24)}`,
   );
 
-  const subtitle =
-    typing || scenario.presence === "typing"
+  // in a group, the member who is typing is the author of the next incoming message
+  const shown = new Set(messages.map((x) => x.id));
+  const nextIn = scenario.messages.find((x) => !shown.has(x.id) && x.sender === "them");
+  const typist: Person = nextIn ? authorOf(nextIn, scenario) : group ? group.members[0] : scenario.them;
+  const typistIndex = nextIn && group ? authorIndexOf(nextIn, scenario) : 0;
+
+  const subtitle = group
+    ? typing
+      ? s.isTyping(typist.name)
+      : memberList(scenario, s, lang)
+    : typing || scenario.presence === "typing"
       ? s.typing
       : scenario.presence === "online"
         ? s.online
         : scenario.lastSeenText;
-  const lastSender = messages.length ? messages[messages.length - 1].sender : null;
+  const last = messages.length ? messages[messages.length - 1] : null;
+  // the typing pill continues a run only when the same person wrote the last message
+  const typingContinues =
+    !!last && last.sender === "them" && (!group || authorIndexOf(last, scenario) === typistIndex);
   const gradId = `vb-ios-video-${dark ? "d" : "l"}`;
+  const palette = dark ? MEMBER_DARK : MEMBER_LIGHT;
 
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden" dir={uiDir} style={{ background: p.bg, color: p.text }}>
+    <div
+      className="flex h-full w-full flex-col overflow-hidden"
+      dir={uiDir}
+      style={{ background: p.bg, color: p.text, paddingBottom: kb.inset, transition: `padding-bottom ${kb.transition}` }}
+    >
       <style>{MOTION_CSS}</style>
 
       {/* ---------- Status bar + navigation bar ---------- */}
@@ -667,7 +840,7 @@ export function Viber({ scenario, playback, lang, rtl }: PlatformProps) {
                 className="truncate"
                 style={{ fontSize: 17, lineHeight: "21px", fontWeight: 600, color: p.title, letterSpacing: -0.41 }}
               >
-                {scenario.them.name}
+                {group ? group.name : scenario.them.name}
               </span>
               <ChevronDown color={p.title} />
             </div>
@@ -699,33 +872,33 @@ export function Viber({ scenario, playback, lang, rtl }: PlatformProps) {
         </div>
 
         <div className="flex flex-col">
-          {messages.map((m, i) => {
-            const { firstOfGroup } = groupInfo(messages, i);
-            return (
-              <Row
-                key={m.id}
-                m={m}
-                p={p}
-                rtl={rtl}
-                uiDir={uiDir}
-                first={firstOfGroup}
-                index={i}
-                status={playback.statusOf(m)}
-                them={scenario.them}
-                live={live}
-                quote={quoteOf(m, scenario.messages, scenario.them, s)}
-              />
-            );
-          })}
+          {messages.map((m, i) => (
+            <Row
+              key={m.id}
+              m={m}
+              p={p}
+              s={s}
+              rtl={rtl}
+              uiDir={uiDir}
+              first={startsRun(messages, i, !!group)}
+              index={i}
+              status={playback.statusOf(m)}
+              author={authorOf(m, scenario)}
+              authorColor={palette[authorIndexOf(m, scenario) % palette.length]}
+              group={!!group}
+              live={live}
+              quote={quoteOf(m, scenario, s)}
+            />
+          ))}
 
           {typing && (
             <div
               className={`flex items-start ${enterClass(live, false, rtl)}`}
-              style={{ marginTop: lastSender === "them" ? 4 : 12, paddingInlineStart: EDGE, gap: AV_GAP }}
+              style={{ marginTop: !last ? 0 : typingContinues ? 4 : 12, paddingInlineStart: EDGE, gap: AV_GAP }}
             >
               {/* the pill continues an incoming run, so it only carries the avatar when it starts one */}
               <div style={{ width: AV, flexShrink: 0 }}>
-                {lastSender !== "them" && <VbAvatar person={scenario.them} size={AV} pal={p} />}
+                {!typingContinues && <VbAvatar person={typist} size={AV} pal={p} />}
               </div>
               <div
                 className="flex items-center justify-center"
@@ -825,7 +998,8 @@ export function Viber({ scenario, playback, lang, rtl }: PlatformProps) {
             {draft ? <SendGlyph /> : <MicGlyph color="#ffffff" />}
           </div>
         </div>
-        <div style={{ height: 15 }} />
+        {/* with the keyboard up the bar sits right on it (no home-indicator band) */}
+        <div style={{ height: kb.inset > 0 ? 7 : 15 }} />
         <SystemBottomBar device={scenario.device} bg={p.bar} fg={p.home} />
       </div>
     </div>
@@ -839,32 +1013,40 @@ export function Viber({ scenario, playback, lang, rtl }: PlatformProps) {
 function Row({
   m,
   p,
+  s,
   rtl,
   uiDir,
   first,
   index,
   status,
-  them,
+  author,
+  authorColor,
+  group,
   live,
   quote,
 }: {
   m: Message;
   p: Pal;
+  s: VbStrings;
   rtl: boolean;
   uiDir: "rtl" | "ltr";
   first: boolean;
   index: number;
   status: DeliveryStatus;
-  them: Person;
+  author: Person;
+  authorColor: string;
+  group: boolean;
   live: boolean;
   quote: QuoteInfo | null;
 }) {
   const mine = m.sender === "me";
   const isImage = m.type === "image";
   const isVoice = m.type === "voice";
+  const isText = m.type === "text";
   const caption = isImage ? m.text.trim() : "";
+  const link = isText ? (m.link ?? null) : null;
   // a reply always lives in a bubble, so a replying emoji-only message is not jumbo
-  const jumbo = !isImage && !isVoice && !quote ? jumboCount(m.text) : 0;
+  const jumbo = isText && !quote && !link ? jumboCount(m.text) : 0;
   const dark = p === DARK;
   const quoteEl = quote ? <Quote q={quote} p={p} uiDir={uiDir} dark={dark} /> : null;
   const reaction = m.reaction?.trim() || null;
@@ -883,7 +1065,7 @@ function Row({
     borderEndEndRadius: R,
   };
 
-  const meta = (overlay = false) => (
+  const meta = (overlay = false, ticks = true) => (
     <span
       className="inline-flex shrink-0 items-center whitespace-nowrap"
       style={{
@@ -895,8 +1077,10 @@ function Row({
         direction: "ltr",
       }}
     >
+      {/* "Edited" sits in front of the time */}
+      {m.edited && <span dir={uiDir}>{s.edited}</span>}
       {time}
-      {mine && <Ticks status={status} grey={overlay ? "#ffffff" : timeColor} seen={overlay ? "#ffffff" : p.purple} />}
+      {mine && ticks && <Ticks status={status} grey={overlay ? "#ffffff" : timeColor} seen={overlay ? "#ffffff" : p.purple} />}
     </span>
   );
 
@@ -909,9 +1093,11 @@ function Row({
   };
   const rowClass = enterClass(live, mine, rtl);
 
+  // groups: the member's name in their colour above the first bubble of a run
+  const showName = group && !mine && first;
   const avatarSlot = !mine ? (
-    <div style={{ width: AV, marginInlineEnd: AV_GAP, flexShrink: 0 }}>
-      {first && <VbAvatar person={them} size={AV} pal={p} />}
+    <div style={{ width: AV, marginInlineEnd: AV_GAP, flexShrink: 0, paddingTop: showName ? NAME_H : 0 }}>
+      {first && <VbAvatar person={author} size={AV} pal={p} />}
     </div>
   ) : null;
 
@@ -922,7 +1108,7 @@ function Row({
     >
       {/* the like disc: outline heart, or the reaction left on this message */}
       <Disc pal={p}>{reaction ? <ReactionGlyph emoji={reaction} red={p.likeRed} /> : <HeartOutline color={p.heart} />}</Disc>
-      {isImage && !mine && (
+      {(isImage || m.type === "file" || m.type === "location") && !mine && (
         <Disc pal={p}>
           <ForwardGlyph color={p.heart} />
         </Disc>
@@ -930,17 +1116,51 @@ function Row({
     </div>
   );
 
-  /* --- emoji-only: big, bubble-less, time beside it on the inner side --- */
-  if (jumbo) {
-    return (
-      <div data-mid={m.id} data-sender={m.sender} className={rowClass} style={rowStyle}>
-        {avatarSlot}
-        <div className="flex items-end" style={{ flexDirection: mine ? "row-reverse" : "row", gap: 6 }}>
-          <span style={{ fontSize: JUMBO_SIZE[jumbo], lineHeight: 1.12, letterSpacing: 1 }}>{m.text.trim()}</span>
-          <span style={{ paddingBottom: 6 }}>{meta()}</span>
+  const wrap = (inner: ReactNode, withDiscs = true) => (
+    <div data-mid={m.id} data-sender={m.sender} className={rowClass} style={rowStyle}>
+      {avatarSlot}
+      <div className="flex min-w-0 flex-col" style={{ alignItems: "flex-start" }}>
+        {showName && (
+          <div
+            className="max-w-full truncate"
+            dir={dirOf(author.name)}
+            style={{ fontSize: 13, lineHeight: "16px", height: 16, marginBottom: NAME_H - 16, fontWeight: 600, color: authorColor, letterSpacing: -0.08, paddingInlineStart: 2 }}
+          >
+            {author.name}
+          </div>
+        )}
+        <div className="flex min-w-0 max-w-full items-start" style={{ flexDirection: mine ? "row-reverse" : "row" }}>
+          {inner}
+          {withDiscs && discs}
         </div>
-        {discs}
       </div>
+    </div>
+  );
+
+  /* --- emoji-only / sticker: big, bubble-less, time beside it on the inner side --- */
+  if (jumbo || m.type === "sticker") {
+    const sticker = m.type === "sticker";
+    const n = sticker ? jumboCount(m.text) || 1 : jumbo;
+    const art = sticker ? (
+      m.imageSrc ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={m.imageSrc} alt="" draggable={false} style={{ display: "block", width: STICKER, height: STICKER, objectFit: "contain" }} />
+      ) : (
+        <span
+          className="flex items-center justify-center"
+          style={{ width: STICKER, height: STICKER, fontSize: STICKER_EMOJI[n], lineHeight: 1, letterSpacing: 0, whiteSpace: "nowrap" }}
+        >
+          {m.text.trim() || "🙂"}
+        </span>
+      )
+    ) : (
+      <span style={{ fontSize: JUMBO_SIZE[jumbo], lineHeight: 1.12, letterSpacing: 1 }}>{m.text.trim()}</span>
+    );
+    return wrap(
+      <div className="flex items-end" style={{ flexDirection: mine ? "row-reverse" : "row", gap: 6 }}>
+        {art}
+        <span style={{ paddingBottom: 6 }}>{meta()}</span>
+      </div>,
     );
   }
 
@@ -961,16 +1181,38 @@ function Row({
 
   /* --- frameless photo (no caption, no reply): rounded, time on a dark pill --- */
   if (isImage && !caption && !quote) {
-    return (
-      <div data-mid={m.id} data-sender={m.sender} className={rowClass} style={rowStyle}>
-        {avatarSlot}
-        <div className="relative overflow-hidden" style={{ width: IMG_W, background: bg, ...radius }}>
-          <Photo m={m} dark={dark} />
-          {timePill}
-        </div>
-        {discs}
-      </div>
+    return wrap(
+      <div className="relative overflow-hidden" style={{ width: IMG_W, background: bg, ...radius }}>
+        <Photo m={m} dark={dark} />
+        {timePill}
+      </div>,
     );
+  }
+
+  /* --- deleted: the bubble stays, with Viber's grey italic notice --- */
+  if (m.type === "deleted") {
+    return wrap(
+      <div
+        className="flex min-w-0 flex-wrap items-baseline justify-end"
+        style={{ background: bg, padding: "9px 13px", columnGap: 10, rowGap: 2, ...radius }}
+      >
+        <span
+          className="inline-flex items-center"
+          dir={uiDir}
+          style={{ fontSize: 16, lineHeight: "21.5px", fontStyle: "italic", color: p.quoteText, letterSpacing: -0.3, gap: 5, flex: "1 1 auto" }}
+        >
+          <BanGlyph color={p.quoteText} />
+          {s.deleted}
+        </span>
+        {meta(false, false)}
+      </div>,
+      false,
+    );
+  }
+
+  /* --- call log entry --- */
+  if (m.type === "call") {
+    return wrap(<CallBubble m={m} p={p} s={s} bg={bg} radius={radius} meta={meta()} uiDir={uiDir} />, false);
   }
 
   let body: ReactNode;
@@ -1004,22 +1246,274 @@ function Row({
         {caption && <TextAndTime text={caption} p={p} meta={meta()} pad="8px 13px 8px" />}
       </>
     );
+  } else if (m.type === "location") {
+    padding = 0;
+    width = IMG_W;
+    const loc = m.location;
+    body = (
+      <>
+        {quote && <div style={{ padding: "9px 13px 3px" }}>{quoteEl}</div>}
+        <div className="relative overflow-hidden" style={quote ? { marginInline: 4, borderRadius: 8 } : { borderStartStartRadius: startTop, borderStartEndRadius: endTop }}>
+          <MapArt dark={dark} h={140} />
+        </div>
+        <div style={{ padding: "7px 13px 8px" }}>
+          {loc?.title && (
+            <div className="truncate" dir={dirOf(loc.title)} style={{ fontSize: 16, lineHeight: "20px", fontWeight: 600, letterSpacing: -0.32, textAlign: "start" }}>
+              {loc.title}
+            </div>
+          )}
+          {loc?.subtitle && (
+            <div className="truncate" dir={dirOf(loc.subtitle)} style={{ fontSize: 14, lineHeight: "18px", color: p.quoteText, letterSpacing: -0.15, textAlign: "start" }}>
+              {loc.subtitle}
+            </div>
+          )}
+          <div className="flex justify-end" style={{ marginTop: 2 }}>
+            {meta()}
+          </div>
+        </div>
+      </>
+    );
+  } else if (m.type === "file") {
+    padding = "10px 13px 8px 10px";
+    width = 252;
+    body = (
+      <>
+        {quoteEl}
+        <FileRow file={m.file ?? { name: "file" }} p={p} />
+        <div className="flex justify-end" style={{ marginTop: 2 }}>
+          {meta()}
+        </div>
+      </>
+    );
+  } else if (link) {
+    padding = "9px 13px 8px";
+    width = 262;
+    body = (
+      <>
+        {quoteEl}
+        <div
+          dir={dirOf(m.text)}
+          className="whitespace-pre-wrap break-words"
+          style={{ fontSize: 17, lineHeight: "21.5px", letterSpacing: -0.41, color: p.text, textAlign: "start" }}
+        >
+          <Linkified text={m.text} color={p.link} />
+        </div>
+        <LinkCard link={link} p={p} uiDir={uiDir} />
+        <div className="flex justify-end" style={{ marginTop: 4 }}>
+          {meta()}
+        </div>
+      </>
+    );
   } else {
     padding = 0;
     body = <TextAndTime text={m.text} p={p} meta={meta()} pad="9px 13px" quote={quoteEl} />;
   }
 
+  return wrap(
+    <div
+      className="relative min-w-0"
+      style={{ background: bg, color: p.text, padding, width, maxWidth: "100%", overflow: "hidden", ...radius }}
+    >
+      {body}
+    </div>,
+  );
+}
+
+/** Viber's call-log bubble: round call glyph | "Missed call" + duration / time | purple call-back button. */
+function CallBubble({
+  m,
+  p,
+  s,
+  bg,
+  radius,
+  meta,
+  uiDir,
+}: {
+  m: Message;
+  p: Pal;
+  s: VbStrings;
+  bg: string;
+  radius: CSSProperties;
+  meta: ReactNode;
+  uiDir: "rtl" | "ltr";
+}) {
+  const video = !!m.call?.video;
+  const missed = !!m.call?.missed;
+  const red = missed && m.sender === "them";
+  const tone = red ? p.likeRed : p.purple;
+  const sub = m.call?.duration ? m.call.duration : missed && m.sender === "me" ? s.noAnswer : "";
   return (
-    <div data-mid={m.id} data-sender={m.sender} className={rowClass} style={rowStyle}>
-      {avatarSlot}
-      <div
-        className="relative min-w-0"
-        style={{ background: bg, color: p.text, padding, width, maxWidth: "100%", overflow: "hidden", ...radius }}
+    <div className="flex min-w-0 items-center" dir={uiDir} style={{ background: bg, padding: "9px 9px 9px 10px", width: 244, gap: 10, ...radius }}>
+      <span
+        className="flex shrink-0 items-center justify-center"
+        style={{ width: 36, height: 36, borderRadius: 18, background: red ? "rgba(242,66,90,0.14)" : dark(p) ? "rgba(139,124,246,0.2)" : "rgba(115,96,242,0.12)" }}
       >
-        {body}
+        <CallGlyph video={video} color={tone} size={18} arrow={red ? "in" : m.sender === "me" ? "out" : "in"} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="truncate" style={{ fontSize: 16, lineHeight: "20px", fontWeight: 600, letterSpacing: -0.32, color: red ? p.likeRed : p.text, textAlign: "start" }}>
+          {callTitle(m, s)}
+        </div>
+        <div className="flex items-center" style={{ gap: 6, marginTop: 1 }}>
+          {sub && (
+            <span style={{ fontSize: 13, lineHeight: "15px", color: p.quoteText, fontVariantNumeric: "tabular-nums" }}>
+              {sub}
+            </span>
+          )}
+          <span style={{ marginInlineStart: sub ? 0 : undefined }}>{meta}</span>
+        </div>
       </div>
-      {discs}
+      {/* call back */}
+      <span
+        className="flex shrink-0 items-center justify-center"
+        style={{ width: 34, height: 34, borderRadius: 17, background: "linear-gradient(45deg, #7360f2 0%, #9161f2 100%)" }}
+      >
+        <CallGlyph video={video} color="#ffffff" size={17} />
+      </span>
     </div>
+  );
+}
+
+function dark(p: Pal): boolean {
+  return p === DARK;
+}
+
+/** Handset or camcorder; `arrow` adds the call-log direction arrow. Never mirrored. */
+function CallGlyph({ video, color, size, arrow }: { video: boolean; color: string; size: number; arrow?: "in" | "out" }) {
+  if (video) {
+    return (
+      <svg width={size + 3} height={size} viewBox="0 0 28 20" style={{ display: "block" }}>
+        <rect x="0.5" y="2" width="19" height="16" rx="4.5" fill={color} />
+        <path d="M21.4 8 26 4.9c.6-.4 1.5 0 1.5.8v8.6c0 .8-.9 1.2-1.5.8l-4.6-3.1z" fill={color} />
+      </svg>
+    );
+  }
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" style={{ display: "block" }}>
+      <path
+        d="M6.3 2.2c.6-.3 1.3-.1 1.7.4l2.5 3.5c.4.6.4 1.4-.1 1.9L8.9 9.6c-.3.3-.3.7-.2 1 .9 1.7 2.9 3.8 4.7 4.8.4.2.8.1 1.1-.2l1.6-1.5c.5-.5 1.3-.5 1.9-.1l3.5 2.5c.6.4.8 1.1.5 1.7l-.8 1.9c-.5 1.2-1.7 2-3 1.9-7.2-.6-13.1-6.5-13.6-13.7-.1-1.3.7-2.5 1.9-3z"
+        fill={color}
+      />
+      {arrow === "in" && <path d="M21.5 2.5 15.6 8.4M15.4 4.4v4.2h4.2" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" />}
+      {arrow === "out" && <path d="M15.6 8.4l5.9-5.9M17.3 2.4h4.3v4.3" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" />}
+    </svg>
+  );
+}
+
+function BanGlyph({ color }: { color: string }) {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" style={{ display: "block", flexShrink: 0 }}>
+      <circle cx="12" cy="12" r="9" stroke={color} strokeWidth="1.8" />
+      <path d="M5.8 18.2 18.2 5.8" stroke={color} strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+/** Document row: coloured file-type page | name (2 lines) | size · type. */
+function FileRow({ file, p }: { file: FileShare; p: Pal }) {
+  const ext = extOf(file.name);
+  const color = fileColor(ext);
+  const metaLine = [file.size, ext ? ext.toUpperCase() : ""].filter(Boolean).join(" · ");
+  return (
+    <div className="flex items-center" style={{ gap: 10 }}>
+      <svg width="38" height="46" viewBox="0 0 38 46" style={{ display: "block", flexShrink: 0 }}>
+        <path d="M5 0h20l13 13v28a5 5 0 0 1-5 5H5a5 5 0 0 1-5-5V5a5 5 0 0 1 5-5z" fill={color} />
+        <path d="M25 0v8a5 5 0 0 0 5 5h8z" fill="#ffffff" fillOpacity="0.4" />
+        <text x="19" y="36" textAnchor="middle" fontSize="10" fontWeight="700" fill="#ffffff" fontFamily="-apple-system, system-ui, sans-serif">
+          {(ext || "file").slice(0, 4).toUpperCase()}
+        </text>
+      </svg>
+      <div className="min-w-0 flex-1">
+        <div
+          dir="ltr"
+          className="line-clamp-2 break-all"
+          style={{ fontSize: 16, lineHeight: "20px", fontWeight: 500, letterSpacing: -0.32, color: p.text, textAlign: "start" }}
+        >
+          {file.name}
+        </div>
+        {metaLine && (
+          <div dir="ltr" style={{ fontSize: 13, lineHeight: "17px", color: p.quoteText, marginTop: 1, textAlign: "start" }}>
+            {metaLine}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** URL preview under the text, inside the bubble: picture, bold title, description, site. */
+function LinkCard({ link, p, uiDir }: { link: LinkPreview; p: Pal; uiDir: "rtl" | "ltr" }) {
+  const site = link.siteName?.trim() || hostOf(link.url);
+  return (
+    <div style={{ marginTop: 8 }}>
+      {link.image && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={link.image} alt="" draggable={false} style={{ display: "block", width: "100%", height: 132, objectFit: "cover", borderRadius: 8 }} />
+      )}
+      <div style={{ marginTop: link.image ? 7 : 0 }}>
+        <div
+          dir={dirOf(link.title)}
+          className="line-clamp-2"
+          style={{ fontSize: 15, lineHeight: "19px", fontWeight: 600, letterSpacing: -0.24, color: p.text, textAlign: "start" }}
+        >
+          {link.title}
+        </div>
+        {link.description && (
+          <div
+            dir={dirOf(link.description)}
+            className="line-clamp-2"
+            style={{ fontSize: 14, lineHeight: "18px", letterSpacing: -0.15, color: p.quoteText, marginTop: 1, textAlign: "start" }}
+          >
+            {link.description}
+          </div>
+        )}
+        <div dir={uiDir} className="truncate" style={{ fontSize: 13, lineHeight: "17px", color: p.sub, marginTop: 2, textAlign: "start" }}>
+          <span dir="ltr">{site}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Static map snapshot (the location message's thumbnail): city blocks, a park,
+ * white streets, a main road and the red drop pin in the middle. Geography
+ * never mirrors.
+ */
+function MapArt({ dark: isDark, h }: { dark: boolean; h: number }) {
+  const c = isDark
+    ? { base: "#212b37", block: "#29343f", park: "#22423a", water: "#1b3550", road: "#3a4757", main: "#6a5a32", edge: "#18202a" }
+    : { base: "#f0ede6", block: "#e5e1d8", park: "#cfe7c3", water: "#b7d9f2", road: "#ffffff", main: "#fbd98c", edge: "#d9d4ca" };
+  return (
+    <svg width="100%" height={h} viewBox="0 0 240 140" preserveAspectRatio="xMidYMid slice" style={{ display: "block" }}>
+      <rect width="240" height="140" fill={c.base} />
+      <path d="M0 108c30-6 52 2 76 16 14 8 18 16 18 16H0z" fill={c.water} />
+      <rect x="150" y="12" width="62" height="38" rx="4" fill={c.park} />
+      {[
+        [8, 8, 54, 30],
+        [72, 8, 62, 30],
+        [8, 50, 54, 34],
+        [72, 50, 62, 34],
+        [150, 62, 34, 26],
+        [196, 62, 40, 26],
+        [112, 98, 56, 36],
+        [180, 98, 56, 36],
+      ].map(([x, y, w, hh], i) => (
+        <rect key={i} x={x} y={y} width={w} height={hh} rx="2.5" fill={c.block} />
+      ))}
+      <g stroke={c.edge} strokeWidth="7.5" fill="none">
+        <path d="M0 44h240M0 92h240M66 0v140M142 0v140M188 56v84" />
+      </g>
+      <g stroke={c.road} strokeWidth="5.5" fill="none">
+        <path d="M0 44h240M0 92h240M66 0v140M142 0v140M188 56v84" />
+      </g>
+      <path d="M-4 128 248 18" stroke={c.edge} strokeWidth="11" />
+      <path d="M-4 128 248 18" stroke={c.main} strokeWidth="8.5" />
+      {/* pin */}
+      <ellipse cx="120" cy="73" rx="6" ry="2.2" fill="rgba(0,0,0,0.22)" />
+      <path d="M120 73c-1.2-5.2-11-12.4-11-21.4a11 11 0 0 1 22 0c0 9-9.8 16.2-11 21.4z" fill="#ea4335" stroke="#b3261e" strokeWidth="0.8" />
+      <circle cx="120" cy="51.6" r="4" fill="#ffffff" />
+    </svg>
   );
 }
 
@@ -1044,7 +1538,7 @@ function TextAndTime({ text, p, meta, pad, quote }: { text: string; p: Pal; meta
           textAlign: "start",
         }}
       >
-        {text}
+        <Linkified text={text} color={p.link} />
       </span>
       {meta}
     </div>

@@ -47,6 +47,9 @@ export interface CameraOptions {
    */
   safeTop?: number;
   safeBottom?: number;
+  /** fractions of the output width covered by screen-space overlays (a platform's action rail) */
+  safeLeft?: number;
+  safeRight?: number;
 }
 
 export interface CameraScene {
@@ -94,8 +97,8 @@ export function clampCamera(st: CameraState, scene: CameraScene): CameraState {
   };
 }
 
-/** The camera state that nicely frames `focus` (or the wide shot). */
-function union(a: Rect, b: Rect): Rect {
+/** Bounding box of two rects. */
+export function union(a: Rect, b: Rect): Rect {
   const x = Math.min(a.x, b.x);
   const y = Math.min(a.y, b.y);
   return { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y };
@@ -118,10 +121,13 @@ export function focusState(
   if (lockScale) opts = { ...opts, maxZoom: lockScale };
   const st = Math.max(0, opts.safeTop ?? 0);
   const sb = Math.max(0, opts.safeBottom ?? 0);
+  const sl = Math.max(0, opts.safeLeft ?? 0);
+  const sr = Math.max(0, opts.safeRight ?? 0);
   const avail = Math.max(0.3, 1 - st - sb);
+  const availX = Math.max(0.4, 1 - sl - sr);
   if (context) {
     const u = union(focus, context);
-    const fitU = Math.min((scene.W * 0.9) / Math.max(1, u.w), (scene.H * 0.55 * avail) / Math.max(1, u.h));
+    const fitU = Math.min((scene.W * 0.9 * availX) / Math.max(1, u.w), (scene.H * 0.55 * avail) / Math.max(1, u.h));
     // context never lowers the zoom (that would pump in and out between messages)
     if (fitU >= opts.maxZoom) {
       return focusState(u, scene, { ...opts, maxZoom: Math.min(opts.maxZoom, fitU) }, null, undefined, anchorBottom);
@@ -129,7 +135,7 @@ export function focusState(
   }
   const { W, H, phone } = scene;
   // zoom in up to maxZoom, but never so far that a big bubble (photo) won't fit
-  const fit = Math.min((W * 0.86) / Math.max(1, focus.w), (H * 0.5 * avail) / Math.max(1, focus.h));
+  const fit = Math.min((W * 0.86 * availX) / Math.max(1, focus.w), (H * 0.5 * avail) / Math.max(1, focus.h));
   const scale = Math.max(1, Math.min(opts.maxZoom, fit));
   const phoneCx = phone.x + phone.w / 2;
   const fx = focus.x + focus.w / 2;
@@ -144,9 +150,10 @@ export function focusState(
   // …or, anchored, with the focus resting on the bottom edge of the free area
   if (anchorBottom) cy = focus.y + focus.h - vh / 2 + vh * sb + Math.min(vh * 0.04, Math.max(0, (vh * avail - focus.h) / 2));
   // …but the focused bubble itself must always be fully in view (with margin)
-  const mx = Math.min(vw * 0.06, Math.max(0, (vw - focus.w) / 2));
+  const mx = Math.min(vw * 0.06 * availX, Math.max(0, (vw * availX - focus.w) / 2));
   const my = Math.min(vh * 0.06 * avail, Math.max(0, (vh * avail - focus.h) / 2));
-  cx = Math.max(Math.min(cx, focus.x - mx + vw / 2), focus.x + focus.w + mx - vw / 2);
+  // (left/right overlays: the bubble must sit between them)
+  cx = Math.max(Math.min(cx, focus.x - mx + vw / 2 - vw * sl), focus.x + focus.w + mx - vw / 2 + vw * sr);
   cy = Math.max(Math.min(cy, focus.y - my + vh / 2 - vh * st), focus.y + focus.h + my - vh / 2 + vh * sb);
   return clampCamera({ scale, cx, cy }, scene);
 }

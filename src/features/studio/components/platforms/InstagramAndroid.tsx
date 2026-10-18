@@ -61,13 +61,14 @@
  * does.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react";
 
-import type { Message, Person } from "../../types";
+import type { CallEntry, FileShare, GroupChat, LinkPreview, LocationShare, Message, Person } from "../../types";
 import { Avatar, dirOf, SystemBottomBar, useChatScroll } from "../shared";
+import { useKeyboardInset } from "../devices/keyboard-context";
 import { SamsungStatusBar } from "../devices/SamsungStatusBar";
 import type { Lang } from "./chrome";
-import { groupInfo, type PlatformMotion, type PlatformProps } from "./types";
+import type { PlatformMotion, PlatformProps } from "./types";
 
 /* ------------------------------ tokens ------------------------------ */
 
@@ -134,6 +135,25 @@ const STR: Record<Lang, {
   repliedToYou: string;
   repliedSelf: string;
   voiceMessage: string;
+  /* group threads */
+  nameRepliedToYou: (name: string) => string;
+  nameRepliedTo: (name: string, to: string) => string;
+  nameRepliedSelf: (name: string) => string;
+  seenByAll: string;
+  members: (n: number) => string;
+  joinNames: string;
+  /* round 5 message kinds */
+  edited: string;
+  youUnsent: string;
+  nameUnsent: (name: string) => string;
+  videoEnded: string;
+  audioEnded: string;
+  missedVideo: string;
+  missedAudio: string;
+  callBack: string;
+  callAgain: string;
+  liveLocation: string;
+  liveSub: string;
 }> = {
   en: {
     activeNow: "Active now",
@@ -149,6 +169,23 @@ const STR: Record<Lang, {
     repliedToYou: "Replied to you",
     repliedSelf: "Replied to themselves",
     voiceMessage: "Voice message",
+    nameRepliedToYou: (name) => `${name} replied to you`,
+    nameRepliedTo: (name, to) => `${name} replied to ${to}`,
+    nameRepliedSelf: (name) => `${name} replied to themselves`,
+    seenByAll: "Seen by everyone",
+    members: (n) => `${n} members`,
+    joinNames: ", ",
+    edited: "Edited",
+    youUnsent: "You unsent a message",
+    nameUnsent: (name) => `${name} unsent a message`,
+    videoEnded: "Video chat ended",
+    audioEnded: "Audio call ended",
+    missedVideo: "Missed video chat",
+    missedAudio: "Missed audio call",
+    callBack: "Call back",
+    callAgain: "Call again",
+    liveLocation: "Live location",
+    liveSub: "Sharing for 1 hour",
   },
   ar: {
     activeNow: "نشط الآن",
@@ -164,6 +201,23 @@ const STR: Record<Lang, {
     repliedToYou: "قام بالرد عليك",
     repliedSelf: "قام بالرد على نفسه",
     voiceMessage: "رسالة صوتية",
+    nameRepliedToYou: (name) => `قام ${name} بالرد عليك`,
+    nameRepliedTo: (name, to) => `قام ${name} بالرد على ${to}`,
+    nameRepliedSelf: (name) => `قام ${name} بالرد على نفسه`,
+    seenByAll: "شاهدها الجميع",
+    members: (n) => `${n} أعضاء`,
+    joinNames: "، ",
+    edited: "تم التعديل",
+    youUnsent: "ألغيت إرسال رسالة",
+    nameUnsent: (name) => `ألغى ${name} إرسال رسالة`,
+    videoEnded: "انتهت محادثة الفيديو",
+    audioEnded: "انتهت المكالمة الصوتية",
+    missedVideo: "محادثة فيديو فائتة",
+    missedAudio: "مكالمة صوتية فائتة",
+    callBack: "معاودة الاتصال",
+    callAgain: "الاتصال مرة أخرى",
+    liveLocation: "الموقع المباشر",
+    liveSub: "تتم المشاركة لمدة ساعة",
   },
 };
 
@@ -423,12 +477,11 @@ function bigEmoji(text: string): boolean {
   return graphemes.length > 0 && graphemes.length <= 3 && graphemes.every((g) => PICTO.test(g));
 }
 
-type Kind = "text" | "voice" | "image" | "emoji";
+type Kind = "text" | "voice" | "image" | "emoji" | "sticker" | "location" | "file" | "call" | "deleted";
 
 function kindOf(m: Message): Kind {
-  if (m.type === "voice") return "voice";
-  if (m.type === "image") return "image";
-  return bigEmoji(m.text) ? "emoji" : "text";
+  if (m.type === "text") return !m.link && bigEmoji(m.text) ? "emoji" : "text";
+  return m.type;
 }
 
 type Corners = Pick<CSSProperties, "borderTopLeftRadius" | "borderTopRightRadius" | "borderBottomLeftRadius" | "borderBottomRightRadius">;
@@ -571,20 +624,32 @@ function ReplyQuote({
   pal,
   s,
   themName,
+  targetName,
+  group,
 }: {
   target: Message;
   mine: boolean;
   pal: Pal;
   s: (typeof STR)[Lang];
+  /** author of the reply (a "them" reply) */
   themName: string;
+  /** author of the quoted message when it is a "them" message */
+  targetName: string;
+  group: boolean;
 }) {
   const label = mine
     ? target.sender === "me"
       ? s.youRepliedSelf
-      : s.youRepliedTo(themName)
+      : s.youRepliedTo(targetName)
     : target.sender === "me"
-      ? s.repliedToYou
-      : s.repliedSelf;
+      ? group
+        ? s.nameRepliedToYou(themName)
+        : s.repliedToYou
+      : group
+        ? targetName === themName
+          ? s.nameRepliedSelf(themName)
+          : s.nameRepliedTo(themName, targetName)
+        : s.repliedSelf;
   const targetMine = target.sender === "me";
 
   let quote: ReactNode;
@@ -603,7 +668,7 @@ function ReplyQuote({
     );
   } else {
     const isVoice = target.type === "voice";
-    const text = isVoice ? s.voiceMessage : target.text;
+    const text = isVoice ? s.voiceMessage : quoteText(target, s);
     quote = (
       <div
         className="min-w-0"
@@ -639,6 +704,283 @@ function ReplyQuote({
         {quote}
         {mine && rail}
       </div>
+    </div>
+  );
+}
+
+/* ------------------- groups + round 5 message kinds ------------------ */
+
+/** IGDS destructive red (missed-call glyph, location pin). */
+const RED = "#ff3040";
+
+type Str = (typeof STR)[Lang];
+
+function callTitle(c: CallEntry | null | undefined, s: Str): string {
+  if (c?.missed) return c.video ? s.missedVideo : s.missedAudio;
+  return c?.video ? s.videoEnded : s.audioEnded;
+}
+
+/** One-line description of a message for a reply quote. */
+function quoteText(m: Message, s: Str): string {
+  if (m.type === "location") return m.location?.live ? s.liveLocation : (m.location?.title ?? "");
+  if (m.type === "file") return m.file?.name ?? "";
+  if (m.type === "call") return callTitle(m.call, s);
+  return m.text;
+}
+
+const URL_RE = /((?:https?:\/\/|www\.)[^\s]+)/i;
+
+/** Message text with URLs underlined in the bubble's own ink (as Instagram draws links). */
+function RichText({ text }: { text: string }) {
+  const parts = text.split(URL_RE);
+  return (
+    <>
+      {parts.map((p, i) =>
+        i % 2 ? (
+          <span key={i} dir="ltr" style={{ textDecoration: "underline", textUnderlineOffset: 2, overflowWrap: "anywhere" }}>
+            {p}
+          </span>
+        ) : (
+          <Fragment key={i}>{p}</Fragment>
+        ),
+      )}
+    </>
+  );
+}
+
+/**
+ * Instagram's default group picture: two member photos stacked diagonally —
+ * the second member top-trailing, the first bottom-leading over it with a
+ * canvas-coloured ring. An uploaded group photo replaces it.
+ */
+function GroupAvatar({ group, size, ring }: { group: GroupChat; size: number; ring: string }) {
+  if (group.avatar) return <Avatar person={{ name: group.name, avatar: group.avatar }} size={size} />;
+  const a = group.members[0] ?? { name: group.name, avatar: null };
+  const b = group.members[1] ?? a;
+  const d = Math.round(size * 0.74);
+  const rw = Math.max(1.5, Math.round(size / 20));
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <div className="absolute" style={{ top: 0, insetInlineEnd: 0 }}>
+        <Avatar person={b} size={d} />
+      </div>
+      <div className="absolute rounded-full" style={{ bottom: -rw, insetInlineStart: -rw, padding: rw, background: ring }}>
+        <Avatar person={a} size={d} />
+      </div>
+    </div>
+  );
+}
+
+/** Plausible street map tile (Google-Maps-like light / dark palette) with a pin or a live avatar. */
+function MapTile({ dark, live, person, height }: { dark: boolean; live: boolean; person: Person; height: number }) {
+  const c = dark
+    ? { land: "#212529", block: "#292e34", road: "#3a4047", main: "#5a5136", park: "#1d3527", water: "#17263a", label: "#7c848e" }
+    : { land: "#f1f3f4", block: "#e8eaed", road: "#ffffff", main: "#fcd581", park: "#ceead6", water: "#aadaff", label: "#9aa0a6" };
+  return (
+    <div className="relative" style={{ height }}>
+      <svg width="100%" height={height} viewBox="0 0 236 140" preserveAspectRatio="xMidYMid slice" className="block">
+        <rect width="236" height="140" fill={c.land} />
+        <path d="M0 108c30-6 52 4 80 2s40 12 46 32H0Z" fill={c.water} />
+        <rect x="150" y="6" width="56" height="34" rx="3" fill={c.park} />
+        <rect x="12" y="10" width="44" height="30" rx="2" fill={c.block} />
+        <rect x="70" y="10" width="64" height="30" rx="2" fill={c.block} />
+        <rect x="12" y="54" width="44" height="34" rx="2" fill={c.block} />
+        <rect x="160" y="58" width="62" height="36" rx="2" fill={c.block} />
+        <g stroke={c.road} strokeLinecap="round" fill="none">
+          <path d="M-4 47h244M-4 98h244M63 -4v148M142 -4v148M214 -4v148" strokeWidth="5" />
+          <path d="M-4 22h70M142 76h100M100 47v60" strokeWidth="3" />
+        </g>
+        <path d="M-6 132 242 18" stroke={c.main} strokeWidth="8" strokeLinecap="round" />
+        <path d="M176 116h22M182 121h14" stroke={c.label} strokeWidth="1.6" strokeLinecap="round" opacity="0.55" />
+      </svg>
+      {live ? (
+        <div className="absolute" style={{ left: "50%", top: "50%", transform: "translate(-50%, -50%)" }}>
+          <span className="absolute rounded-full" style={{ inset: -12, background: "rgba(74,93,249,0.22)" }} />
+          <span className="relative block rounded-full" style={{ padding: 2, background: "#ffffff" }}>
+            <Avatar person={person} size={30} />
+          </span>
+        </div>
+      ) : (
+        <svg width="30" height="38" viewBox="0 0 30 38" className="absolute" style={{ left: "50%", top: "50%", transform: "translate(-50%, -88%)" }}>
+          <ellipse cx="15" cy="35.5" rx="5" ry="1.8" fill="rgba(0,0,0,0.25)" />
+          <path d="M15 1C7.3 1 2 6.6 2 13.6 2 23.2 15 35 15 35s13-11.8 13-21.4C28 6.6 22.7 1 15 1Z" fill={RED} stroke="#ffffff" strokeWidth="1.6" />
+          <circle cx="15" cy="13.6" r="4.6" fill="#ffffff" />
+        </svg>
+      )}
+    </div>
+  );
+}
+
+function LocationCard({
+  loc,
+  pal,
+  dark,
+  person,
+  corners,
+  s,
+}: {
+  loc: LocationShare;
+  pal: Pal;
+  dark: boolean;
+  person: Person;
+  corners: Corners;
+  s: Str;
+}) {
+  const title = loc.live ? s.liveLocation : loc.title;
+  const sub = loc.live ? (loc.subtitle ?? s.liveSub) : loc.subtitle;
+  return (
+    <div className="overflow-hidden" style={{ ...corners, width: M.imgWidth, background: pal.inBubble }}>
+      <MapTile dark={dark} live={!!loc.live} person={person} height={134} />
+      <div style={{ padding: "8px 12px 10px" }}>
+        <div className="truncate" dir="auto" style={{ fontSize: 15, lineHeight: "20px", fontWeight: 700, color: pal.fg, textAlign: "start" }}>
+          {title}
+        </div>
+        {sub && (
+          <div className="truncate" dir="auto" style={{ fontSize: 13, lineHeight: "17px", color: pal.sub, textAlign: "start" }}>
+            {sub}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const EXT_COLOR: Record<string, string> = {
+  PDF: "#e5252a",
+  DOC: "#2b579a",
+  DOCX: "#2b579a",
+  XLS: "#217346",
+  XLSX: "#217346",
+  CSV: "#217346",
+  PPT: "#d24726",
+  PPTX: "#d24726",
+  ZIP: "#8e959e",
+};
+
+/** Document glyph: white page, folded corner, coloured type band. */
+function DocIcon({ ext }: { ext: string }) {
+  const color = EXT_COLOR[ext] ?? "#6a717a";
+  return (
+    <svg width="32" height="38" viewBox="0 0 34 40" className="shrink-0">
+      <path d="M4 1h18l11 11v25a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2Z" fill="#ffffff" stroke="rgba(0,0,0,0.12)" />
+      <path d="M22 1v9a2 2 0 0 0 2 2h9" fill="#e9ecef" stroke="rgba(0,0,0,0.12)" />
+      <rect x="0" y="20" width="27" height="12" rx="2" fill={color} />
+      <text x="13.5" y="29.2" textAnchor="middle" fontSize="7.6" fontWeight="700" fill="#ffffff" fontFamily="Roboto, system-ui, sans-serif">
+        {(ext || "FILE").slice(0, 4)}
+      </text>
+    </svg>
+  );
+}
+
+function FileBody({ file, mine, pal }: { file: FileShare; mine: boolean; pal: Pal }) {
+  const ext = file.name.includes(".") ? (file.name.split(".").pop() ?? "").toUpperCase() : "";
+  // each part isolated so "صفحتان · 245 KB · PDF" keeps its order in the Arabic UI
+  const parts = [file.pages, file.size, ext].filter((v): v is string => !!v);
+  return (
+    <div className="flex items-center" style={{ gap: 10, width: 204 }}>
+      <DocIcon ext={ext} />
+      <div className="min-w-0 flex-1">
+        <div className="truncate" dir="ltr" style={{ fontSize: 15, lineHeight: "20px", fontWeight: 700, textAlign: "start" }}>
+          {file.name}
+        </div>
+        {parts.length > 0 && (
+          <div className="truncate" style={{ fontSize: 13, lineHeight: "17px", color: mine ? "rgba(255,255,255,0.78)" : pal.sub, textAlign: "start" }}>
+            {parts.map((p, i) => (
+              <Fragment key={i}>
+                {i > 0 && " · "}
+                <bdi>{p}</bdi>
+              </Fragment>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CallBody({ call, mine, pal, s }: { call: CallEntry; mine: boolean; pal: Pal; s: Str }) {
+  const ink = call.missed ? RED : pal.fg;
+  const sub = call.missed ? (mine ? s.callAgain : s.callBack) : (call.duration ?? "");
+  return (
+    <div className="flex items-center" style={{ gap: 10, minWidth: 170 }}>
+      <span className="flex shrink-0 items-center justify-center rounded-full" style={{ width: 36, height: 36, background: pal.rail, color: ink }}>
+        {call.video ? (
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+            <rect x="1.8" y="5.2" width="14.4" height="13.6" rx="3.6" stroke="currentColor" strokeWidth="2" />
+            <path d="M16.2 10.1 21 7.3c.5-.3 1.2.1 1.2.7v8c0 .6-.7 1-1.2.7l-4.8-2.8" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+          </svg>
+        ) : (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+            <path
+              d="M18.6 21.6c-4.1 0-8.5-2.5-11.7-5.6C3.8 12.9 1.6 8.7 2.4 5.2c.2-.9.8-1.6 1.6-2.1l1.3-.8c.9-.5 2-.3 2.6.5l2.1 3c.6.8.5 1.9-.2 2.6l-1 1c.6 1.4 1.4 2.6 2.4 3.6 1 1 2.2 1.8 3.6 2.4l1-1c.7-.7 1.8-.8 2.6-.2l3 2.1c.8.6 1 1.7.5 2.6l-.8 1.3c-.5.8-1.2 1.4-2.1 1.6-.4.1-.9.1-1.3.1Z"
+              stroke="currentColor"
+              strokeWidth="2.1"
+              strokeLinejoin="round"
+            />
+          </svg>
+        )}
+      </span>
+      <div className="min-w-0">
+        <div style={{ fontSize: 15, lineHeight: "20px", fontWeight: 700, textAlign: "start" }}>{callTitle(call, s)}</div>
+        {sub && (
+          <div style={{ fontSize: 13, lineHeight: "17px", color: pal.sub, textAlign: "start" }}>
+            <bdi>{sub}</bdi>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function LinkCard({ link, pal, corners }: { link: LinkPreview; pal: Pal; corners: Corners }) {
+  let site = link.siteName?.trim();
+  if (!site) {
+    try {
+      site = new URL(link.url).hostname.replace(/^www\./, "");
+    } catch {
+      site = link.url;
+    }
+  }
+  return (
+    <div className="overflow-hidden" style={{ ...corners, width: M.imgWidth, background: pal.inBubble, color: pal.fg }}>
+      {link.image && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={link.image} alt="" draggable={false} className="block w-full object-cover" style={{ height: 118 }} />
+      )}
+      <div style={{ padding: "8px 12px 10px" }}>
+        <div className="line-clamp-2" dir="auto" style={{ fontSize: 15, lineHeight: "20px", fontWeight: 700, textAlign: "start" }}>
+          {link.title}
+        </div>
+        {link.description && (
+          <div className="line-clamp-2" dir="auto" style={{ marginTop: 1, fontSize: 13, lineHeight: "17px", color: pal.sub, textAlign: "start" }}>
+            {link.description}
+          </div>
+        )}
+        <div className="truncate" dir="ltr" style={{ marginTop: 2, fontSize: 13, lineHeight: "17px", color: pal.sub, textAlign: "start" }}>
+          {site}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Sticker: no bubble — an uploaded sticker image, or 1–3 emoji drawn sticker-sized. */
+function StickerView({ m }: { m: Message }) {
+  if (m.imageSrc) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={m.imageSrc} alt="" draggable={false} className="block object-contain" style={{ width: 124, height: 124 }} />
+    );
+  }
+  const t = m.text.trim() || "🙂";
+  let n = 1;
+  if (typeof Intl !== "undefined" && "Segmenter" in Intl) {
+    n = Array.from(new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(t.replace(/\s+/g, ""))).length;
+  }
+  const size = n <= 1 ? 90 : n === 2 ? 64 : 50;
+  return (
+    <div dir="ltr" style={{ fontSize: size, lineHeight: `${Math.round(size * 1.22)}px`, padding: "0 2px" }}>
+      {t}
     </div>
   );
 }
@@ -709,19 +1051,52 @@ export function InstagramAndroid({ scenario, playback, lang, rtl }: PlatformProp
   const exporting = clockMs !== undefined;
   const caretOn = exporting ? clockMs % CARET_MS < CARET_MS / 2 : true;
 
-  const last = messages[messages.length - 1];
-  const receipt = last && last.sender === "me" ? (playback.statusOf(last) === "read" ? s.seen : s.sent) : null;
+  /* OS keyboard (adjustResize): the composer sits directly on it and the thread shrinks. */
+  const { inset: kbInset, transition: kbTransition } = useKeyboardInset();
 
-  const active = scenario.presence !== "lastseen";
+  /* Group threads: "them" messages belong to a member (authorIndex). */
+  const group = scenario.group ?? null;
+  const authorOf = (m: Message | undefined): Person =>
+    group ? (group.members[m?.authorIndex ?? 0] ?? group.members[0] ?? scenario.them) : scenario.them;
+  const keyOf = (m: Message) => (m.sender === "me" ? "me" : group ? `t${m.authorIndex ?? 0}` : "t");
+  /** a run = consecutive messages of one author, cut by a time separator or a system line */
+  const newRun = (i: number) =>
+    i === 0 ||
+    needsSeparator(messages, i) ||
+    keyOf(messages[i - 1]) !== keyOf(messages[i]) ||
+    messages[i - 1].type === "deleted" ||
+    messages[i].type === "deleted";
+  /** a block also breaks at a quoted reply or an "Edited" label (they sit between bubbles) */
+  const newBlock = (i: number) => newRun(i) || !!targetOf(messages[i]) || !!messages[i].edited;
+
+  const last = messages[messages.length - 1];
+  const receipt =
+    last && last.sender === "me" ? (playback.statusOf(last) === "read" ? (group ? s.seenByAll : s.seen) : s.sent) : null;
+
+  /* who is typing: the author of the upcoming "them" message, else the last one who spoke */
+  const upcoming = scenario.messages[messages.length];
+  const typer = authorOf(
+    upcoming?.sender === "them" ? upcoming : [...messages].reverse().find((m) => m.sender === "them"),
+  );
+
+  const active = !group && scenario.presence !== "lastseen";
   const handle = handleOf(scenario.them);
-  const subtitle = active ? s.activeNow : scenario.lastSeenText || handle;
+  const subtitle = group
+    ? group.members.map((p) => p.name).join(s.joinNames)
+    : active
+      ? s.activeNow
+      : scenario.lastSeenText || handle;
 
   const kinds = messages.map(kindOf);
-  /** bubble-like kinds join their neighbours' corners; big emoji break the run */
-  const joins = (a: Kind | undefined, b: Kind | undefined) => !!a && !!b && a !== "emoji" && b !== "emoji";
+  /** bubble-like kinds join their neighbours' corners; big emoji / stickers / system lines break the run */
+  const joins = (a: Kind | undefined, b: Kind | undefined) =>
+    !!a && !!b && ![a, b].some((k) => k === "emoji" || k === "sticker" || k === "deleted");
 
   return (
-    <div className="flex h-full w-full flex-col" style={{ background: pal.bg, color: pal.fg }}>
+    <div
+      className="flex h-full w-full flex-col"
+      style={{ background: pal.bg, color: pal.fg, paddingBottom: kbInset, transition: `padding-bottom ${kbTransition}` }}
+    >
       <style>{KEYFRAMES}</style>
       <SamsungStatusBar tint={dark ? "light" : "dark"} background={pal.bg} lang={lang} />
 
@@ -731,7 +1106,7 @@ export function InstagramAndroid({ scenario, playback, lang, rtl }: PlatformProp
           <BackArrow color={pal.fg} />
         </span>
         <div className="relative shrink-0" style={{ marginInlineStart: 2 }}>
-          <Avatar person={scenario.them} size={M.headerAvatar} />
+          {group ? <GroupAvatar group={group} size={M.headerAvatar} ring={pal.bg} /> : <Avatar person={scenario.them} size={M.headerAvatar} />}
           {active && (
             <span
               className="absolute rounded-full"
@@ -741,9 +1116,9 @@ export function InstagramAndroid({ scenario, playback, lang, rtl }: PlatformProp
         </div>
         <div className="min-w-0 flex-1" style={{ marginInlineStart: 12 }}>
           <div className="truncate" dir="auto" style={{ fontSize: 16, lineHeight: "20px", fontWeight: 700, textAlign: "start" }}>
-            {scenario.them.name}
+            {group ? group.name : scenario.them.name}
           </div>
-          <div className="truncate" style={{ fontSize: 12, lineHeight: "16px", color: pal.sub }}>
+          <div className="truncate" style={{ fontSize: 12, lineHeight: "16px", color: pal.sub, textAlign: "start" }}>
             {subtitle}
           </div>
         </div>
@@ -764,12 +1139,14 @@ export function InstagramAndroid({ scenario, playback, lang, rtl }: PlatformProp
         <div className="flex flex-col">
           {/* Profile intro that opens every Instagram thread */}
           <div className="flex flex-col items-center text-center" style={{ marginTop: 20, marginBottom: 28 }}>
-            <Avatar person={scenario.them} size={96} />
+            {group ? <GroupAvatar group={group} size={96} ring={pal.bg} /> : <Avatar person={scenario.them} size={96} />}
             <div className="max-w-full truncate" dir="auto" style={{ marginTop: 12, fontSize: 18, lineHeight: "22px", fontWeight: 700 }}>
-              {scenario.them.name}
+              {group ? group.name : scenario.them.name}
             </div>
             <div style={{ marginTop: 2, fontSize: 14, lineHeight: "18px", color: pal.sub }}>
-              {handle ? (
+              {group ? (
+                s.members(group.members.length + 1)
+              ) : handle ? (
                 <>
                   <span dir="ltr">{handle}</span> · {s.instagram}
                 </>
@@ -777,11 +1154,13 @@ export function InstagramAndroid({ scenario, playback, lang, rtl }: PlatformProp
                 s.instagram
               )}
             </div>
-            <div
-              style={{ marginTop: 14, background: pal.button, fontSize: 14, lineHeight: "18px", fontWeight: 700, padding: "7px 16px", borderRadius: 8 }}
-            >
-              {s.viewProfile}
-            </div>
+            {!group && (
+              <div
+                style={{ marginTop: 14, background: pal.button, fontSize: 14, lineHeight: "18px", fontWeight: 700, padding: "7px 16px", borderRadius: 8 }}
+              >
+                {s.viewProfile}
+              </div>
+            )}
           </div>
 
           {messages.map((m, i) => {
@@ -789,18 +1168,68 @@ export function InstagramAndroid({ scenario, playback, lang, rtl }: PlatformProp
             const onRight = mine ? !rtl : rtl;
             const kind = kinds[i];
             const sep = needsSeparator(messages, i);
-            const g = groupInfo(messages, i);
             const target = targetOf(m);
-            // a quoted reply opens a new visual block: it breaks the corner join on both sides
-            const firstOfGroup = g.firstOfGroup || sep || !!target;
-            const nextSep = i + 1 < messages.length && needsSeparator(messages, i + 1);
-            const lastOfGroup = g.lastOfGroup || nextSep || !!targetOf(messages[i + 1]);
+            const isLast = i === messages.length - 1;
+            const runStart = newRun(i);
+            const runEnd = isLast || newRun(i + 1);
+            // a quoted reply / "Edited" label opens a new visual block: corners are not joined across it
+            const firstOfGroup = newBlock(i);
+            const lastOfGroup = isLast || newBlock(i + 1);
             const reaction = m.reaction?.trim();
             const joinAbove = !firstOfGroup && joins(kinds[i - 1], kind);
             const joinBelow = !lastOfGroup && joins(kind, kinds[i + 1]);
+            const author = authorOf(m);
 
             const caption = kind === "image" ? m.text.trim() : "";
-            const marginTop = sep ? 0 : firstOfGroup ? M.senderGap : M.groupGap;
+            const marginTop = sep ? 0 : runStart || target ? M.senderGap : firstOfGroup ? 4 : M.groupGap;
+
+            const sepEl = sep && (
+              <div className="flex justify-center" style={{ margin: i === 0 ? "0 0 14px" : "18px 0 14px" }}>
+                <span style={{ fontSize: 12, lineHeight: "16px", fontWeight: 500, color: pal.sub }}>
+                  {s.today} <span dir="ltr">{m.time}</span>
+                </span>
+              </div>
+            );
+
+            /* Unsend leaves a centred secondary line in the thread ("You unsent a message"). */
+            if (kind === "deleted") {
+              return (
+                <div key={m.id} className="contents">
+                  {sepEl}
+                  <div
+                    data-mid={m.id}
+                    data-sender={m.sender}
+                    className={`flex justify-center ${live ? "ig-and-enter" : ""}`}
+                    style={{ marginTop: sep ? 0 : M.senderGap, marginBottom: 2, paddingInline: 24 }}
+                  >
+                    <span className="text-center" style={{ fontSize: 12, lineHeight: "16px", color: pal.sub }}>
+                      {mine ? s.youUnsent : s.nameUnsent(author.name)}
+                    </span>
+                  </div>
+                </div>
+              );
+            }
+
+            const bubble = (content: ReactNode, opts: { filled: boolean; corners: Corners; padding: string; extra?: CSSProperties }) => (
+              <div
+                {...(opts.filled ? { "data-ig-out": "" } : {})}
+                style={{
+                  ...opts.corners,
+                  ...opts.extra,
+                  backgroundColor: opts.filled ? OUT_SOLID : pal.inBubble,
+                  color: opts.filled ? "#ffffff" : pal.fg,
+                  padding: opts.padding,
+                }}
+              >
+                {content}
+              </div>
+            );
+            const textEl = (text: string) => (
+              <div dir={dirOf(text)} className="whitespace-pre-wrap break-words" style={{ fontSize: M.text, lineHeight: `${M.line}px`, textAlign: "start" }}>
+                <RichText text={text} />
+              </div>
+            );
+            const textPad = `${M.padY}px ${M.padX}px`;
 
             let body: ReactNode;
             if (kind === "emoji") {
@@ -809,6 +1238,8 @@ export function InstagramAndroid({ scenario, playback, lang, rtl }: PlatformProp
                   {m.text.trim()}
                 </div>
               );
+            } else if (kind === "sticker") {
+              body = <StickerView m={m} />;
             } else if (kind === "image") {
               const imgCorners = cornersFor(onRight, joinAbove, !!caption || joinBelow, M.imgRadius);
               body = (
@@ -823,55 +1254,68 @@ export function InstagramAndroid({ scenario, playback, lang, rtl }: PlatformProp
                       </div>
                     )}
                   </div>
-                  {caption && (
-                    <div
-                      {...(mine ? { "data-ig-out": "" } : {})}
-                      style={{
-                        ...cornersFor(onRight, true, joinBelow, M.radius),
-                        marginTop: M.groupGap,
-                        backgroundColor: mine ? OUT_SOLID : pal.inBubble,
-                        color: mine ? "#ffffff" : pal.fg,
-                        padding: `${M.padY}px ${M.padX}px`,
-                      }}
-                    >
-                      <div dir={dirOf(caption)} className="whitespace-pre-wrap break-words" style={{ fontSize: M.text, lineHeight: `${M.line}px`, textAlign: "start" }}>
-                        {caption}
-                      </div>
-                    </div>
-                  )}
+                  {caption &&
+                    bubble(textEl(caption), {
+                      filled: mine,
+                      corners: cornersFor(onRight, true, joinBelow, M.radius),
+                      padding: textPad,
+                      extra: { marginTop: M.groupGap },
+                    })}
+                </>
+              );
+            } else if (kind === "location" && m.location) {
+              body = (
+                <LocationCard
+                  loc={m.location}
+                  pal={pal}
+                  dark={dark}
+                  person={mine ? scenario.me : author}
+                  corners={cornersFor(onRight, joinAbove, joinBelow, M.imgRadius)}
+                  s={s}
+                />
+              );
+            } else if (kind === "file") {
+              body = bubble(<FileBody file={m.file ?? { name: m.text || "File" }} mine={mine} pal={pal} />, {
+                filled: mine,
+                corners: cornersFor(onRight, joinAbove, joinBelow, M.radius),
+                padding: "10px 16px 10px 10px",
+              });
+            } else if (kind === "call") {
+              // call entries are drawn on the neutral grey surface on both sides
+              body = bubble(<CallBody call={m.call ?? { video: false, missed: false }} mine={mine} pal={pal} s={s} />, {
+                filled: false,
+                corners: cornersFor(onRight, joinAbove, joinBelow, M.radius),
+                padding: "10px 16px 10px 10px",
+              });
+            } else if (kind === "voice") {
+              body = bubble(<VoiceContent mine={mine} pal={pal} duration={m.voiceDuration} />, {
+                filled: mine,
+                corners: cornersFor(onRight, joinAbove, joinBelow, M.radius),
+                padding: `${M.padY}px 14px`,
+              });
+            } else if (m.link) {
+              // text bubble with the underlined URL, then the link card joined below it
+              body = (
+                <>
+                  {bubble(textEl(m.text), { filled: mine, corners: cornersFor(onRight, joinAbove, true, M.radius), padding: textPad })}
+                  <div style={{ marginTop: M.groupGap }}>
+                    <LinkCard link={m.link} pal={pal} corners={cornersFor(onRight, true, joinBelow, M.imgRadius)} />
+                  </div>
                 </>
               );
             } else {
-              body = (
-                <div
-                  {...(mine ? { "data-ig-out": "" } : {})}
-                  style={{
-                    ...cornersFor(onRight, joinAbove, joinBelow, M.radius),
-                    backgroundColor: mine ? OUT_SOLID : pal.inBubble,
-                    color: mine ? "#ffffff" : pal.fg,
-                    padding: `${M.padY}px ${kind === "voice" ? 14 : M.padX}px`,
-                  }}
-                >
-                  {kind === "voice" ? (
-                    <VoiceContent mine={mine} pal={pal} duration={m.voiceDuration} />
-                  ) : (
-                    <div dir={dirOf(m.text)} className="whitespace-pre-wrap break-words" style={{ fontSize: M.text, lineHeight: `${M.line}px`, textAlign: "start" }}>
-                      {m.text}
-                    </div>
-                  )}
-                </div>
-              );
+              body = bubble(textEl(m.text), {
+                filled: mine,
+                corners: cornersFor(onRight, joinAbove, joinBelow, M.radius),
+                padding: textPad,
+              });
             }
+
+            const showName = !!group && !mine && runStart;
 
             return (
               <div key={m.id} className="contents">
-                {sep && (
-                  <div className="flex justify-center" style={{ margin: i === 0 ? "0 0 14px" : "18px 0 14px" }}>
-                    <span style={{ fontSize: 12, lineHeight: "16px", fontWeight: 500, color: pal.sub }}>
-                      {s.today} <span dir="ltr">{m.time}</span>
-                    </span>
-                  </div>
-                )}
+                {sepEl}
                 <div
                   data-mid={m.id}
                   data-sender={m.sender}
@@ -880,11 +1324,33 @@ export function InstagramAndroid({ scenario, playback, lang, rtl }: PlatformProp
                 >
                   {!mine && (
                     <div className="shrink-0" style={{ width: M.inAvatar, marginBottom: reaction ? REACT.h - REACT.overlap : 0 }}>
-                      {lastOfGroup && <Avatar person={scenario.them} size={M.inAvatar} />}
+                      {runEnd && <Avatar person={author} size={M.inAvatar} />}
                     </div>
                   )}
                   <div className={`flex min-w-0 flex-col ${mine ? "items-end" : "items-start"}`} style={{ maxWidth: M.maxW }}>
-                    {target && <ReplyQuote target={target} mine={mine} pal={pal} s={s} themName={scenario.them.name} />}
+                    {showName && (
+                      <div
+                        className="max-w-full truncate"
+                        dir="auto"
+                        style={{ fontSize: 12, lineHeight: "16px", color: pal.sub, paddingInline: M.padX, marginBottom: 3, textAlign: "start" }}
+                      >
+                        {author.name}
+                      </div>
+                    )}
+                    {target && (
+                      <ReplyQuote
+                        target={target}
+                        mine={mine}
+                        pal={pal}
+                        s={s}
+                        themName={author.name}
+                        targetName={authorOf(target).name}
+                        group={!!group}
+                      />
+                    )}
+                    {m.edited && (
+                      <div style={{ fontSize: 12, lineHeight: "16px", color: pal.sub, paddingInline: M.padX, marginBottom: 3 }}>{s.edited}</div>
+                    )}
                     {body}
                     {reaction && <ReactionPill emoji={reaction} pal={pal} mine={mine} />}
                   </div>
@@ -903,7 +1369,7 @@ export function InstagramAndroid({ scenario, playback, lang, rtl }: PlatformProp
             </div>
           )}
 
-          {showTyping && <TypingRow person={scenario.them} pal={pal} animate={live} clockMs={clockMs} />}
+          {showTyping && <TypingRow person={typer} pal={pal} animate={live} clockMs={clockMs} />}
         </div>
       </div>
 

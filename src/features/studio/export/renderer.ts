@@ -2,11 +2,14 @@ import { snapdom, type SnapdomOptions, type SnapdomPlugin } from "@zumer/snapdom
 
 import type { PlatformMotion } from "../components/platforms/types";
 import { isLightBackground, paintBackground, paintPhoneShadow, ScreenBackdrop, type BackgroundDef, type PaintOptions } from "./backgrounds";
+import { KEYBOARD_SLIDE_MS } from "../playback/compose";
 import {
   buildCameraPath,
+  CAMERA_LEAD_MS,
   cameraView,
   contentRect,
   planCameraKeys,
+  union,
   type CameraKey,
   type CameraOptions,
   type CameraPath,
@@ -20,9 +23,11 @@ import {
   outputTimeOf,
   paintCaption,
   paintEndCard,
+  paintWatermark,
   type CaptionConfig,
   type EndCardConfig,
   type SceneTiming,
+  type WatermarkConfig,
 } from "./scenes";
 
 /** Extra, non-chat state of the stage (the notification intro). */
@@ -256,6 +261,14 @@ export interface FrameRendererOptions {
   caption?: CaptionConfig | null;
   /** cap for the high-res phone capture (stills can afford more) */
   maxCaptureSide?: number;
+  /**
+   * Playback speed the (already scaled, see export/speed.ts) timeline was
+   * built for: the template clock (typing dots, keyboard key pops), entrance
+   * motion and auto-scroll run this much faster too. Default 1.
+   */
+  speed?: number;
+  /** brand corner drawn on every frame in screen space (null = none) */
+  watermark?: WatermarkConfig | null;
 }
 
 /**
@@ -372,11 +385,32 @@ export class FrameRenderer {
       return r ? this.toScene(r, node.getBoundingClientRect()) : null;
     };
     const lastRevealBefore = (t: number) => [...timeline.reveals].reverse().find((r) => r.at <= t);
+    const sp = this.o.speed ?? 1;
+    const clock = (t: number) => t * sp;
+
+    // OS keyboard (compose typing): while it is up the template lifts the
+    // composer and the thread above it. The camera frames composer + keyboard
+    // together (the keys pop as the text is typed, so the keyboard stays in
+    // shot), anchored to the bottom so the thread stays visible above; my
+    // message sent while it's up appears right above the composer, inside
+    // that shot. When it slides away the thread drops back down, so the
+    // camera follows the latest message to its settled place in sync.
+    const kbs = timeline.keyboards;
+    const slide = KEYBOARD_SLIDE_MS / sp;
+    const keyboardUp = (t: number) => kbs.some((k) => t >= k.openAt && t < k.closeAt);
+    /** measuring inside a keyboard slide-down: measure where things settle instead */
+    const settled = (t: number) => {
+      for (const k of kbs) if (t >= k.closeAt && t < k.closeAt + slide) return k.closeAt + slide + 1;
+      return t;
+    };
 
     const events = [
       ...timeline.reveals.map((r) => ({ at: r.at, kind: "reveal" as const, id: r.id, sender: r.sender, text: "", end: 0 })),
-      ...timeline.typings.map((w) => ({ at: w.start, kind: "typing" as const, id: "", sender: "them" as const, text: "", end: 0 })),
+      ...timeline.typings.map((w) => ({ at: w.start, kind: "typing" as const, id: "", sender: "them" as const, text: "", end: w.end })),
       ...timeline.composes.map((c) => ({ at: c.start, kind: "compose" as const, id: c.id, sender: "me" as const, text: c.text, end: c.end })),
+      ...kbs
+        .filter((k) => Number.isFinite(k.closeAt))
+        .map((k) => ({ at: k.closeAt, kind: "kbclose" as const, id: "", sender: "me" as const, text: "", end: 0 })),
     ].sort((a, b) => a.at - b.at);
 
     for (const ev of events) {
@@ -384,29 +418,53 @@ export class FrameRenderer {
         if (!live(ev.at)) continue;
         // measure the composer with (almost) the whole text typed: it may have grown
         const tm = Math.max(ev.at + 1, ev.end - 2);
-        stage.render(timeline.stateAt(tm), tm);
+        const state = timeline.stateAt(tm);
+        stage.render(state, clock(tm));
         this.scrollAllToBottom();
         const prev = lastRevealBefore(ev.at);
         const context = prev ? measureRow(prev.id) : null;
-        const focus = this.measureComposer(ev.text);
+        let focus = this.measureComposer(ev.text);
+        if (focus && state.keyboard && state.keyboard.open > 0.98) {
+          const kb = node.querySelector<HTMLElement>("[data-keyboard]")?.getBoundingClientRect();
+          if (kb && kb.width > 1 && kb.height > 1) focus = union(focus, this.toScene(kb, node.getBoundingClientRect()));
+        }
         if (focus) keys.push({ at: out(ev.at), focus, context, anchorBottom: true });
         continue;
       }
-      const st = timeline.stateAt(ev.at + 1);
+      if (ev.kind === "kbclose") {
+        if (!live(ev.at)) continue;
+        const prev = lastRevealBefore(ev.at);
+        if (!prev) continue;
+        const tm = ev.at + slide + 1;
+        stage.render(timeline.stateAt(tm), clock(tm));
+        this.scrollAllToBottom();
+        const rect = measureRow(prev.id);
+        const idx = timeline.reveals.indexOf(prev);
+        const context = idx > 0 ? measureRow(timeline.reveals[idx - 1].id) : null;
+        // start moving exactly as the keyboard starts sliding (not CAMERA_LEAD_MS early)
+        if (rect) keys.push({ at: out(ev.at) + CAMERA_LEAD_MS, focus: rect, context });
+        continue;
+      }
+      let tm = ev.at + 1;
+      const s = settled(tm);
+      if (s !== tm && (ev.kind === "reveal" || s < ev.end)) tm = s;
+      const st = timeline.stateAt(tm);
       if (ev.kind === "typing") {
         if (!live(ev.at)) continue;
         // render once without the indicator so we can tell which nodes it adds
-        stage.render({ ...st, typing: false }, ev.at + 1);
+        stage.render({ ...st, typing: false }, clock(tm));
         this.before = new Set(node.querySelectorAll("*"));
       }
-      stage.render(st, ev.at + 1);
+      stage.render(st, clock(tm));
       this.scrollAllToBottom();
       if (ev.kind === "reveal") {
         const rect = measureRow(ev.id);
         const idx = timeline.reveals.findIndex((r) => r.id === ev.id);
         const context = idx > 0 ? measureRow(timeline.reveals[idx - 1].id) : null;
+        // my message sent with the keyboard still up: the composer shot already shows it
+        const holdComposer = ev.sender === "me" && keyboardUp(ev.at);
         if (rect) {
-          if (live(ev.at)) keys.push({ at: out(ev.at), focus: rect, context });
+          if (live(ev.at) && !holdComposer) keys.push({ at: out(ev.at), focus: rect, context });
           if (ev.sender === "them" && !themSide) {
             const { phone } = this.o.layout;
             themSide = rect.x + rect.w / 2 < phone.x + phone.w / 2 ? "left" : "right";
@@ -463,7 +521,8 @@ export class FrameRenderer {
       while (walker.nextNode()) {
         const tn = walker.currentNode as Text;
         const el = tn.parentElement;
-        if (!el || el.closest(".rcss-scroll") || !tn.data.includes(needle)) continue;
+        // (the keyboard's suggestion strip may echo the word being typed)
+        if (!el || el.closest(".rcss-scroll, [data-keyboard]") || !tn.data.includes(needle)) continue;
         const r = el.getBoundingClientRect();
         if (r.width < 1 || r.height < 1) continue;
         hit = el;
@@ -538,11 +597,13 @@ export class FrameRenderer {
 
   private applyMotion(t: number) {
     const { motion, timeline, rtl, stage } = this.o;
+    const sp = this.o.speed ?? 1;
     const seen = new Set<HTMLElement>();
     stage.node.querySelectorAll<HTMLElement>("[data-mid]").forEach((el) => {
       const at = timeline.revealAt.get(el.dataset.mid ?? "");
       if (at === undefined) return;
-      const age = t - at;
+      // entrance motion plays at the export speed too
+      const age = (t - at) * sp;
       if (age >= 0 && age < motion.enterMs) {
         const st = motion.enterStyle(age / motion.enterMs, el.dataset.sender === "me", rtl);
         const op = st.opacity === undefined ? "" : String(st.opacity);
@@ -606,7 +667,8 @@ export class FrameRenderer {
     const { timing, endCard } = this.o;
     if (endCard && timing.endMs > 0 && tOut >= timing.chatEnd) {
       if (!this.lastChat) {
-        await this.renderChat(timing.chatEnd - 1, true);
+        // (without the watermark: it is painted once, sharp, on top of the end card)
+        await this.renderChat(timing.chatEnd - 1, true, false);
         const c = document.createElement("canvas");
         c.width = this.canvas.width;
         c.height = this.canvas.height;
@@ -614,20 +676,29 @@ export class FrameRenderer {
         this.lastChat = c;
       }
       paintEndCard(this.ctx, this.canvas.width, this.canvas.height, tOut - timing.chatEnd, this.lastChat, endCard);
+      this.paintOverlays();
       this.dirty = true;
       return this.canvas;
     }
     return this.renderChat(tOut, force);
   }
 
-  private async renderChat(tOut: number, force: boolean): Promise<HTMLCanvasElement> {
+  /** screen-space overlays drawn on top of every frame (never moved by the camera) */
+  private paintOverlays() {
+    const wm = this.o.watermark;
+    if (wm) paintWatermark(this.ctx, this.canvas.width, this.canvas.height, wm);
+  }
+
+  private async renderChat(tOut: number, force: boolean, overlays = true): Promise<HTMLCanvasElement> {
     const { stage, timeline, layout, timing } = this.o;
     const tl = chatTimeAt(timing, tOut);
     const introT = timing.leadMs > 0 && tOut < timing.leadMs ? tOut : null;
+    // template clock in real conversation time (typing dots, keyboard key pops)
+    const clock = tl * (this.o.speed ?? 1);
 
-    stage.render(timeline.stateAt(tl), tl, { introT });
+    stage.render(timeline.stateAt(tl), clock, { introT });
     this.applyMotion(tl);
-    const scrolled = this.applyScroll(tl);
+    const scrolled = this.applyScroll(clock);
     const mutated = this.observer.takeRecords().length > 0;
 
     let phoneChanged = false;
@@ -676,7 +747,9 @@ export class FrameRenderer {
         const zoomed = Math.min(1, Math.max(0, ((cam?.scale ?? 1) - 1) / 0.18));
         paintCaption(this.ctx, layout.W, layout.H, this.o.caption, 1 - zoomed, 0);
       }
-      this.dirty = false;
+      if (overlays) this.paintOverlays();
+      // a frame without its overlays must be repainted before it is reused
+      this.dirty = !overlays;
     }
     this.lastCam = cam;
     return this.canvas;
@@ -736,6 +809,7 @@ export function paintPreview(
   phoneScale: number,
   backdrop: ScreenBackdrop,
   caption?: CaptionConfig | null,
+  watermark?: WatermarkConfig | null,
 ): void {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
@@ -759,5 +833,6 @@ export function paintPreview(
     ctx.fill();
   }
   if (caption) paintCaption(ctx, layout.W, layout.H, caption);
+  if (watermark) paintWatermark(ctx, layout.W, layout.H, watermark);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
 }

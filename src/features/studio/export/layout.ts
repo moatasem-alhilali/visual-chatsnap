@@ -73,6 +73,9 @@ export interface LayoutOptions {
   /** fractions of the frame height kept free above / below the phone (caption band) */
   reserveTop?: number;
   reserveBottom?: number;
+  /** fractions of the frame width kept free left / right (platform safe zone) */
+  reserveLeft?: number;
+  reserveRight?: number;
 }
 
 /** Can this preset reserve a caption band above/below the phone? (tall formats only) */
@@ -95,6 +98,8 @@ export function computeLayout(
   let scale: number;
   let top = 0;
   let bottom = 0;
+  let left = 0;
+  let right = 0;
 
   if (preset.w === null || preset.h === null) {
     scale = (DEVICE_ONLY_HEIGHT * mul) / boxCssH;
@@ -105,17 +110,21 @@ export function computeLayout(
     H = even(preset.h * mul);
     top = Math.round(H * (opts.reserveTop ?? 0));
     bottom = Math.round(H * (opts.reserveBottom ?? 0));
+    left = Math.round(W * (opts.reserveLeft ?? 0));
+    right = Math.round(W * (opts.reserveRight ?? 0));
     const fill = PHONE_FILL[size];
     const availH = H - top - bottom;
-    // with a caption band the phone fills the remaining height a little more
+    const availW = W - left - right;
+    // with a caption band / safe zone the phone fills the remaining area a little more
     const fillH = top || bottom ? Math.min(0.96, fill + 0.08) : fill;
-    scale = Math.min((availH * fillH) / device.h, (W * fill) / device.w);
+    const fillW = left || right ? Math.min(0.96, fill + 0.08) : fill;
+    scale = Math.min((availH * fillH) / device.h, (availW * fillW) / device.w);
   }
 
   const boxW = boxCssW * scale;
   const boxH = boxCssH * scale;
   // snap to whole output pixels so the phone isn't resampled by a sub-pixel offset
-  const x = Math.round((W - boxW) / 2);
+  const x = Math.round(left + (W - left - right - boxW) / 2);
   const y = Math.round(top + (H - top - bottom - boxH) / 2);
   const m = DEVICE_MARGIN * scale;
 

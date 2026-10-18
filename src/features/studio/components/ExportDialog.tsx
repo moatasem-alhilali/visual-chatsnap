@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useEffectEvent, useId, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useLocale } from "next-intl";
 import {
@@ -8,18 +8,25 @@ import {
   BellRing,
   Captions,
   Check,
+  CircleCheck,
+  CircleDashed,
+  CircleX,
   Clock,
   Download,
   Film,
+  Gauge,
   Image as ImageIcon,
+  Layers,
   Loader2,
   Music,
   Palette,
   Pause,
   Play,
   RotateCcw,
+  Scan,
   Share2,
   Sparkles,
+  Stamp,
   Upload,
   Volume2,
   VolumeX,
@@ -30,9 +37,12 @@ import { Button } from "@/shared/components/ui/button";
 import { cn } from "@/shared/lib/utils";
 import { DEVICE_SIZE, DeviceFrame } from "./devices/DeviceFrame";
 import { PhoneScreen } from "./devices/PhoneScreen";
-import { PLATFORM_MAP, PlatformView, preloadPlatform, resolvePlatformMotion } from "./platforms";
+import { PLATFORM_MAP, PLATFORMS, PlatformView, preloadPlatform, resolvePlatformMotion } from "./platforms";
+import { PlatformMark } from "./studio/BrandMarks";
 import { deviceFontFamily } from "../data/fonts";
-import { buildTimeline, type FrameState } from "../export/schedule";
+import { buildTimeline, type FrameState, type Timeline } from "../export/schedule";
+import { scaleTimeline, SPEEDS, type Speed } from "../export/speed";
+import { SAFE_ZONE_IDS, SAFE_ZONES, safeInset, type SafeZoneId } from "../export/safezones";
 import { canExportVideo, exportToMp4, ExportAbortedError, pickVideoCodec, type PickedCodec } from "../export/exportVideo";
 import {
   computeLayout,
@@ -69,19 +79,25 @@ import {
   type CaptionSize,
   type EndCardConfig,
   type SceneTiming,
+  type WatermarkConfig,
+  type WatermarkCorner,
+  type WatermarkSize,
 } from "../export/scenes";
 import { buildPalette, estimateGifBytes, fitGifWidth, GifWriter } from "../export/gif";
 import { introChatStyle, NotificationIntro, type NoticeInfo } from "../export/NotificationIntro";
 import {
+  canShareFiles,
   canShareVideoFile,
   createExportFile,
+  downloadFiles,
   downloadVideoFile,
   isTouchDevice,
   saveVideoFile,
+  shareFiles,
 } from "../services/video-file";
 import { syncLiveZoom } from "../export/zoomPrefs";
 import type { PlaybackView } from "../playback/usePlayback";
-import type { Scenario } from "../types";
+import type { Device, Platform, Scenario } from "../types";
 import type { StudioLabels } from "./labels";
 
 /* ------------------------------------------------------------------ copy */
@@ -91,6 +107,8 @@ type OutputKind = "video" | "gif" | "image";
 type Quality = "standard" | "high" | "max";
 type ImageFormat = "png" | "jpeg";
 type Peek = "intro" | "end";
+type BatchStatus = "pending" | "rendering" | "done" | "error" | "cancelled";
+type SafeChoice = SafeZoneId | "off";
 
 const COPY = {
   en: {
@@ -225,6 +243,50 @@ const COPY = {
     dims: "Dimensions",
     frames: "Frames",
     max: (s: string) => `max ${s}`,
+    speed: "Speed",
+    speedHint: "Plays the whole conversation faster or slower",
+    speedValue: (v: number) => `${v}×`,
+    batch: "Batch export",
+    batchHint: "The same chat for several apps and phones, one file each",
+    batchCount: (n: number) => `${n} selected`,
+    batchAll: "All",
+    batchCurrent: "Only this one",
+    app: "App",
+    devices: { iphone: "iPhone", android: "Android" } as Record<Device, string>,
+    startBatch: (k: OutputKind, n: number) =>
+      `Export ${n} ${k === "video" ? (n === 1 ? "video" : "videos") : k === "gif" ? (n === 1 ? "GIF" : "GIFs") : n === 1 ? "image" : "images"}`,
+    batchOf: (i: number, n: number) => `File ${i} of ${n}`,
+    itemStatus: {
+      pending: "Waiting",
+      rendering: "Rendering",
+      done: "Ready",
+      error: "Failed",
+      cancelled: "Cancelled",
+    } as Record<BatchStatus, string>,
+    batchDone: (n: number, total: number) => (n === total ? `All ${total} files are ready` : `${n} of ${total} files are ready`),
+    batchSaved: "Each file downloaded as it finished (your browser may ask once to allow several downloads).",
+    downloadAll: "Download all",
+    shareAll: "Share all",
+    downloadOne: "Download",
+    showItem: "Show in preview",
+    safe: "Safe zone",
+    safeHint: "Shows where the app's buttons and captions cover the frame — in this preview only, never in the file",
+    safeOnlyStory: "For the 9:16 format",
+    safeZones: { off: "Off", tiktok: "TikTok", reels: "Reels", shorts: "Shorts", stories: "Stories" } as Record<SafeZoneId | "off", string>,
+    safeFit: "Fit the phone and caption inside the safe zone",
+    zoneTop: "Top bar",
+    zoneBottom: "Caption & sound",
+    zoneBottomStories: "Reply bar",
+    zoneRail: "Buttons",
+    wm: "Watermark",
+    wmHint: "Your logo or handle in a corner of every frame",
+    wmText: "Text",
+    wmTextDefault: "@yourbrand",
+    wmCorner: "Corner",
+    corners: { tl: "Top left", tr: "Top right", bl: "Bottom left", br: "Bottom right" } as Record<WatermarkCorner, string>,
+    wmSize: "Size",
+    wmOpacity: "Opacity",
+    wmColor: "Text colour",
   },
   ar: {
     subtitle: "فيديو MP4 أو GIF أو صورة للريلز وتيك توك والستوري والمنشورات",
@@ -358,6 +420,51 @@ const COPY = {
     dims: "الأبعاد",
     frames: "الإطارات",
     max: (s: string) => `الحد ${s}`,
+    speed: "السرعة",
+    speedHint: "تشغيل المحادثة كاملة بسرعة أعلى أو أبطأ",
+    speedValue: (v: number) => `${v.toLocaleString("ar-EG")}×`,
+    batch: "تصدير دفعة واحدة",
+    batchHint: "المحادثة نفسها لعدة تطبيقات وأجهزة، ملف لكل منها",
+    batchCount: (n: number) => `${n.toLocaleString("ar-EG")} محدد`,
+    batchAll: "الكل",
+    batchCurrent: "الحالي فقط",
+    app: "التطبيق",
+    devices: { iphone: "آيفون", android: "أندرويد" } as Record<Device, string>,
+    startBatch: (k: OutputKind, n: number) =>
+      `تصدير ${n.toLocaleString("ar-EG")} ${k === "video" ? "فيديو" : k === "gif" ? "GIF" : n === 1 ? "صورة" : "صور"}`,
+    batchOf: (i: number, n: number) => `الملف ${i.toLocaleString("ar-EG")} من ${n.toLocaleString("ar-EG")}`,
+    itemStatus: {
+      pending: "بالانتظار",
+      rendering: "جارٍ التوليد",
+      done: "جاهز",
+      error: "فشل",
+      cancelled: "أُلغي",
+    } as Record<BatchStatus, string>,
+    batchDone: (n: number, total: number) =>
+      n === total ? `الملفات الـ${total.toLocaleString("ar-EG")} جاهزة` : `${n.toLocaleString("ar-EG")} من ${total.toLocaleString("ar-EG")} ملفات جاهزة`,
+    batchSaved: "نُزّل كل ملف فور اكتماله (قد يطلب المتصفح مرة واحدة السماح بتنزيل عدة ملفات).",
+    downloadAll: "تنزيل الكل",
+    shareAll: "مشاركة الكل",
+    downloadOne: "تنزيل",
+    showItem: "عرض في المعاينة",
+    safe: "المنطقة الآمنة",
+    safeHint: "يوضح أين تغطي أزرار التطبيق ونصوصه الإطار — في المعاينة فقط وليس في الملف",
+    safeOnlyStory: "لمقاس ٩:١٦",
+    safeZones: { off: "إيقاف", tiktok: "تيك توك", reels: "ريلز", shorts: "شورتس", stories: "ستوري" } as Record<SafeZoneId | "off", string>,
+    safeFit: "احتواء الجوال والعنوان داخل المنطقة الآمنة",
+    zoneTop: "الشريط العلوي",
+    zoneBottom: "الوصف والصوت",
+    zoneBottomStories: "شريط الرد",
+    zoneRail: "الأزرار",
+    wm: "علامة مائية",
+    wmHint: "شعارك أو اسم حسابك في زاوية كل إطار",
+    wmText: "النص",
+    wmTextDefault: "@yourbrand",
+    wmCorner: "الزاوية",
+    corners: { tl: "أعلى اليسار", tr: "أعلى اليمين", bl: "أسفل اليسار", br: "أسفل اليمين" } as Record<WatermarkCorner, string>,
+    wmSize: "الحجم",
+    wmOpacity: "العتامة",
+    wmColor: "لون النص",
   },
 };
 
@@ -406,6 +513,18 @@ interface Prefs {
   musicFadeIn: number;
   musicFadeOut: number;
   musicLoop: boolean;
+  speed: Speed;
+  safeZone: SafeChoice;
+  safeFit: boolean;
+  wm: boolean;
+  wmText: string;
+  wmCorner: WatermarkCorner;
+  wmSize: WatermarkSize;
+  wmOpacity: number;
+  wmColor: string;
+  batch: boolean;
+  /** "platform:device" keys picked for batch export */
+  batchCombos: string[];
 }
 
 const DEFAULT_PREFS: Prefs = {
@@ -449,7 +568,26 @@ const DEFAULT_PREFS: Prefs = {
   musicFadeIn: 500,
   musicFadeOut: 1500,
   musicLoop: true,
+  speed: 1,
+  safeZone: "off",
+  safeFit: false,
+  wm: false,
+  wmText: "",
+  wmCorner: "br",
+  wmSize: "m",
+  wmOpacity: 0.85,
+  wmColor: "#ffffff",
+  batch: false,
+  batchCombos: [],
 };
+
+const DEVICES: Device[] = ["iphone", "android"];
+const comboKey = (p: Platform, d: Device) => `${p}:${d}`;
+const ALL_COMBOS = PLATFORMS.flatMap((p) => DEVICES.map((d) => comboKey(p.id, d)));
+function parseCombo(key: string): { platform: Platform; device: Device } {
+  const [platform, device] = key.split(":") as [Platform, Device];
+  return { platform, device };
+}
 
 const PREFS_KEY = "scenora.export.prefs";
 const INTRO_OPTIONS = [0, 500, 1000, 2000];
@@ -480,12 +618,19 @@ function loadPrefs(): Prefs {
     p.quality = oneOf(p.quality, ["standard", "high", "max"] as const, d.quality);
     p.introMs = oneOf(p.introMs, INTRO_OPTIONS, d.introMs);
     p.outroMs = oneOf(p.outroMs, OUTRO_OPTIONS, d.outroMs);
-    for (const k of ["custom", "captionColor", "captionPillColor", "endBg", "endFg", "endCtaBg", "endCtaFg"] as const) {
+    for (const k of ["custom", "captionColor", "captionPillColor", "endBg", "endFg", "endCtaBg", "endCtaFg", "wmColor"] as const) {
       if (typeof p[k] !== "string" || !HEX.test(p[k])) p[k] = d[k];
     }
-    for (const k of ["sound", "zoom", "followSides", "zoomOutEnd", "notif", "caption", "captionPill", "endCard", "music", "musicLoop"] as const) {
+    for (const k of ["sound", "zoom", "followSides", "zoomOutEnd", "notif", "caption", "captionPill", "endCard", "music", "musicLoop", "safeFit", "wm", "batch"] as const) {
       p[k] = !!p[k];
     }
+    p.speed = oneOf(p.speed, SPEEDS, d.speed);
+    p.safeZone = oneOf(p.safeZone, ["off", ...SAFE_ZONE_IDS] as const, d.safeZone);
+    p.wmCorner = oneOf(p.wmCorner, ["tl", "tr", "bl", "br"] as const, d.wmCorner);
+    p.wmSize = oneOf(p.wmSize, ["s", "m", "l"] as const, d.wmSize);
+    p.wmOpacity = typeof p.wmOpacity === "number" ? Math.min(1, Math.max(0.2, p.wmOpacity)) : d.wmOpacity;
+    p.wmText = typeof p.wmText === "string" ? p.wmText.slice(0, 60) : "";
+    p.batchCombos = Array.isArray(p.batchCombos) ? p.batchCombos.filter((k) => ALL_COMBOS.includes(k)) : [];
     if (!(p.zoomLevel in ZOOM_LEVELS)) p.zoomLevel = d.zoomLevel;
     p.imageFormat = oneOf(p.imageFormat, ["png", "jpeg"] as const, d.imageFormat);
     p.imageScale = oneOf(p.imageScale, [1, 2, 3] as const, d.imageScale);
@@ -590,23 +735,49 @@ function noticeFor(scenario: Scenario, lang: Lang): (NoticeInfo & { id: string }
   const m = scenario.messages.find((x) => x.sender === "them");
   if (!m) return null;
   const caption = m.text.trim();
-  const text =
+  const ar = lang === "ar";
+  const body =
     m.type === "voice"
-      ? lang === "ar"
+      ? ar
         ? "🎤 رسالة صوتية"
         : "🎤 Voice message"
       : m.type === "image"
-        ? caption || (lang === "ar" ? "📷 صورة" : "📷 Photo")
-        : caption;
+        ? caption || (ar ? "📷 صورة" : "📷 Photo")
+        : m.type === "sticker"
+          ? caption || (ar ? "ملصق" : "Sticker")
+          : m.type === "location"
+            ? `📍 ${m.location?.title || (ar ? "موقع" : "Location")}`
+            : m.type === "file"
+              ? `📄 ${m.file?.name || (ar ? "مستند" : "Document")}`
+              : m.type === "call"
+                ? m.call?.missed
+                  ? ar
+                    ? m.call.video
+                      ? "مكالمة فيديو فائتة"
+                      : "مكالمة صوتية فائتة"
+                    : m.call.video
+                      ? "Missed video call"
+                      : "Missed voice call"
+                  : ar
+                    ? "📞 مكالمة"
+                    : "📞 Call"
+                : m.type === "deleted"
+                  ? ar
+                    ? "تم حذف هذه الرسالة"
+                    : "This message was deleted"
+                  : caption;
+  // groups: the banner is titled with the group and prefixes the sender
+  const group = scenario.group ?? null;
+  const author = group ? group.members[m.authorIndex ?? 0] ?? group.members[0] : null;
   return {
     id: m.id,
     platform: scenario.platform,
     device: scenario.device,
     theme: scenario.theme,
     lang,
-    name: scenario.them.name,
-    avatar: scenario.them.avatar,
-    text,
+    name: group ? group.name : scenario.them.name,
+    avatar: group ? group.avatar : scenario.them.avatar,
+    text: author ? `${author.name}: ${body}` : body,
   };
 }
 
@@ -1078,6 +1249,109 @@ interface Prepared {
   H: number;
 }
 
+/** What one export renders: the scenario (platform/device of a batch item) and its paint. */
+interface Job {
+  sc: Scenario;
+  paint: PaintOptions;
+}
+
+type ItemProgress = (done: number, total: number, note?: string) => void;
+
+interface BatchItem {
+  key: string;
+  platform: Platform;
+  device: Device;
+  status: BatchStatus;
+  /** 0–100 */
+  pct: number;
+  result: ExportResult | null;
+  error: string;
+}
+
+/**
+ * Preview-only guide: where the chosen app's UI covers a 9:16 frame. Sized
+ * exactly like the preview canvas (same intrinsic size and constraints) and
+ * stacked on top of it; the exported file never contains it.
+ */
+function SafeZoneOverlay({
+  zone,
+  W,
+  H,
+  width,
+  height,
+  labels,
+}: {
+  zone: (typeof SAFE_ZONES)[SafeZoneId];
+  W: number;
+  H: number;
+  width: number;
+  height: number;
+  labels: { top: string; bottom: string; rail: string };
+}) {
+  const id = `sz${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  const top = zone.top * H;
+  const bottom = zone.bottom * H;
+  const left = zone.left * W;
+  const right = zone.right * W;
+  const railTop = zone.rail ? zone.rail.top * H : 0;
+  const fs = W * 0.03;
+  const hatch = W * 0.022;
+  const label = (x: number, y: number, text: string, anchor: "middle" | "end" = "middle") => (
+    <text
+      x={x}
+      y={y}
+      textAnchor={anchor}
+      dominantBaseline="middle"
+      fontSize={fs}
+      fontWeight={700}
+      paintOrder="stroke"
+      strokeWidth={fs * 0.22}
+      className="fill-white stroke-black/60"
+    >
+      {text}
+    </text>
+  );
+  return (
+    <svg
+      aria-hidden
+      data-export-safezone-overlay={zone.id}
+      width={width}
+      height={height}
+      viewBox={`0 0 ${W} ${H}`}
+      className="max-h-full max-w-full rounded-lg"
+      // must match the preview canvas box exactly
+      style={{ aspectRatio: `${W}/${H}` }}
+    >
+      <defs>
+        <pattern id={id} patternUnits="userSpaceOnUse" width={hatch} height={hatch} patternTransform="rotate(45)">
+          <rect width={hatch} height={hatch} className="fill-destructive/20" />
+          <line x1={0} y1={0} x2={0} y2={hatch} strokeWidth={hatch * 0.35} className="stroke-destructive/45" />
+        </pattern>
+      </defs>
+      <rect x={0} y={0} width={W} height={top} fill={`url(#${id})`} />
+      <rect x={0} y={H - bottom} width={W} height={bottom} fill={`url(#${id})`} />
+      {zone.rail && (
+        <rect x={W - right} y={railTop} width={right} height={Math.max(0, H - bottom - railTop)} rx={right * 0.3} fill={`url(#${id})`} />
+      )}
+      <rect
+        x={left}
+        y={top}
+        width={W - left - right}
+        height={H - top - bottom}
+        fill="none"
+        strokeWidth={W * 0.004}
+        strokeDasharray={`${W * 0.018} ${W * 0.012}`}
+        className="stroke-white/90"
+      />
+      {label(W / 2, top / 2, labels.top)}
+      {label(W / 2, H - bottom / 2, labels.bottom)}
+      {zone.rail && (
+        <g transform={`translate(${W - right / 2} ${(railTop + H - bottom) / 2}) rotate(-90)`}>{label(0, 0, labels.rail)}</g>
+      )}
+    </svg>
+  );
+}
+
 export function ExportDialog({
   scenario,
   t,
@@ -1113,6 +1387,13 @@ export function ExportDialog({
   const [stillMs, setStillMs] = useState<number | null>(null);
   const [peek, setPeek] = useState<Peek | null>(null);
   const [momentBusy, setMomentBusy] = useState(false);
+  /** what the off-screen stage renders (a batch swaps platform/device; the studio's scenario is never touched) */
+  const [stageScenario, setStageScenario] = useState<Scenario>(scenario);
+  const [wmLogo, setWmLogo] = useState<LogoAsset | null>(null);
+  const [wmLogoErr, setWmLogoErr] = useState(false);
+  /** items of the running / last batch (null = last run was a single export) */
+  const [batch, setBatch] = useState<BatchItem[] | null>(null);
+  const batchUrlsRef = useRef<string[]>([]);
 
   const stageRef = useRef<StageController | null>(null);
   const previewRef = useRef<HTMLCanvasElement>(null);
@@ -1142,9 +1423,20 @@ export function ExportDialog({
 
   /* ------------------------------------------------ derived settings */
 
-  const timeline = useMemo(() => buildTimeline(scenario), [scenario]);
+  // stills pick a moment on the real-time timeline; video / GIF play at the chosen speed
+  const speed: number = kind === "image" ? 1 : prefs.speed;
+  const baseTimeline = useMemo(() => buildTimeline(scenario), [scenario]);
+  const timeline: Timeline = useMemo(() => scaleTimeline(baseTimeline, speed), [baseTimeline, speed]);
   const notice = useMemo(() => noticeFor(scenario, lang), [scenario, lang]);
+  const stageNotice = useMemo(() => noticeFor(stageScenario, lang), [stageScenario, lang]);
   const preset = PRESETS.find((p) => p.id === prefs.preset) ?? PRESETS[0];
+  const zone = preset.id === "story" && prefs.safeZone !== "off" ? SAFE_ZONES[prefs.safeZone] : null;
+  const fitZone = zone && prefs.safeFit ? zone : null;
+  const currentKey = comboKey(scenario.platform, scenario.device);
+  const batchKeys = prefs.batch
+    ? ALL_COMBOS.filter((k) => (prefs.batchCombos.length ? prefs.batchCombos : [currentKey]).includes(k))
+    : [];
+  const batchOn = prefs.batch && batchKeys.length > 0;
   const bgDef = BACKGROUNDS.find((b) => b.id === prefs.bg) ?? BACKGROUNDS[0];
   const accent = PLATFORM_MAP[scenario.platform]?.accent ?? "#25d366";
   const paint = useMemo<PaintOptions>(() => ({ accent, custom: prefs.custom }), [accent, prefs.custom]);
@@ -1161,20 +1453,43 @@ export function ExportDialog({
             color: prefs.captionColor,
             pill: prefs.captionPill ? prefs.captionPillColor : null,
             fontFamily,
+            inset: fitZone ? { top: fitZone.top, bottom: fitZone.bottom } : null,
           }
         : null,
-    [prefs.caption, captionAllowed, prefs.captionText, prefs.captionPos, prefs.captionSize, prefs.captionColor, prefs.captionPill, prefs.captionPillColor, fontFamily],
+    [prefs.caption, captionAllowed, prefs.captionText, prefs.captionPos, prefs.captionSize, prefs.captionColor, prefs.captionPill, prefs.captionPillColor, fontFamily, fitZone],
   );
   const captionFrac = useMemo(
     () => captionBandFraction(caption, preset.w ?? 1080, preset.h ?? 1920),
     [caption, preset.w, preset.h],
   );
+  // free area for the phone: minus the caption band, and inside the app's safe zone when fitting
   const reserve = useMemo(
     () => ({
-      reserveTop: caption?.position === "top" ? captionFrac : 0,
-      reserveBottom: caption?.position === "bottom" ? captionFrac : 0,
+      reserveTop: (fitZone?.top ?? 0) + (caption?.position === "top" ? captionFrac : 0),
+      reserveBottom: (fitZone?.bottom ?? 0) + (caption?.position === "bottom" ? captionFrac : 0),
+      reserveLeft: fitZone?.left ?? 0,
+      reserveRight: fitZone?.right ?? 0,
     }),
-    [caption, captionFrac],
+    [caption, captionFrac, fitZone],
+  );
+
+  const watermark = useMemo<WatermarkConfig | null>(
+    () =>
+      prefs.wm && (prefs.wmText.trim() || wmLogo)
+        ? {
+            text: prefs.wmText,
+            logo: wmLogo?.img ?? null,
+            logoW: wmLogo?.w ?? 0,
+            logoH: wmLogo?.h ?? 0,
+            corner: prefs.wmCorner,
+            opacity: prefs.wmOpacity,
+            size: prefs.wmSize,
+            color: prefs.wmColor,
+            fontFamily,
+            inset: fitZone ? safeInset(fitZone) : null,
+          }
+        : null,
+    [prefs.wm, prefs.wmText, wmLogo, prefs.wmCorner, prefs.wmOpacity, prefs.wmSize, prefs.wmColor, fontFamily, fitZone],
   );
 
   const endCard = useMemo<EndCardConfig | null>(
@@ -1205,6 +1520,8 @@ export function ExportDialog({
             zoomOutAtEnd: prefs.zoomOutEnd,
             safeTop: reserve.reserveTop,
             safeBottom: reserve.reserveBottom,
+            safeLeft: reserve.reserveLeft,
+            safeRight: reserve.reserveRight,
           }
         : null,
     [prefs.zoom, prefs.zoomLevel, prefs.followSides, prefs.zoomOutEnd, reserve],
@@ -1271,6 +1588,9 @@ export function ExportDialog({
     timing,
     device?.w,
     device?.h,
+    speed,
+    fitZone?.id ?? null,
+    watermark && { ...watermark, logo: wmLogo?.src.length ?? 0 },
   ]);
 
   /* ------------------------------------------------------- lifecycle */
@@ -1325,18 +1645,20 @@ export function ExportDialog({
     const cv = previewRef.current;
     if (!cv) return;
     backdropRef.current ??= new ScreenBackdrop();
-    paintPreview(cv, layout, bgDef, paint, previewPhone?.canvas ?? null, previewPhone?.scale ?? 1, backdropRef.current, caption);
-  }, [layout, bgDef, paint, previewPhone, phase, previewW, previewH, momentMs, caption]);
+    paintPreview(cv, layout, bgDef, paint, previewPhone?.canvas ?? null, previewPhone?.scale ?? 1, backdropRef.current, caption, watermark);
+  }, [layout, bgDef, paint, previewPhone, phase, previewW, previewH, momentMs, caption, watermark]);
 
-  /** Build (or reuse) a renderer for the current settings at resolution `mul`. */
+  /** Build a renderer for the current settings at resolution `mul` (the stage must already show `job.sc`). */
   const prepare = useCallback(
-    async (mul: number, fps: number, maxCaptureSide?: number): Promise<Prepared> => {
+    async (job: Job, mul: number, fps: number, maxCaptureSide?: number): Promise<Prepared> => {
       const stage = stageRef.current;
       if (!stage) throw new Error("generic");
-      const mod = await preloadPlatform(scenario.platform, scenario.device);
+      const mod = await preloadPlatform(job.sc.platform, job.sc.device);
       if (document.fonts?.ready) await document.fonts.ready;
       stage.render(null);
       await waitForTemplate(stage);
+      // (a batch item's template may still be swapping in: let it mount and lay out)
+      await yieldToEventLoop();
       stripOuterShadow(stage);
       const dims = measureDevice(stage);
       const lay = computeLayout(preset, dims, prefs.size, { mul, ...reserve });
@@ -1348,19 +1670,22 @@ export function ExportDialog({
         rtl,
         layout: lay,
         background: bgDef,
-        paint,
+        paint: job.paint,
         fps,
         timing: tm,
         camera,
         endCard,
         caption,
         maxCaptureSide,
+        speed,
+        watermark,
       });
       await r.prepareCamera();
       return { r, tm, W: lay.W, H: lay.H };
     },
-    [scenario, preset, prefs.size, reserve, timingFor, timeline, rtl, bgDef, paint, camera, endCard, caption],
+    [preset, prefs.size, reserve, timingFor, timeline, rtl, bgDef, camera, endCard, caption, speed, watermark],
   );
+  const currentJob = useMemo<Job>(() => ({ sc: scenario, paint }), [scenario, paint]);
 
   const dropMomentRenderer = () => {
     momentR.current?.p.r.dispose();
@@ -1372,7 +1697,7 @@ export function ExportDialog({
     const mul = 720 / Math.max(layout.W, layout.H);
     if (momentR.current?.key !== key) {
       dropMomentRenderer();
-      momentR.current = { key, p: await prepare(mul, 30) };
+      momentR.current = { key, p: await prepare(currentJob, mul, 30) };
     }
     if (isCancelled()) return;
     const { r } = momentR.current.p;
@@ -1408,6 +1733,7 @@ export function ExportDialog({
     return () => {
       abortRef.current?.abort();
       if (resultUrlRef.current) URL.revokeObjectURL(resultUrlRef.current);
+      for (const u of batchUrlsRef.current) URL.revokeObjectURL(u);
       if (musicUrlRef.current) URL.revokeObjectURL(musicUrlRef.current);
       momentR.current?.p.r.dispose();
       momentR.current = null;
@@ -1436,6 +1762,16 @@ export function ExportDialog({
       setLogo(await loadLogo(f));
     } catch {
       setLogoErr(true);
+    }
+  };
+
+  const onWmLogo = async (f: File) => {
+    setWmLogoErr(false);
+    try {
+      if (f.size > 8 * 1024 * 1024) throw new Error("too big");
+      setWmLogo(await loadLogo(f));
+    } catch {
+      setWmLogoErr(true);
     }
   };
 
@@ -1508,8 +1844,20 @@ export function ExportDialog({
     if (!isTouchDevice()) downloadVideoFile(res.file);
   };
 
-  const runVideo = async (ctrl: AbortController, started: number) => {
-    const { r, tm, W, H } = await prepare(1, prefs.fps);
+  /** Mirror a rendered frame into the dialog preview (letterboxed if a batch item's aspect differs). */
+  const streamPreview = (src: HTMLCanvasElement) => {
+    const pv = previewRef.current;
+    const pctx = pv?.getContext("2d");
+    if (!pv || !pctx || !src.width || !src.height) return;
+    const k = Math.min(pv.width / src.width, pv.height / src.height);
+    const w = src.width * k;
+    const h = src.height * k;
+    if (Math.abs(w - pv.width) > 1 || Math.abs(h - pv.height) > 1) pctx.clearRect(0, 0, pv.width, pv.height);
+    pctx.drawImage(src, (pv.width - w) / 2, (pv.height - h) / 2, w, h);
+  };
+
+  const runVideo = async (job: Job, ctrl: AbortController, onProgress: ItemProgress, started: number): Promise<ExportResult> => {
+    const { r, tm, W, H } = await prepare(job, 1, prefs.fps);
     try {
       const fps = prefs.fps;
       const totalFrames = Math.max(1, Math.round((tm.totalMs / 1000) * fps));
@@ -1525,6 +1873,7 @@ export function ExportDialog({
           const cues: SoundCue[] = [];
           if (prefs.sound) {
             if (tm.leadMs) cues.push({ at: NOTIF.inAt + 80, kind: "receive" });
+            // reveal times are already on the speed-scaled timeline
             for (const rv of timeline.reveals) {
               if (tm.leadMs && rv.at <= tm.skipMs) continue;
               cues.push({ at: outputTimeOf(tm, rv.at), kind: rv.sender === "me" ? "send" : "receive" });
@@ -1534,8 +1883,6 @@ export function ExportDialog({
         }
       }
       if (ctrl.signal.aborted) throw new ExportAbortedError();
-      const pv = previewRef.current;
-      const pctx = pv?.getContext("2d") ?? null;
 
       let lastUi = 0;
       const blob = await exportToMp4({
@@ -1558,10 +1905,8 @@ export function ExportDialog({
           const now = performance.now();
           if (now - lastUi < 120 && done < total) return;
           lastUi = now;
-          if (pv && pctx) pctx.drawImage(r.canvas, 0, 0, pv.width, pv.height);
-          const elapsed = now - started;
-          const etaMs = done / total > 0.04 && elapsed > 1500 ? (elapsed / done) * (total - done) : null;
-          setProgress({ done, total, etaMs });
+          streamPreview(r.canvas);
+          onProgress(done, total);
         },
       });
 
@@ -1569,17 +1914,20 @@ export function ExportDialog({
         console.info(
           "[export] " +
             JSON.stringify({
+              combo: `${job.sc.platform}:${job.sc.device}`,
               codec: codec.codec,
               audio: audio?.codec ?? null,
               music: !!musicBed,
               size: `${W}x${H}@${fps}`,
               frames: totalFrames,
+              speed,
               captured: r.stats.captured,
               reused: r.stats.reused,
               cacheHits: r.stats.cacheHits,
               captureMul: Number(r.captureMul.toFixed(2)),
               zoom: prefs.zoom ? prefs.zoomLevel : "off",
-              scenes: { notif: !!tm.leadMs, endCard: tm.endMs, caption: !!caption },
+              scenes: { notif: !!tm.leadMs, endCard: tm.endMs, caption: !!caption, watermark: !!watermark, safeFit: fitZone?.id ?? null },
+              keyboards: timeline.keyboards.length,
               msPerCapture: Math.round(r.stats.captureMs / Math.max(1, r.stats.captured)),
               totalMs: Math.round(performance.now() - started),
               bytes: blob.size,
@@ -1587,8 +1935,8 @@ export function ExportDialog({
         );
       }
 
-      const file = createExportFile(blob, scenario.platform, scenario.device, "mp4");
-      finishResult({
+      const file = createExportFile(blob, job.sc.platform, job.sc.device, "mp4");
+      return {
         kind: "video",
         file,
         url: URL.createObjectURL(file),
@@ -1601,18 +1949,18 @@ export function ExportDialog({
         frames: totalFrames,
         durationMs: durMs,
         tookMs: performance.now() - started,
-      });
+      };
     } finally {
       r.dispose();
     }
   };
 
-  const runGif = async (ctrl: AbortController, started: number) => {
+  const runGif = async (job: Job, ctrl: AbortController, onProgress: ItemProgress, started: number): Promise<ExportResult> => {
     const fps = prefs.gifFps;
     const cap = gifCap;
     let width = gifW;
     for (let attempt = 0; ; attempt++) {
-      const { r, tm, W, H } = await prepare(width / layout.W, fps);
+      const { r, tm, W, H } = await prepare(job, width / layout.W, fps);
       try {
         const totalFrames = Math.max(1, Math.round((tm.totalMs / 1000) * fps));
         // read-back surface (CPU-backed: many getImageData calls)
@@ -1645,8 +1993,6 @@ export function ExportDialog({
         samples.length = 0;
         r.seek();
 
-        const pv = previewRef.current;
-        const pctx = pv?.getContext("2d") ?? null;
         let lastUi = 0;
         let firstBytes = 0;
         let tooBig = 0;
@@ -1668,11 +2014,8 @@ export function ExportDialog({
           const now = performance.now();
           if (now - lastUi > 120 || i === totalFrames - 1) {
             lastUi = now;
-            if (pv && pctx) pctx.drawImage(frame, 0, 0, pv.width, pv.height);
-            const elapsed = now - started;
-            const done = i + 1;
-            const etaMs = done / totalFrames > 0.05 && elapsed > 1500 ? (elapsed / done) * (totalFrames - done) : null;
-            setProgress((p) => ({ done, total: totalFrames, etaMs, note: p.note }));
+            streamPreview(frame);
+            onProgress(i + 1, totalFrames);
           }
         }
         if (!tooBig) {
@@ -1680,11 +2023,22 @@ export function ExportDialog({
           if (bytes.length > cap && attempt < 3) tooBig = bytes.length;
           else {
             if (process.env.NODE_ENV !== "production") {
-              console.info("[export] " + JSON.stringify({ gif: `${W}x${H}@${fps}`, frames: totalFrames, attempts: attempt + 1, bytes: bytes.length, totalMs: Math.round(performance.now() - started) }));
+              console.info(
+                "[export] " +
+                  JSON.stringify({
+                    combo: `${job.sc.platform}:${job.sc.device}`,
+                    gif: `${W}x${H}@${fps}`,
+                    frames: totalFrames,
+                    speed,
+                    attempts: attempt + 1,
+                    bytes: bytes.length,
+                    totalMs: Math.round(performance.now() - started),
+                  }),
+              );
             }
             const blob = new Blob([bytes as BlobPart], { type: "image/gif" });
-            const file = createExportFile(blob, scenario.platform, scenario.device, "gif");
-            finishResult({
+            const file = createExportFile(blob, job.sc.platform, job.sc.device, "gif");
+            return {
               kind: "gif",
               file,
               url: URL.createObjectURL(file),
@@ -1694,30 +2048,30 @@ export function ExportDialog({
               frames: totalFrames,
               durationMs: (totalFrames * 1000) / fps,
               tookMs: performance.now() - started,
-            });
-            return;
+            };
           }
         }
         width = Math.max(200, Math.round(width * Math.max(0.55, Math.sqrt(cap / tooBig) * 0.94)));
-        setProgress({ done: 0, total: totalFrames, etaMs: null, note: c.gifRetry });
+        onProgress(0, totalFrames, c.gifRetry);
       } finally {
         r.dispose();
       }
     }
   };
 
-  const runImage = async (started: number) => {
+  const runImage = async (job: Job, started: number): Promise<ExportResult> => {
     const k = prefs.imageScale;
-    const { r, tm, W, H } = await prepare(k, 30, 4096);
+    const { r, tm, W, H } = await prepare(job, k, 30, 4096);
     try {
       r.seek();
       const at = Math.min(stillMs ?? tm.chatEnd - 1, tm.totalMs - 1);
       const frame = await r.renderAt(Math.max(0, at), true);
+      streamPreview(frame);
       const jpeg = prefs.imageFormat === "jpeg";
       const blob = await new Promise<Blob | null>((res) => frame.toBlob(res, jpeg ? "image/jpeg" : "image/png", 0.92));
       if (!blob) throw new Error("IMAGE_FAILED");
-      const file = createExportFile(blob, scenario.platform, scenario.device, jpeg ? "jpg" : "png");
-      finishResult({
+      const file = createExportFile(blob, job.sc.platform, job.sc.device, jpeg ? "jpg" : "png");
+      return {
         kind: "image",
         file,
         url: URL.createObjectURL(file),
@@ -1725,15 +2079,77 @@ export function ExportDialog({
         H,
         format: prefs.imageFormat,
         tookMs: performance.now() - started,
-      });
+      };
     } finally {
       r.dispose();
     }
   };
 
+  const renderJob = (job: Job, ctrl: AbortController, onProgress: ItemProgress, started: number): Promise<ExportResult> =>
+    kind === "video"
+      ? runVideo(job, ctrl, onProgress, started)
+      : kind === "gif"
+        ? runGif(job, ctrl, onProgress, started)
+        : runImage(job, started);
+
+  /**
+   * Batch: the same scenario (and settings) for each platform × device, one
+   * after another. Only the off-screen export stage switches app/phone; the
+   * studio's own scenario is never modified. Returns how many succeeded.
+   */
+  const runBatch = async (keys: string[], ctrl: AbortController, started: number): Promise<number> => {
+    const n = keys.length;
+    const patch = (i: number, p: Partial<BatchItem>) =>
+      setBatch((list) => (list ? list.map((it, j) => (j === i ? { ...it, ...p } : it)) : list));
+    let ok = 0;
+    for (let i = 0; i < n; i++) {
+      if (ctrl.signal.aborted) break;
+      const { platform, device } = parseCombo(keys[i]);
+      const sc: Scenario = { ...scenario, platform, device };
+      const job: Job = { sc, paint: { accent: PLATFORM_MAP[platform]?.accent ?? accent, custom: prefs.custom } };
+      patch(i, { status: "rendering", pct: 0 });
+      setProgress({ done: 0, total: 0, etaMs: null });
+      const itemStart = performance.now();
+      try {
+        await preloadPlatform(platform, device);
+        flushSync(() => setStageScenario(sc));
+        const res = await renderJob(
+          job,
+          ctrl,
+          (done, total, note) => {
+            const f = total ? done / total : 0;
+            const overall = (i + f) / n;
+            const elapsed = performance.now() - started;
+            const etaMs = overall > 0.03 && elapsed > 1500 ? (elapsed / overall) * (1 - overall) : null;
+            patch(i, { pct: Math.min(99, Math.round(f * 100)) });
+            setProgress((p) => ({ done, total, etaMs, note: note ?? p.note }));
+          },
+          itemStart,
+        );
+        batchUrlsRef.current.push(res.url);
+        patch(i, { status: "done", pct: 100, result: res });
+        if (!ok) setResult(res);
+        ok++;
+        // desktop: each file downloads as it finishes, named per app and phone
+        if (!isTouchDevice()) downloadVideoFile(res.file);
+      } catch (e) {
+        if (e instanceof ExportAbortedError || ctrl.signal.aborted) {
+          patch(i, { status: "cancelled", pct: 0 });
+          break;
+        }
+        const msg = (e as Error)?.message ?? "";
+        patch(i, { status: "error", error: c.errors[msg] ?? `${c.errors.generic}${msg ? ` (${msg})` : ""}` });
+      }
+    }
+    // whatever never started was cancelled
+    setBatch((list) => (list ? list.map((it) => (it.status === "pending" ? { ...it, status: "cancelled" } : it)) : list));
+    return ok;
+  };
+
   const runExport = async () => {
     const stage = stageRef.current;
     if (!stage || phase === "rendering") return;
+    const keys = batchOn ? batchKeys : null;
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     audioRef.current?.pause();
@@ -1748,15 +2164,40 @@ export function ExportDialog({
     setErrDetail("");
     if (resultUrlRef.current) URL.revokeObjectURL(resultUrlRef.current);
     resultUrlRef.current = null;
+    for (const u of batchUrlsRef.current) URL.revokeObjectURL(u);
+    batchUrlsRef.current = [];
     setResult(null);
+    setBatch(
+      keys
+        ? keys.map((key) => ({ key, ...parseCombo(key), status: "pending" as const, pct: 0, result: null, error: "" }))
+        : null,
+    );
 
     const started = performance.now();
     await withStage(async () => {
       dropMomentRenderer();
       try {
-        if (kind === "video") await runVideo(ctrl, started);
-        else if (kind === "gif") await runGif(ctrl, started);
-        else await runImage(started);
+        if (!keys) {
+          const res = await renderJob(
+            currentJob,
+            ctrl,
+            (done, total, note) => {
+              const elapsed = performance.now() - started;
+              const etaMs = done / total > 0.04 && elapsed > 1500 ? (elapsed / done) * (total - done) : null;
+              setProgress((p) => ({ done, total, etaMs, note: note ?? p.note }));
+            },
+            started,
+          );
+          finishResult(res);
+        } else {
+          const ok = await runBatch(keys, ctrl, started);
+          if (ok > 0) setPhase("done");
+          else if (ctrl.signal.aborted) setPhase("idle");
+          else {
+            setErrKey("generic");
+            setPhase("error");
+          }
+        }
       } catch (e) {
         if (e instanceof ExportAbortedError || ctrl.signal.aborted) {
           setPhase("idle");
@@ -1768,6 +2209,11 @@ export function ExportDialog({
         }
       } finally {
         if (abortRef.current === ctrl) abortRef.current = null;
+        if (keys) {
+          // back to the studio's own app and phone for the next preview / export
+          flushSync(() => setStageScenario(scenario));
+          await waitForTemplate(stage);
+        }
         // back to the static, fully revealed thread for the next preview
         stageRef.current?.render(null);
       }

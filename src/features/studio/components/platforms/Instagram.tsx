@@ -83,11 +83,12 @@
 
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react";
 
-import type { Message, Person } from "../../types";
+import type { CallEntry, FileShare, GroupChat, LinkPreview, LocationShare, Message, Person } from "../../types";
 import { Avatar, dirOf, SystemBottomBar, useChatScroll } from "../shared";
+import { useKeyboardInset } from "../devices/keyboard-context";
 import { StatusBar } from "../devices/StatusBar";
 import type { Lang } from "./chrome";
-import { groupInfo, type PlatformMotion, type PlatformProps } from "./types";
+import type { PlatformMotion, PlatformProps } from "./types";
 
 /* ------------------------------ tokens ------------------------------ */
 
@@ -747,6 +748,271 @@ function IgiReplyQuote({
   );
 }
 
+/* ------------------- groups + round 5 message kinds ------------------ */
+
+/** IGDS destructive red (missed-call glyph). */
+const IGI_RED = "#ff3040";
+
+type IgiStr = (typeof IGI_STR)[Lang];
+
+function igiCallTitle(c: CallEntry | null | undefined, s: IgiStr): string {
+  if (c?.missed) return c.video ? s.missedVideo : s.missedAudio;
+  return c?.video ? s.videoEnded : s.audioEnded;
+}
+
+/** One-line description of a message for a reply quote. */
+function igiQuoteText(m: Message, s: IgiStr): string {
+  if (m.type === "location") return m.location?.live ? s.liveLocation : (m.location?.title ?? "");
+  if (m.type === "file") return m.file?.name ?? "";
+  if (m.type === "call") return igiCallTitle(m.call, s);
+  return m.text;
+}
+
+const IGI_URL = /((?:https?:\/\/|www\.)[^\s]+)/i;
+
+/** Message text with URLs underlined in the bubble's own ink (as Instagram draws links). */
+function IgiRichText({ text }: { text: string }) {
+  const parts = text.split(IGI_URL);
+  return (
+    <>
+      {parts.map((p, i) =>
+        i % 2 ? (
+          <span key={i} dir="ltr" style={{ textDecoration: "underline", textUnderlineOffset: 2, overflowWrap: "anywhere" }}>
+            {p}
+          </span>
+        ) : (
+          <Fragment key={i}>{p}</Fragment>
+        ),
+      )}
+    </>
+  );
+}
+
+/**
+ * Instagram's default group picture: two member photos stacked diagonally —
+ * the second member top-trailing, the first bottom-leading over it with a
+ * canvas-coloured ring. An uploaded group photo replaces it.
+ */
+function IgiGroupAvatar({ group, size, ring }: { group: GroupChat; size: number; ring: string }) {
+  if (group.avatar) return <Avatar person={{ name: group.name, avatar: group.avatar }} size={size} />;
+  const a = group.members[0] ?? { name: group.name, avatar: null };
+  const b = group.members[1] ?? a;
+  const d = Math.round(size * 0.74);
+  const rw = Math.max(1.5, Math.round(size / 20));
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <div className="absolute" style={{ top: 0, insetInlineEnd: 0 }}>
+        <Avatar person={b} size={d} />
+      </div>
+      <div
+        className="absolute rounded-full"
+        style={{ bottom: -rw, insetInlineStart: -rw, padding: rw, background: ring }}
+      >
+        <Avatar person={a} size={d} />
+      </div>
+    </div>
+  );
+}
+
+/** Plausible street map tile (Apple-Maps-like light / dark palette) with a pin or a live avatar. */
+function IgiMap({ dark, live, person, height }: { dark: boolean; live: boolean; person: Person; height: number }) {
+  const c = dark
+    ? { land: "#23272c", block: "#2a2f35", road: "#3b4148", main: "#5a5136", park: "#1e3628", water: "#1b2a3b", label: "#7c848e" }
+    : { land: "#f4f1ea", block: "#ebe7de", road: "#ffffff", main: "#f9d77e", park: "#cfe8bf", water: "#a9d3f5", label: "#9a9690" };
+  return (
+    <div className="relative" style={{ height }}>
+      <svg width="100%" height={height} viewBox="0 0 236 140" preserveAspectRatio="xMidYMid slice" className="block">
+        <rect width="236" height="140" fill={c.land} />
+        <path d="M0 108c30-6 52 4 80 2s40 12 46 32H0Z" fill={c.water} />
+        <rect x="150" y="6" width="56" height="34" rx="3" fill={c.park} />
+        <rect x="12" y="10" width="44" height="30" rx="2" fill={c.block} />
+        <rect x="70" y="10" width="64" height="30" rx="2" fill={c.block} />
+        <rect x="12" y="54" width="44" height="34" rx="2" fill={c.block} />
+        <rect x="160" y="58" width="62" height="36" rx="2" fill={c.block} />
+        <g stroke={c.road} strokeLinecap="round" fill="none">
+          <path d="M-4 47h244M-4 98h244M63 -4v148M142 -4v148M214 -4v148" strokeWidth="5" />
+          <path d="M-4 22h70M142 76h100M100 47v60" strokeWidth="3" />
+        </g>
+        <path d="M-6 132 242 18" stroke={c.main} strokeWidth="8" strokeLinecap="round" />
+        <path d="M176 116h22M182 121h14" stroke={c.label} strokeWidth="1.6" strokeLinecap="round" opacity="0.55" />
+      </svg>
+      {live ? (
+        <div className="absolute" style={{ left: "50%", top: "50%", transform: "translate(-50%, -50%)" }}>
+          <span className="absolute rounded-full" style={{ inset: -12, background: "rgba(74,93,247,0.22)" }} />
+          <span className="relative block rounded-full" style={{ padding: 2, background: "#ffffff" }}>
+            <Avatar person={person} size={30} />
+          </span>
+        </div>
+      ) : (
+        <svg width="30" height="38" viewBox="0 0 30 38" className="absolute" style={{ left: "50%", top: "50%", transform: "translate(-50%, -88%)" }}>
+          <ellipse cx="15" cy="35.5" rx="5" ry="1.8" fill="rgba(0,0,0,0.25)" />
+          <path d="M15 1C7.3 1 2 6.6 2 13.6 2 23.2 15 35 15 35s13-11.8 13-21.4C28 6.6 22.7 1 15 1Z" fill={IGI_RED} stroke="#ffffff" strokeWidth="1.6" />
+          <circle cx="15" cy="13.6" r="4.6" fill="#ffffff" />
+        </svg>
+      )}
+    </div>
+  );
+}
+
+function IgiLocationCard({
+  loc,
+  pal,
+  dark,
+  person,
+  corners,
+  s,
+}: {
+  loc: LocationShare;
+  pal: IosPalette;
+  dark: boolean;
+  person: Person;
+  corners: Corners;
+  s: IgiStr;
+}) {
+  const title = loc.live ? s.liveLocation : loc.title;
+  const sub = loc.live ? (loc.subtitle ?? s.liveSub) : loc.subtitle;
+  return (
+    <div className="overflow-hidden" style={{ ...corners, width: IOS.imgW, background: pal.inBubble }}>
+      <IgiMap dark={dark} live={!!loc.live} person={person} height={140} />
+      <div style={{ padding: "9px 13px 10px", textAlign: "start" }}>
+        <div className="truncate" dir="auto" style={{ fontSize: 15, lineHeight: "20px", fontWeight: 600, color: pal.fg, textAlign: "start" }}>
+          {title}
+        </div>
+        {sub && (
+          <div className="truncate" dir="auto" style={{ fontSize: 13, lineHeight: "17px", color: pal.sub, textAlign: "start" }}>
+            {sub}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const IGI_EXT_COLOR: Record<string, string> = {
+  PDF: "#e5252a",
+  DOC: "#2b579a",
+  DOCX: "#2b579a",
+  XLS: "#217346",
+  XLSX: "#217346",
+  CSV: "#217346",
+  PPT: "#d24726",
+  PPTX: "#d24726",
+  ZIP: "#8e959e",
+};
+
+/** Document glyph: white page, folded corner, coloured type band. */
+function IgiDocIcon({ ext }: { ext: string }) {
+  const color = IGI_EXT_COLOR[ext] ?? "#6a717a";
+  return (
+    <svg width="34" height="40" viewBox="0 0 34 40" className="shrink-0">
+      <path d="M4 1h18l11 11v25a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2Z" fill="#ffffff" stroke="rgba(0,0,0,0.12)" />
+      <path d="M22 1v9a2 2 0 0 0 2 2h9" fill="#e9ecef" stroke="rgba(0,0,0,0.12)" />
+      <rect x="0" y="20" width="27" height="12" rx="2" fill={color} />
+      <text x="13.5" y="29.2" textAnchor="middle" fontSize="7.6" fontWeight="700" fill="#ffffff" fontFamily="-apple-system, system-ui, sans-serif">
+        {(ext || "FILE").slice(0, 4)}
+      </text>
+    </svg>
+  );
+}
+
+function IgiFileBody({ file, mine, pal }: { file: FileShare; mine: boolean; pal: IosPalette }) {
+  const ext = file.name.includes(".") ? (file.name.split(".").pop() ?? "").toUpperCase() : "";
+  // each part isolated so "صفحتان · 245 KB · PDF" keeps its order in the Arabic UI
+  const metaParts = [file.pages, file.size, ext].filter((v): v is string => !!v);
+  const meta = metaParts.length
+    ? metaParts.map((p, i) => (
+        <Fragment key={i}>
+          {i > 0 && " · "}
+          <bdi>{p}</bdi>
+        </Fragment>
+      ))
+    : null;
+  return (
+    <div className="flex items-center" style={{ gap: 10, width: 214 }}>
+      <IgiDocIcon ext={ext} />
+      <div className="min-w-0 flex-1">
+        <div className="truncate" dir="ltr" style={{ fontSize: 15, lineHeight: "20px", fontWeight: 600, textAlign: "start" }}>
+          {file.name}
+        </div>
+        {meta && (
+          <div className="truncate" style={{ fontSize: 13, lineHeight: "17px", color: mine ? "rgba(255,255,255,0.78)" : pal.sub, textAlign: "start" }}>
+            {meta}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function IgiCallBody({ call, mine, pal, s }: { call: CallEntry; mine: boolean; pal: IosPalette; s: IgiStr }) {
+  const ink = call.missed ? IGI_RED : pal.fg;
+  const sub = call.missed ? (mine ? s.callAgain : s.callBack) : (call.duration ?? "");
+  return (
+    <div className="flex items-center" style={{ gap: 10, minWidth: 176 }}>
+      <span className="flex shrink-0 items-center justify-center rounded-full" style={{ width: 36, height: 36, background: pal.rail, color: ink }}>
+        {call.video ? <IgiVideo size={19} /> : <IgiPhone size={17} />}
+      </span>
+      <div className="min-w-0">
+        <div style={{ fontSize: 15, lineHeight: "20px", fontWeight: 600, textAlign: "start" }}>{igiCallTitle(call, s)}</div>
+        {sub && (
+          <div style={{ fontSize: 13, lineHeight: "17px", color: pal.sub, textAlign: "start" }}>
+            <bdi>{sub}</bdi>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function IgiLinkCard({ link, pal, corners }: { link: LinkPreview; pal: IosPalette; corners: Corners }) {
+  let site = link.siteName?.trim();
+  if (!site) {
+    try {
+      site = new URL(link.url).hostname.replace(/^www\./, "");
+    } catch {
+      site = link.url;
+    }
+  }
+  return (
+    <div className="overflow-hidden" style={{ ...corners, width: IOS.imgW, background: pal.inBubble, color: pal.fg }}>
+      {link.image && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={link.image} alt="" draggable={false} className="block w-full object-cover" style={{ height: 124 }} />
+      )}
+      <div style={{ padding: "9px 13px 11px" }}>
+        <div className="line-clamp-2" dir="auto" style={{ fontSize: 15, lineHeight: "20px", fontWeight: 600, textAlign: "start" }}>
+          {link.title}
+        </div>
+        {link.description && (
+          <div className="line-clamp-2" dir="auto" style={{ marginTop: 1, fontSize: 13, lineHeight: "17px", color: pal.sub, textAlign: "start" }}>
+            {link.description}
+          </div>
+        )}
+        <div className="truncate" dir="ltr" style={{ marginTop: 2, fontSize: 13, lineHeight: "17px", color: pal.sub, textAlign: "start" }}>
+          {site}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Sticker: no bubble — an uploaded sticker image, or 1–3 emoji drawn sticker-sized. */
+function IgiStickerView({ m }: { m: Message }) {
+  if (m.imageSrc) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={m.imageSrc} alt="" draggable={false} className="block object-contain" style={{ width: 132, height: 132 }} />
+    );
+  }
+  const n = jumboEmojiCount(m.text) || 1;
+  const size = n === 1 ? 96 : n === 2 ? 68 : 54;
+  return (
+    <div dir="ltr" style={{ fontSize: size, lineHeight: `${Math.round(size * 1.22)}px`, padding: "0 2px" }}>
+      {m.text.trim() || "🙂"}
+    </div>
+  );
+}
+
 /* ------------------------------ thread ------------------------------ */
 
 export function Instagram({ scenario, playback, lang, rtl }: PlatformProps) {
@@ -816,16 +1082,52 @@ export function Instagram({ scenario, playback, lang, rtl }: PlatformProps) {
   const draft = playback.draft;
   const caretOn = exporting ? clockMs % IGI_CARET_MS < IGI_CARET_MS / 2 : true;
 
-  const last = messages[messages.length - 1];
-  const receipt = last && last.sender === "me" ? (playback.statusOf(last) === "read" ? s.seen : s.sent) : null;
+  /* OS keyboard: the composer sits directly on it and the thread shrinks. */
+  const { inset: kbInset, transition: kbTransition } = useKeyboardInset();
+  const kbUp = kbInset > 0;
 
-  const active = scenario.presence !== "lastseen";
-  const subtitle = active ? s.activeNow : scenario.lastSeenText || igiHandle(scenario.them);
+  /* Group threads: "them" messages belong to a member (authorIndex). */
+  const group = scenario.group ?? null;
+  const authorOf = (m: Message | undefined): Person =>
+    group ? (group.members[m?.authorIndex ?? 0] ?? group.members[0] ?? scenario.them) : scenario.them;
+  const keyOf = (m: Message) => (m.sender === "me" ? "me" : group ? `t${m.authorIndex ?? 0}` : "t");
+  const isSys = (m: Message) => m.type === "deleted";
+  const bubbleless = (m: Message) =>
+    m.type === "sticker" || (m.type === "text" && !m.link && jumboEmojiCount(m.text) > 0);
+  /** a run = consecutive messages of one author, cut by a time separator or a system line */
+  const newRun = (i: number) =>
+    i === 0 ||
+    needsSeparator(messages, i) ||
+    keyOf(messages[i - 1]) !== keyOf(messages[i]) ||
+    isSys(messages[i - 1]) ||
+    isSys(messages[i]);
+  /** a block also breaks at a quoted reply or an "Edited" label (they sit between bubbles) */
+  const newBlock = (i: number) => newRun(i) || !!targetOf(messages[i]) || !!messages[i].edited;
+
+  const last = messages[messages.length - 1];
+  const receipt =
+    last && last.sender === "me" ? (playback.statusOf(last) === "read" ? (group ? s.seenByAll : s.seen) : s.sent) : null;
+
+  /* who is typing: the author of the upcoming "them" message, else the last one who spoke */
+  const upcoming = scenario.messages[messages.length];
+  const typer = authorOf(
+    upcoming?.sender === "them" ? upcoming : [...messages].reverse().find((m) => m.sender === "them"),
+  );
+
+  const active = !group && scenario.presence !== "lastseen";
+  const subtitle = group
+    ? group.members.map((p) => p.name).join(s.joinNames)
+    : active
+      ? s.activeNow
+      : scenario.lastSeenText || igiHandle(scenario.them);
   const handle = igiHandle(scenario.them);
   const dirKey = rtl ? "rtl" : "ltr";
 
   return (
-    <div className="flex h-full w-full flex-col" style={{ background: pal.bg, color: pal.fg }}>
+    <div
+      className="flex h-full w-full flex-col"
+      style={{ background: pal.bg, color: pal.fg, paddingBottom: kbInset, transition: `padding-bottom ${kbTransition}` }}
+    >
       <style>{IGI_CSS}</style>
       <StatusBar device={scenario.device} tint={dark ? "light" : "dark"} background={pal.bg} />
 
@@ -835,7 +1137,11 @@ export function Instagram({ scenario, playback, lang, rtl }: PlatformProps) {
           <IgiChevron color={pal.fg} />
         </span>
         <div className="relative ms-1.5 shrink-0" style={{ width: IOS.headerAvatar, height: IOS.headerAvatar }}>
-          <Avatar person={scenario.them} size={IOS.headerAvatar} />
+          {group ? (
+            <IgiGroupAvatar group={group} size={IOS.headerAvatar} ring={pal.bg} />
+          ) : (
+            <Avatar person={scenario.them} size={IOS.headerAvatar} />
+          )}
           {active && (
             <span
               className="absolute rounded-full"
@@ -857,7 +1163,7 @@ export function Instagram({ scenario, playback, lang, rtl }: PlatformProps) {
             dir="auto"
             style={{ fontSize: IOS.nameSize, lineHeight: "20px", fontWeight: 600, letterSpacing: -0.2, textAlign: "start" }}
           >
-            {scenario.them.name}
+            {group ? group.name : scenario.them.name}
           </div>
           <div className="truncate" style={{ fontSize: IOS.subSize, lineHeight: "15px", color: pal.sub, textAlign: "start" }}>
             {subtitle}
@@ -879,16 +1185,18 @@ export function Instagram({ scenario, playback, lang, rtl }: PlatformProps) {
       >
         {/* Profile intro that opens every Instagram thread */}
         <div className="flex flex-col items-center text-center" style={{ paddingTop: 30, paddingBottom: 30 }}>
-          <Avatar person={scenario.them} size={96} />
+          {group ? <IgiGroupAvatar group={group} size={96} ring={pal.bg} /> : <Avatar person={scenario.them} size={96} />}
           <div
             className="max-w-full truncate"
             dir="auto"
             style={{ marginTop: 12, fontSize: 20, lineHeight: "25px", fontWeight: 600, letterSpacing: -0.3 }}
           >
-            {scenario.them.name}
+            {group ? group.name : scenario.them.name}
           </div>
           <div style={{ marginTop: 2, fontSize: 14, lineHeight: "18px", color: pal.sub }}>
-            {handle ? (
+            {group ? (
+              s.members(group.members.length + 1)
+            ) : handle ? (
               <>
                 <span dir="ltr">{handle}</span> · {s.instagram}
               </>
@@ -896,12 +1204,14 @@ export function Instagram({ scenario, playback, lang, rtl }: PlatformProps) {
               s.instagram
             )}
           </div>
-          <div
-            className="flex items-center justify-center"
-            style={{ marginTop: 14, height: 32, padding: "0 16px", borderRadius: 8, background: pal.button, fontSize: 14, fontWeight: 600 }}
-          >
-            {s.viewProfile}
-          </div>
+          {!group && (
+            <div
+              className="flex items-center justify-center"
+              style={{ marginTop: 14, height: 32, padding: "0 16px", borderRadius: 8, background: pal.button, fontSize: 14, fontWeight: 600 }}
+            >
+              {s.viewProfile}
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col">
@@ -909,63 +1219,119 @@ export function Instagram({ scenario, playback, lang, rtl }: PlatformProps) {
             const mine = m.sender === "me";
             const onRight = mine ? !rtl : rtl;
             const sep = needsSeparator(messages, i);
-            const g = groupInfo(messages, i);
             const target = targetOf(m);
-            // a quoted reply opens a new visual block: it breaks the corner join on both sides
-            const firstOfGroup = g.firstOfGroup || sep || !!target;
-            const nextSep = i + 1 < messages.length && needsSeparator(messages, i + 1);
-            const lastOfGroup = g.lastOfGroup || nextSep || !!targetOf(messages[i + 1]);
+            const isLast = i === messages.length - 1;
+            const runStart = newRun(i);
+            const runEnd = isLast || newRun(i + 1);
+            // a quoted reply / "Edited" label opens a new visual block: corners are not joined across it
+            const firstOfGroup = newBlock(i);
+            const lastOfGroup = isLast || newBlock(i + 1);
+            const joinAboveMsg = !firstOfGroup && !bubbleless(messages[i - 1]);
+            const joinBelowMsg = !lastOfGroup && !bubbleless(messages[i + 1]);
             const reaction = m.reaction?.trim();
-
-            const hasImage = m.type === "image";
-            const caption = hasImage ? m.text.trim() : "";
-            const jumbo = m.type === "text" ? jumboEmojiCount(m.text) : 0;
-            const segs: ("image" | "text" | "voice" | "emoji")[] = hasImage
-              ? caption
-                ? ["image", "text"]
-                : ["image"]
-              : m.type === "voice"
-                ? ["voice"]
-                : jumbo
-                  ? ["emoji"]
-                  : ["text"];
-
+            const author = authorOf(m);
             const enter = live ? `ig-ios-in-${mine ? "me" : "them"}-${dirKey}` : "";
+            const marginTop = sep ? 0 : runStart || target ? IOS.senderGap : firstOfGroup ? 4 : IOS.groupGap;
+
+            const sepEl = sep && (
+              <div
+                className={`flex justify-center ${live ? "ig-ios-fade" : ""}`}
+                style={{ margin: i === 0 ? "0 0 14px" : "18px 0 14px" }}
+              >
+                <span style={{ fontSize: 12, lineHeight: "16px", fontWeight: 500, color: pal.sub }}>
+                  {s.today} <span dir="ltr">{m.time}</span>
+                </span>
+              </div>
+            );
+
+            /* Unsend leaves a centred secondary line in the thread ("You unsent a message"). */
+            if (m.type === "deleted") {
+              return (
+                <Fragment key={m.id}>
+                  {sepEl}
+                  <div
+                    data-mid={m.id}
+                    data-sender={m.sender}
+                    className={`flex justify-center ${enter}`}
+                    style={{ marginTop: sep ? 0 : IOS.senderGap, marginBottom: 2, paddingInline: 24 }}
+                  >
+                    <span className="text-center" style={{ fontSize: 12, lineHeight: "16px", color: pal.sub }}>
+                      {mine ? s.youUnsent : s.nameUnsent(author.name)}
+                    </span>
+                  </div>
+                </Fragment>
+              );
+            }
+
+            type Seg = "image" | "text" | "voice" | "emoji" | "sticker" | "location" | "file" | "call" | "link";
+            const caption = m.type === "image" ? m.text.trim() : "";
+            const jumbo = m.type === "text" && !m.link ? jumboEmojiCount(m.text) : 0;
+            const segs: Seg[] =
+              m.type === "image"
+                ? caption
+                  ? ["image", "text"]
+                  : ["image"]
+                : m.type === "voice"
+                  ? ["voice"]
+                  : m.type === "sticker"
+                    ? ["sticker"]
+                    : m.type === "location"
+                      ? ["location"]
+                      : m.type === "file"
+                        ? ["file"]
+                        : m.type === "call"
+                          ? ["call"]
+                          : jumbo
+                            ? ["emoji"]
+                            : m.link
+                              ? ["text", "link"]
+                              : ["text"];
+            const showName = !!group && !mine && runStart;
 
             return (
               <Fragment key={m.id}>
-                {sep && (
-                  <div
-                    className={`flex justify-center ${live ? "ig-ios-fade" : ""}`}
-                    style={{ margin: i === 0 ? "0 0 14px" : "18px 0 14px" }}
-                  >
-                    <span style={{ fontSize: 12, lineHeight: "16px", fontWeight: 500, color: pal.sub }}>
-                      {s.today} <span dir="ltr">{m.time}</span>
-                    </span>
-                  </div>
-                )}
+                {sepEl}
                 <div
                   data-mid={m.id}
                   data-sender={m.sender}
                   className={`flex items-end ${mine ? "justify-end" : "justify-start"} ${enter}`}
-                  style={{
-                    marginTop: firstOfGroup ? (sep ? 0 : IOS.senderGap) : IOS.groupGap,
-                    gap: IOS.avatarGap,
-                  }}
+                  style={{ marginTop, gap: IOS.avatarGap }}
                 >
                   {!mine && (
                     <div className="shrink-0" style={{ width: IOS.inAvatar, marginBottom: reaction ? IGI_REACT.h - IGI_REACT.overlap : 0 }}>
-                      {lastOfGroup && <Avatar person={scenario.them} size={IOS.inAvatar} />}
+                      {runEnd && <Avatar person={author} size={IOS.inAvatar} />}
                     </div>
                   )}
                   <div
                     className={`flex min-w-0 flex-col ${mine ? "items-end" : "items-start"}`}
                     style={{ maxWidth: IOS.maxW, gap: IOS.groupGap }}
                   >
-                    {target && <IgiReplyQuote target={target} mine={mine} pal={pal} s={s} themName={scenario.them.name} />}
+                    {showName && (
+                      <div
+                        className="max-w-full truncate"
+                        dir="auto"
+                        style={{ fontSize: 12, lineHeight: "16px", color: pal.sub, paddingInline: IOS.padX, marginBottom: 1, textAlign: "start" }}
+                      >
+                        {author.name}
+                      </div>
+                    )}
+                    {target && (
+                      <IgiReplyQuote
+                        target={target}
+                        mine={mine}
+                        pal={pal}
+                        s={s}
+                        themName={author.name}
+                        targetName={authorOf(target).name}
+                        group={!!group}
+                      />
+                    )}
+                    {m.edited && (
+                      <div style={{ fontSize: 12, lineHeight: "16px", color: pal.sub, paddingInline: IOS.padX, marginBottom: 1 }}>{s.edited}</div>
+                    )}
                     {segs.map((seg, k) => {
-                      const joinedAbove = k > 0 || !firstOfGroup;
-                      const joinedBelow = k < segs.length - 1 || !lastOfGroup;
+                      const joinedAbove = k > 0 || joinAboveMsg;
+                      const joinedBelow = k < segs.length - 1 || joinBelowMsg;
                       if (seg === "emoji") {
                         return (
                           <div
@@ -977,6 +1343,7 @@ export function Instagram({ scenario, playback, lang, rtl }: PlatformProps) {
                           </div>
                         );
                       }
+                      if (seg === "sticker") return <IgiStickerView key={seg} m={m} />;
                       if (seg === "image") {
                         const corners = cornersFor(onRight, joinedAbove, joinedBelow, IOS.imgRadius, IOS.joined);
                         return (
@@ -999,28 +1366,47 @@ export function Instagram({ scenario, playback, lang, rtl }: PlatformProps) {
                           </div>
                         );
                       }
+                      if (seg === "location" && m.location) {
+                        const corners = cornersFor(onRight, joinedAbove, joinedBelow, IOS.imgRadius, IOS.joined);
+                        return <IgiLocationCard key={seg} loc={m.location} pal={pal} dark={dark} person={mine ? scenario.me : author} corners={corners} s={s} />;
+                      }
+                      if (seg === "link" && m.link) {
+                        const corners = cornersFor(onRight, joinedAbove, joinedBelow, IOS.imgRadius, IOS.joined);
+                        return <IgiLinkCard key={seg} link={m.link} pal={pal} corners={corners} />;
+                      }
                       const corners = cornersFor(onRight, joinedAbove, joinedBelow, IOS.radius, IOS.joined);
-                      const text = hasImage ? caption : m.text;
+                      // call entries are drawn on the neutral grey surface on both sides
+                      const filled = mine && seg !== "call";
+                      const text = m.type === "image" ? caption : m.text;
                       return (
                         <div
                           key={seg}
-                          {...(mine ? { "data-igi-out": "" } : {})}
+                          {...(filled ? { "data-igi-out": "" } : {})}
                           style={{
                             ...corners,
-                            backgroundColor: mine ? IGI_BOTTOM : pal.inBubble,
-                            color: mine ? "#ffffff" : pal.fg,
-                            padding: seg === "voice" ? `${IOS.padY}px 14px` : `${IOS.padY}px ${IOS.padX}px`,
+                            backgroundColor: filled ? IGI_BOTTOM : pal.inBubble,
+                            color: filled ? "#ffffff" : pal.fg,
+                            padding:
+                              seg === "voice"
+                                ? `${IOS.padY}px 14px`
+                                : seg === "file" || seg === "call"
+                                  ? "10px 16px 10px 10px"
+                                  : `${IOS.padY}px ${IOS.padX}px`,
                           }}
                         >
                           {seg === "voice" ? (
                             <IgiVoice mine={mine} fg={pal.fg} duration={m.voiceDuration} />
+                          ) : seg === "file" ? (
+                            <IgiFileBody file={m.file ?? { name: m.text || "File" }} mine={mine} pal={pal} />
+                          ) : seg === "call" ? (
+                            <IgiCallBody call={m.call ?? { video: false, missed: false }} mine={mine} pal={pal} s={s} />
                           ) : (
                             <div
                               dir={dirOf(text)}
                               className="whitespace-pre-wrap break-words"
                               style={{ fontSize: IOS.text, lineHeight: `${IOS.lh}px`, letterSpacing: -0.1, textAlign: "start" }}
                             >
-                              {text}
+                              <IgiRichText text={text} />
                             </div>
                           )}
                         </div>
@@ -1039,12 +1425,12 @@ export function Instagram({ scenario, playback, lang, rtl }: PlatformProps) {
             </div>
           )}
 
-          {showTyping && <IgiTyping person={scenario.them} pal={pal} clockMs={clockMs} rtl={rtl} />}
+          {showTyping && <IgiTyping person={typer} pal={pal} clockMs={clockMs} rtl={rtl} />}
         </div>
       </div>
 
-      {/* Composer */}
-      <div className="shrink-0" style={{ padding: "6px 12px 14px" }}>
+      {/* Composer — sits 8pt above the keyboard while it is up (no home-indicator band) */}
+      <div className="shrink-0" style={{ padding: `6px 12px ${kbUp ? 8 : 14}px` }}>
         {/* The pill grows line by line with a draft (radius stays 22pt, camera
             disc and "Send" stay on the bottom row); mic/gallery/sticker/+ give
             way to the theme-coloured "Send" text button while there is text. */}

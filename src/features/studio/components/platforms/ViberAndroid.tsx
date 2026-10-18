@@ -68,11 +68,12 @@
 
 import type { CSSProperties, ReactNode } from "react";
 
-import type { DeliveryStatus, Message, Person } from "../../types";
+import type { DeliveryStatus, FileShare, LinkPreview, Message, Person, Scenario } from "../../types";
 import { Avatar, dirOf, SystemBottomBar, useChatScroll } from "../shared";
+import { useKeyboardInset } from "../devices/keyboard-context";
 import { SamsungStatusBar } from "../devices/SamsungStatusBar";
 import type { Lang } from "./chrome";
-import { groupInfo, type PlatformMotion, type PlatformProps } from "./types";
+import { type PlatformMotion, type PlatformProps } from "./types";
 
 /* ======================================================================
    Palette
@@ -202,13 +203,157 @@ const ACTION_PAIR_GAP = 6; // forward <-> heart
    Localised strings (Viber's own wording)
    ====================================================================== */
 
-const STR: Record<
-  Lang,
-  { today: string; online: string; typing: string; placeholder: string; you: string; photo: string; voice: string }
-> = {
-  en: { today: "Today", online: "Online", typing: "typing…", placeholder: "Message…", you: "You", photo: "Photo", voice: "Voice message" },
-  ar: { today: "اليوم", online: "متصل", typing: "يكتب…", placeholder: "رسالة…", you: "أنت", photo: "صورة", voice: "رسالة صوتية" },
+interface VbStrings {
+  today: string;
+  online: string;
+  typing: string;
+  isTyping: (name: string) => string;
+  placeholder: string;
+  you: string;
+  photo: string;
+  voice: string;
+  edited: string;
+  deleted: string;
+  sticker: string;
+  location: string;
+  missedCall: string;
+  missedVideo: string;
+  inCall: string;
+  inVideo: string;
+  outCall: string;
+  outVideo: string;
+  noAnswer: string;
+}
+
+const STR: Record<Lang, VbStrings> = {
+  en: {
+    today: "Today",
+    online: "Online",
+    typing: "typing…",
+    isTyping: (n) => `${n} is typing…`,
+    placeholder: "Message…",
+    you: "You",
+    photo: "Photo",
+    voice: "Voice message",
+    edited: "Edited",
+    deleted: "Message deleted",
+    sticker: "Sticker",
+    location: "Location",
+    missedCall: "Missed call",
+    missedVideo: "Missed video call",
+    inCall: "Incoming call",
+    inVideo: "Incoming video call",
+    outCall: "Outgoing call",
+    outVideo: "Outgoing video call",
+    noAnswer: "No answer",
+  },
+  ar: {
+    today: "اليوم",
+    online: "متصل",
+    typing: "يكتب…",
+    isTyping: (n) => `${n} يكتب…`,
+    placeholder: "رسالة…",
+    you: "أنت",
+    photo: "صورة",
+    voice: "رسالة صوتية",
+    edited: "تم التعديل",
+    deleted: "تم حذف الرسالة",
+    sticker: "ملصق",
+    location: "الموقع",
+    missedCall: "مكالمة فائتة",
+    missedVideo: "مكالمة فيديو فائتة",
+    inCall: "مكالمة واردة",
+    inVideo: "مكالمة فيديو واردة",
+    outCall: "مكالمة صادرة",
+    outVideo: "مكالمة فيديو صادرة",
+    noAnswer: "لا يوجد رد",
+  },
 };
+
+/* ======================================================================
+   Group chats + new message kinds (helpers)
+   ====================================================================== */
+
+/** Per-member sender-name colours (picked by member index), light / dark. */
+const MEMBER_LIGHT = ["#d6457a", "#2b9a62", "#e0782c", "#3b7dd8", "#8e55e6", "#cc463c", "#1e9bb0", "#a8850f"];
+const MEMBER_DARK = ["#ff7eaa", "#62d197", "#ffa466", "#7aacff", "#b896ff", "#ff8278", "#62d1e4", "#e6c250"];
+
+function authorIndexOf(m: Message, scenario: Scenario): number {
+  const n = scenario.group?.members.length ?? 0;
+  const i = m.authorIndex ?? 0;
+  return n ? Math.min(Math.max(0, i), n - 1) : 0;
+}
+
+/** The person who wrote a message (group member, the 1:1 contact, or me). */
+function authorOf(m: Message, scenario: Scenario): Person {
+  if (m.sender === "me") return scenario.me;
+  const g = scenario.group;
+  return g && g.members.length ? g.members[authorIndexOf(m, scenario)] : scenario.them;
+}
+
+/** Viber's group subtitle: the participants by name, me last ("Khalid, Sara, Omar, You"). */
+function memberList(scenario: Scenario, s: VbStrings, lang: Lang): string {
+  const names = (scenario.group?.members ?? []).map((x) => x.name.trim()).filter(Boolean);
+  return [...names, s.you].join(lang === "ar" ? "، " : ", ");
+}
+
+/** A run continues while the same person keeps writing (in groups: same member). */
+function startsRun(messages: Message[], i: number, group: boolean): boolean {
+  const m = messages[i];
+  const prev = messages[i - 1];
+  if (!prev || prev.sender !== m.sender) return true;
+  return group && m.sender === "them" && (prev.authorIndex ?? 0) !== (m.authorIndex ?? 0);
+}
+
+const URL_RE = /((?:https?:\/\/|www\.)[^\s]+)/;
+
+/** URLs in a message are tinted and underlined, like Viber's auto-linked text. */
+function Linkified({ text, color }: { text: string; color: string }) {
+  const parts = text.split(URL_RE);
+  return (
+    <>
+      {parts.map((part, i) =>
+        i % 2 ? (
+          <span key={i} style={{ color, textDecoration: "underline", textUnderlineOffset: 2 }}>
+            {part}
+          </span>
+        ) : (
+          part
+        ),
+      )}
+    </>
+  );
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url.startsWith("http") ? url : `https://${url}`).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
+
+function extOf(name: string): string {
+  const m = /\.([a-z0-9]{1,5})$/i.exec(name.trim());
+  return m ? m[1].toLowerCase() : "";
+}
+
+function fileColor(ext: string): string {
+  if (ext === "pdf") return "#e5493a";
+  if (["doc", "docx", "rtf", "txt"].includes(ext)) return "#2f6fd8";
+  if (["xls", "xlsx", "csv"].includes(ext)) return "#1f9d57";
+  if (["ppt", "pptx", "key"].includes(ext)) return "#e2692b";
+  if (["zip", "rar", "7z"].includes(ext)) return "#8e8e93";
+  return "#7d8796";
+}
+
+/** Viber's call-log wording for a call entry. */
+function callTitle(m: Message, s: VbStrings): string {
+  const video = !!m.call?.video;
+  if (m.sender === "me") return video ? s.outVideo : s.outCall;
+  if (m.call?.missed) return video ? s.missedVideo : s.missedCall;
+  return video ? s.inVideo : s.inCall;
+}
 
 /* ======================================================================
    Replies + reactions
@@ -223,14 +368,20 @@ interface QuoteInfo {
 }
 
 /** Resolve what a reply quotes; null when it is not a reply or the target is missing. */
-function quoteOf(m: Message, all: Message[], them: Person, s: (typeof STR)[Lang]): QuoteInfo | null {
+function quoteOf(m: Message, scenario: Scenario, s: VbStrings): QuoteInfo | null {
   if (!m.replyToId) return null;
-  const t = all.find((x) => x.id === m.replyToId);
+  const t = scenario.messages.find((x) => x.id === m.replyToId);
   if (!t) return null;
-  const name = t.sender === "me" ? s.you : them.name;
+  const name = t.sender === "me" ? s.you : authorOf(t, scenario).name;
   if (t.type === "voice") return { name, snippet: s.voice, image: false, imageSrc: null, voice: true };
   if (t.type === "image") return { name, snippet: t.text.trim() || s.photo, image: true, imageSrc: t.imageSrc ?? null, voice: false };
-  return { name, snippet: t.text.replace(/\s+/g, " ").trim(), image: false, imageSrc: null, voice: false };
+  const plain = (snippet: string) => ({ name, snippet, image: false, imageSrc: null, voice: false });
+  if (t.type === "sticker") return plain(s.sticker);
+  if (t.type === "location") return plain(t.location?.title || s.location);
+  if (t.type === "file") return plain(t.file?.name || "");
+  if (t.type === "deleted") return plain(s.deleted);
+  if (t.type === "call") return plain(callTitle(t, s));
+  return plain(t.text.replace(/\s+/g, " ").trim());
 }
 
 /**
@@ -568,18 +719,41 @@ export function ViberAndroid({ scenario, playback, lang, rtl }: PlatformProps) {
   const live = playback.isLive;
   const clock = playback.clockMs;
   const draft = playback.draft;
-  // keep the newest bubble in view while a growing draft shrinks the thread
+  const kb = useKeyboardInset();
+  const group = scenario.group && scenario.group.members.length ? scenario.group : null;
+  // keep the newest bubble in view while a growing draft / the keyboard shrinks the thread
   const scrollRef = useChatScroll<HTMLDivElement>(
-    `${messages.length}-${typing}-${draft ? Math.floor(draft.text.length / 16) : -1}`,
+    `${messages.length}-${typing}-${draft ? Math.floor(draft.text.length / 16) : -1}-${Math.round(kb.inset / 24)}`,
   );
 
-  const subtitle =
-    scenario.presence === "typing" ? s.typing : scenario.presence === "online" ? s.online : scenario.lastSeenText;
-  const lastSender = messages.length ? messages[messages.length - 1].sender : null;
-  const typingStartsGroup = lastSender !== "them";
+  // in a group, the member who is typing is the author of the next incoming message
+  const shown = new Set(messages.map((x) => x.id));
+  const nextIn = scenario.messages.find((x) => !shown.has(x.id) && x.sender === "them");
+  const typist: Person = nextIn ? authorOf(nextIn, scenario) : group ? group.members[0] : scenario.them;
+  const typistIndex = nextIn && group ? authorIndexOf(nextIn, scenario) : 0;
+
+  const subtitle = group
+    ? typing
+      ? s.isTyping(typist.name)
+      : memberList(scenario, s, lang)
+    : scenario.presence === "typing"
+      ? s.typing
+      : scenario.presence === "online"
+        ? s.online
+        : scenario.lastSeenText;
+  const last = messages.length ? messages[messages.length - 1] : null;
+  const typingStartsGroup = !(
+    last &&
+    last.sender === "them" &&
+    (!group || authorIndexOf(last, scenario) === typistIndex)
+  );
+  const palette = dark ? MEMBER_DARK : MEMBER_LIGHT;
 
   return (
-    <div className="flex h-full w-full flex-col" style={{ background: p.bg, color: p.text }}>
+    <div
+      className="flex h-full w-full flex-col"
+      style={{ background: p.bg, color: p.text, paddingBottom: kb.inset, transition: `padding-bottom ${kb.transition}` }}
+    >
       <style>{STYLE}</style>
       <SamsungStatusBar tint={dark ? "light" : "dark"} background={p.bar} lang={lang} />
 
@@ -593,7 +767,7 @@ export function ViberAndroid({ scenario, playback, lang, rtl }: PlatformProps) {
         </div>
         <div className="flex min-w-0 flex-1 flex-col justify-center" style={{ marginInlineStart: 7, paddingInlineEnd: 6 }}>
           <div className="truncate" style={{ fontSize: 20, lineHeight: "25px", fontWeight: 500, color: p.title }}>
-            {scenario.them.name}
+            {group ? group.name : scenario.them.name}
           </div>
           <div className="truncate" style={{ fontSize: 13.5, lineHeight: "18px", color: p.sub, marginTop: 0 }}>
             {subtitle}
@@ -624,22 +798,22 @@ export function ViberAndroid({ scenario, playback, lang, rtl }: PlatformProps) {
             {s.today}
           </div>
 
-          {messages.map((m, i) => {
-            const { firstOfGroup } = groupInfo(messages, i);
-            return (
-              <ViberRow
-                key={m.id}
-                m={m}
-                p={p}
-                rtl={rtl}
-                firstOfGroup={firstOfGroup}
-                status={playback.statusOf(m)}
-                them={scenario.them}
-                live={live}
-                quote={quoteOf(m, scenario.messages, scenario.them, s)}
-              />
-            );
-          })}
+          {messages.map((m, i) => (
+            <ViberRow
+              key={m.id}
+              m={m}
+              p={p}
+              s={s}
+              rtl={rtl}
+              firstOfGroup={startsRun(messages, i, !!group)}
+              status={playback.statusOf(m)}
+              author={authorOf(m, scenario)}
+              authorColor={palette[authorIndexOf(m, scenario) % palette.length]}
+              group={!!group}
+              live={live}
+              quote={quoteOf(m, scenario, s)}
+            />
+          ))}
 
           {typing && (
             <div
@@ -647,7 +821,7 @@ export function ViberAndroid({ scenario, playback, lang, rtl }: PlatformProps) {
               style={{ paddingInlineStart: AVATAR_START, marginTop: typingStartsGroup ? GAP_BETWEEN : GAP_IN_GROUP }}
             >
               <div style={{ width: AVATAR, height: AVATAR, flexShrink: 0 }}>
-                {typingStartsGroup && <Avatar person={scenario.them} size={AVATAR} />}
+                {typingStartsGroup && <Avatar person={typist} size={AVATAR} />}
               </div>
               <div
                 className="flex items-center justify-center"

@@ -44,7 +44,12 @@ function readMs(m: Message | undefined): number {
   if (!m) return 400;
   if (m.type === "voice") return clamp(400 + voiceSeconds(m.voiceDuration) * 70, 700, 1800);
   if (m.type === "image") return clamp(900 + charCount(m.text) * 12, 900, 1600);
-  return clamp(300 + charCount(m.text) * 14, 450, 1500);
+  if (m.type === "sticker" || m.type === "deleted") return 600;
+  if (m.type === "call") return 1200;
+  if (m.type === "location") return clamp(900 + charCount(m.location?.title ?? "") * 10, 900, 1500);
+  if (m.type === "file") return clamp(900 + charCount(m.file?.name ?? "") * 8, 900, 1400);
+  const linkExtra = m.link ? 500 : 0;
+  return clamp(300 + charCount(m.text) * 14, 450, 1500) + linkExtra;
 }
 
 /** Natural delay + typing for one message given the one before it. */
@@ -57,6 +62,11 @@ export function naturalTiming(m: Message, prev: Message | undefined): Pick<Messa
   if (m.sender === "them") {
     if (m.type === "voice") typingMs = clamp(700 + voiceSeconds(m.voiceDuration) * 50, 900, 2200);
     else if (m.type === "image") typingMs = clamp(800 + charCount(m.text) * 25, 800, 2200);
+    // a call log or a sticker is not preceded by "typing…"
+    else if (m.type === "call") typingMs = 0;
+    else if (m.type === "sticker") typingMs = 700;
+    else if (m.type === "location" || m.type === "file") typingMs = 1000;
+    else if (m.type === "deleted") typingMs = 900;
     else typingMs = clamp(400 + charCount(m.text) * 34, 700, 3000);
   }
   // my messages: 0 = the composer types at its own natural speed

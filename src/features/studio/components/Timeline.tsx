@@ -5,13 +5,9 @@ import { cn } from "@/shared/lib/utils";
 import type { Message } from "../types";
 import type { StudioLabels } from "./labels";
 import { fmt } from "./studio/timing";
+import { messageSnippet } from "./studio/snippet";
 
-function preview(m: Message, t: StudioLabels): string {
-  if (m.type === "voice") return `${t.voiceNote} ${m.voiceDuration ?? ""}`.trim();
-  const text = m.text.trim();
-  if (m.type === "image") return text ? `${t.typeImage} · ${text.slice(0, 28)}` : t.typeImage;
-  return text ? (text.length > 36 ? `${text.slice(0, 36)}…` : text) : "…";
-}
+const preview = (m: Message, t: StudioLabels): string => messageSnippet(m, t, 36);
 
 /**
  * Segmented playback track: one segment per message, sized by its duration

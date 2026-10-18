@@ -48,14 +48,15 @@
  * Font: TikTok Sans (`--font-tiktok-sans`) before the device stack.
  */
 
-import { Fragment, type CSSProperties, type ReactNode } from "react";
+import { Fragment, useEffect, type CSSProperties, type ReactNode, type RefObject } from "react";
 
 import { deviceFontFamily } from "../../data/fonts";
 import type { Message, Person } from "../../types";
 import { Avatar, dirOf, SystemBottomBar, useChatScroll } from "../shared";
+import { useKeyboardInset } from "../devices/keyboard-context";
 import { StatusBar } from "../devices/StatusBar";
 import type { Lang } from "./chrome";
-import { groupInfo, type PlatformMotion, type PlatformProps } from "./types";
+import type { PlatformMotion, PlatformProps } from "./types";
 
 /* ------------------------------ tokens ------------------------------ */
 
@@ -104,6 +105,19 @@ interface TtPalette {
   quoteText: string;
   /** reaction badge fill */
   react: string;
+  /** shared-card surface (link / location cards) — neutral on both sides */
+  card: string;
+  map: TtMapPal;
+}
+
+interface TtMapPal {
+  land: string;
+  block: string;
+  park: string;
+  water: string;
+  road: string;
+  major: string;
+  edge: string;
 }
 
 function ttPalette(dark: boolean): TtPalette {
@@ -122,6 +136,8 @@ function ttPalette(dark: boolean): TtPalette {
         quote: "#282828",
         quoteText: "#8a8a8a",
         react: "#333333",
+        card: "#262626",
+        map: { land: "#2b2d30", block: "#34373b", park: "#2a3b30", water: "#1e3346", road: "#45484d", major: "#5a5d63", edge: "#2b2d30" },
       }
     : {
         bg: "#f5f5f5",
@@ -137,8 +153,13 @@ function ttPalette(dark: boolean): TtPalette {
         quote: "#e8e8e9",
         quoteText: "#86878b",
         react: "#ffffff",
+        card: "#ffffff",
+        map: { land: "#eef0ec", block: "#e3e6e0", park: "#cfe8c8", water: "#b9dcf2", road: "#ffffff", major: "#fde9a8", edge: "#d6d9d2" },
       };
 }
+
+/** TikTok brand red (TUX Primary) — map pin, missed-call glyph */
+const TT_RED = "#fe2c55";
 
 interface TtStrings {
   activeNow: string;
@@ -153,6 +174,29 @@ interface TtStrings {
   repliedToThemselves: string;
   voice: string;
   photo: string;
+  /** quoted sticker (im_quote_sticker) */
+  sticker: string;
+  /** group subtitle: "{n} members" (group_chat_number_of_members) */
+  members: (n: number) => string;
+  isTyping: (name: string) => string;
+  /** recalled message tips (dm_deleteMsg_chatpage_inline_youDel / creatorChatRoom_creators_inline_deletedMessage) */
+  youDeleted: string;
+  theyDeleted: (name: string) => string;
+  edited: string;
+  voiceCall: string;
+  videoCall: string;
+  missedVoice: string;
+  missedVideo: string;
+  callBack: string;
+  noAnswer: string;
+  liveLocation: string;
+}
+
+/** TikTok's Arabic plural forms for group_chat_number_of_members (zero/one/two/few/many/other). */
+function arMembers(n: number): string {
+  const r = n % 100;
+  const word = n === 0 ? "من الأعضاء" : n === 1 ? "عضو" : n === 2 ? "عضوان" : r >= 3 && r <= 10 ? "أعضاء" : "عضو";
+  return `${n} ${word}`;
 }
 
 const TT_STR: Record<Lang, TtStrings> = {
@@ -168,6 +212,19 @@ const TT_STR: Record<Lang, TtStrings> = {
     repliedToThemselves: "Replied to themselves",
     voice: "Voice message",
     photo: "Photo",
+    sticker: "[sticker]",
+    members: (n) => `${n} ${n === 1 ? "member" : "members"}`,
+    isTyping: (name) => `${name} is typing...`,
+    youDeleted: "You deleted a message",
+    theyDeleted: (name) => `${name} deleted a message`,
+    edited: "Edited",
+    voiceCall: "Voice call",
+    videoCall: "Video call",
+    missedVoice: "Missed voice call",
+    missedVideo: "Missed video call",
+    callBack: "Tap to call back",
+    noAnswer: "No answer",
+    liveLocation: "Live location",
   },
   ar: {
     activeNow: "نشط الآن",
@@ -181,6 +238,19 @@ const TT_STR: Record<Lang, TtStrings> = {
     repliedToThemselves: "ردّ على نفسه",
     voice: "رسالة صوتية",
     photo: "صورة",
+    sticker: "‏[الملصق]",
+    members: arMembers,
+    isTyping: (name) => `${name} يكتب...`,
+    youDeleted: "لقد حذفت رسالة",
+    theyDeleted: (name) => `‏${name} حذف رسالة`,
+    edited: "تم التعديل",
+    voiceCall: "مكالمة صوتية",
+    videoCall: "مكالمة فيديو",
+    missedVoice: "مكالمة صوتية فائتة",
+    missedVideo: "مكالمة فيديو فائتة",
+    callBack: "انقر لمعاودة الاتصال",
+    noAnswer: "لا يوجد رد",
+    liveLocation: "الموقع المباشر",
   },
 };
 
@@ -551,7 +621,7 @@ function TtChip({ bg, children, width }: { bg: string; children: ReactNode; widt
  */
 function TtQuote({ target, pal, s, mine }: { target: Message; pal: TtPalette; s: TtStrings; mine: boolean }) {
   const head = mine ? s.youReplied : target.sender === "me" ? s.repliedToYou : s.repliedToThemselves;
-  const snippet = target.type === "voice" ? s.voice : target.type === "image" ? target.text.trim() || s.photo : target.text;
+  const snippet = ttSnippet(target, s);
   return (
     <div className={`flex flex-col ${mine ? "items-end" : "items-start"}`} style={{ gap: 4, marginBottom: 4, maxWidth: "100%" }}>
       <div
@@ -599,6 +669,315 @@ function TtQuote({ target, pal, s, mine }: { target: Message; pal: TtPalette; s:
       )}
     </div>
   );
+}
+
+/** One-line text standing for a message in a quote card. */
+function ttSnippet(m: Message, s: TtStrings): string {
+  switch (m.type) {
+    case "voice":
+      return s.voice;
+    case "image":
+      return m.text.trim() || s.photo;
+    case "sticker":
+      return s.sticker;
+    case "location":
+      return m.location?.title ?? "";
+    case "file":
+      return m.file?.name ?? "";
+    case "call":
+      return m.call?.video ? s.videoCall : s.voiceCall;
+    default:
+      return m.text;
+  }
+}
+
+/* --------------------------- new message kinds --------------------------- */
+
+const URL_RE = /(https?:\/\/[^\s]+|www\.[^\s]+)/g;
+
+/** Message text with URLs set in TikTok's link style (AMessageLink: same colour, semiBold). */
+function ttLinkify(text: string): ReactNode {
+  const parts = text.split(URL_RE);
+  if (parts.length === 1) return text;
+  return parts.map((p, i) =>
+    i % 2 === 1 ? (
+      <span key={i} dir="ltr" style={{ fontWeight: 600, unicodeBidi: "isolate" }}>
+        {p}
+      </span>
+    ) : (
+      <Fragment key={i}>{p}</Fragment>
+    ),
+  );
+}
+
+function siteOf(url: string, siteName?: string): string {
+  if (siteName?.trim()) return siteName.trim();
+  return url.replace(/^https?:\/\//, "").replace(/^www\./, "").split(/[/?#]/)[0];
+}
+
+const TT_CARD_W = 240;
+
+/**
+ * Shared-link card — drawn like TikTok's own share cards in DMs (DivCommonContainer cards:
+ * neutral surface on both sides, media on top, 16pt radius), stacked above the text bubble.
+ */
+function TtLinkCard({ link, pal }: { link: NonNullable<Message["link"]>; pal: TtPalette }) {
+  const site = siteOf(link.url, link.siteName);
+  return (
+    <div className="overflow-hidden" style={{ width: TT_CARD_W, borderRadius: TT.imgRadius, background: pal.card }}>
+      {link.image ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={link.image} alt="" draggable={false} className="block w-full object-cover" style={{ height: 126 }} />
+      ) : null}
+      <div style={{ padding: "9px 12px 10px" }}>
+        <div
+          dir={dirOf(link.title)}
+          className="overflow-hidden break-words"
+          style={{ fontSize: 15, lineHeight: "20px", fontWeight: 600, color: pal.fg, textAlign: "start", display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2 }}
+        >
+          {link.title}
+        </div>
+        {link.description ? (
+          <div
+            dir={dirOf(link.description)}
+            className="overflow-hidden break-words"
+            style={{ marginTop: 2, fontSize: 13, lineHeight: "17px", color: pal.sub, textAlign: "start", display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2 }}
+          >
+            {link.description}
+          </div>
+        ) : null}
+        <div className="flex items-center" style={{ marginTop: 6, gap: 4, color: pal.sub }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden className="shrink-0">
+            <path d="M10 14a4.5 4.5 0 0 0 6.4 0l3.2-3.2a4.5 4.5 0 0 0-6.4-6.4L12 5.6" />
+            <path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3.2 3.2a4.5 4.5 0 0 0 6.4 6.4l1.2-1.2" />
+          </svg>
+          <span dir="ltr" className="truncate" style={{ fontSize: 12, lineHeight: "16px" }}>
+            {site}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Plausible street map (blocks, a park, water, a main road) drawn in TikTok's flat card style. */
+function TtMap({ map, w, h }: { map: TtMapPal; w: number; h: number }) {
+  return (
+    <svg width={w} height={h} viewBox="0 0 240 124" preserveAspectRatio="xMidYMid slice" aria-hidden className="block">
+      <rect width="240" height="124" fill={map.land} />
+      <path d="M0 96c26-6 44 4 66 0s36-16 52-12v40H0Z" fill={map.water} />
+      <rect x="150" y="8" width="56" height="34" rx="4" fill={map.park} />
+      {[
+        [8, 6, 46, 30],
+        [62, 6, 40, 30],
+        [110, 6, 32, 30],
+        [214, 6, 26, 34],
+        [8, 50, 46, 30],
+        [62, 50, 40, 22],
+        [150, 52, 30, 26],
+        [188, 52, 52, 26],
+        [134, 88, 38, 36],
+        [180, 88, 60, 36],
+      ].map(([x, y, bw, bh], i) => (
+        <rect key={i} x={x} y={y} width={bw} height={bh} rx="2.5" fill={map.block} />
+      ))}
+      <g stroke={map.road} strokeWidth="5" strokeLinecap="round" fill="none">
+        <path d="M58 0v124M106 0v84M146 0v124M184 44v80M0 44h240M0 84h240" />
+      </g>
+      <path d="M-4 118 240 30" stroke={map.edge} strokeWidth="11" strokeLinecap="round" />
+      <path d="M-4 118 240 30" stroke={map.major} strokeWidth="8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Location card: map with the pin (live → avatar in a pulsing cyan halo), then title / address. */
+function TtLocationCard({ loc, pal, s, person }: { loc: NonNullable<Message["location"]>; pal: TtPalette; s: TtStrings; person: Person }) {
+  return (
+    <div className="overflow-hidden" style={{ width: TT_CARD_W, borderRadius: TT.imgRadius, background: pal.card }}>
+      <div className="relative" style={{ height: 124 }}>
+        <TtMap map={pal.map} w={TT_CARD_W} h={124} />
+        {loc.live ? (
+          <span className="absolute flex items-center justify-center rounded-full" style={{ left: 120 - 26, top: 62 - 26, width: 52, height: 52, background: "rgba(0,162,201,0.22)" }}>
+            <span className="flex rounded-full" style={{ padding: 2.5, background: "#ffffff", boxShadow: "0 1px 4px rgba(0,0,0,0.25)" }}>
+              <Avatar person={person} size={30} />
+            </span>
+          </span>
+        ) : (
+          <svg width="30" height="38" viewBox="0 0 30 38" aria-hidden className="absolute" style={{ left: 105, top: 62 - 36 }}>
+            <ellipse cx="15" cy="35.5" rx="5" ry="1.8" fill="rgba(0,0,0,0.22)" />
+            <path d="M15 1C7.3 1 1.5 6.9 1.5 14.4 1.5 24 15 35 15 35s13.5-11 13.5-20.6C28.5 6.9 22.7 1 15 1Z" fill={TT_RED} stroke="#ffffff" strokeWidth="1.6" />
+            <circle cx="15" cy="14.2" r="5" fill="#ffffff" />
+          </svg>
+        )}
+      </div>
+      <div style={{ padding: "9px 12px 10px" }}>
+        {loc.live && (
+          <div className="flex items-center" style={{ gap: 5, marginBottom: 1, fontSize: 12, lineHeight: "16px", fontWeight: 600, color: TT_CYAN }}>
+            <span className="rounded-full" style={{ width: 6, height: 6, background: TT_CYAN }} />
+            {s.liveLocation}
+          </div>
+        )}
+        <div dir={dirOf(loc.title)} className="truncate" style={{ fontSize: 15, lineHeight: "20px", fontWeight: 600, color: pal.fg, textAlign: "start" }}>
+          {loc.title}
+        </div>
+        {loc.subtitle ? (
+          <div dir={dirOf(loc.subtitle)} className="truncate" style={{ marginTop: 1, fontSize: 13, lineHeight: "17px", color: pal.sub, textAlign: "start" }}>
+            {loc.subtitle}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+const FILE_TINT: Record<string, string> = {
+  pdf: "#f04438",
+  doc: "#2f6fed",
+  docx: "#2f6fed",
+  xls: "#1e9e5a",
+  xlsx: "#1e9e5a",
+  csv: "#1e9e5a",
+  ppt: "#ee6a2c",
+  pptx: "#ee6a2c",
+  zip: "#8a8f98",
+  rar: "#8a8f98",
+};
+
+function extOf(name: string): string {
+  const mt = /\.([a-z0-9]{1,5})$/i.exec(name.trim());
+  return mt ? mt[1].toLowerCase() : "";
+}
+
+/** Document glyph: folded-corner page in the type colour with the extension on it. */
+function TtFileIcon({ ext }: { ext: string }) {
+  const tint = FILE_TINT[ext] ?? "#8a8f98";
+  return (
+    <svg width="34" height="42" viewBox="0 0 34 42" aria-hidden className="shrink-0">
+      <path d="M4 0h18l12 12v26a4 4 0 0 1-4 4H4a4 4 0 0 1-4-4V4a4 4 0 0 1 4-4Z" fill={tint} />
+      <path d="M22 0v8a4 4 0 0 0 4 4h8Z" fill="#ffffff" fillOpacity="0.45" />
+      <text x="17" y="33" textAnchor="middle" fontSize="9" fontWeight="700" fill="#ffffff" fontFamily="inherit">
+        {(ext || "file").toUpperCase().slice(0, 4)}
+      </text>
+    </svg>
+  );
+}
+
+function TtFile({ file, mine, pal }: { file: NonNullable<Message["file"]>; mine: boolean; pal: TtPalette }) {
+  const ext = extOf(file.name);
+  const meta = [file.pages, file.size, ext ? ext.toUpperCase() : null].filter(Boolean).join(" · ");
+  return (
+    <div className="flex items-center" style={{ gap: 10, width: 216 }}>
+      <TtFileIcon ext={ext} />
+      <div className="min-w-0 flex-1">
+        <div
+          dir="ltr"
+          className="overflow-hidden break-all"
+          style={{ fontSize: 15, lineHeight: "20px", fontWeight: 600, textAlign: "start", display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2 }}
+        >
+          {file.name}
+        </div>
+        {meta && (
+          <div className="truncate" style={{ marginTop: 2, fontSize: 12, lineHeight: "16px", color: mine ? "rgba(255,255,255,0.8)" : pal.sub, textAlign: "start" }}>
+            {meta}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TtCallGlyph({ video, color }: { video: boolean; color: string }) {
+  return video ? (
+    <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden>
+      <rect x="2" y="5.5" width="13.5" height="13" rx="3.2" fill={color} />
+      <path d="m17 10.2 4-2.6c.6-.4 1 0 1 .6v7.6c0 .6-.4 1-1 .6l-4-2.6Z" fill={color} />
+    </svg>
+  ) : (
+    <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden>
+      <path
+        d="M6.6 2.8c.6-.2 1.3 0 1.6.6l1.7 3.3c.3.6.2 1.3-.3 1.7l-1.6 1.4a12 12 0 0 0 6.2 6.2l1.4-1.6c.4-.5 1.1-.6 1.7-.3l3.3 1.7c.6.3.8 1 .6 1.6l-.8 2.3c-.3.9-1.2 1.5-2.2 1.4C9.6 20.3 3.7 14.4 2.9 5.8c-.1-1 .5-1.9 1.4-2.2Z"
+        fill={color}
+      />
+    </svg>
+  );
+}
+
+/** Call entry: 36pt disc with the call glyph (missed → TikTok red), title + duration / call-back line. */
+function TtCall({ call, mine, pal, s }: { call: NonNullable<Message["call"]>; mine: boolean; pal: TtPalette; s: TtStrings }) {
+  const title = call.missed && !mine ? (call.video ? s.missedVideo : s.missedVoice) : call.video ? s.videoCall : s.voiceCall;
+  const sub = call.missed ? (mine ? s.noAnswer : s.callBack) : call.duration ?? "";
+  return (
+    <div className="flex items-center" style={{ gap: 10, minWidth: 168 }}>
+      <span
+        className="flex shrink-0 items-center justify-center rounded-full"
+        style={{ width: 36, height: 36, background: mine ? "rgba(255,255,255,0.22)" : pal.chip }}
+      >
+        <TtCallGlyph video={call.video} color={mine ? "#ffffff" : call.missed ? TT_RED : pal.fg} />
+      </span>
+      <div className="min-w-0">
+        <div className="whitespace-nowrap" style={{ fontSize: 15, lineHeight: "20px", fontWeight: 600 }}>
+          {title}
+        </div>
+        {sub && (
+          <div className="whitespace-nowrap" style={{ fontSize: 13, lineHeight: "17px", color: mine ? "rgba(255,255,255,0.8)" : pal.sub }}>
+            <span dir={/^[\d:]+$/.test(sub) ? "ltr" : undefined}>{sub}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Emoji sticker (no bubble): TikTok draws stickers in a 112pt box (web: 112 / 140, radius 8). */
+function TtSticker2({ m, count }: { m: Message; count: number }) {
+  if (m.imageSrc) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={m.imageSrc} alt="" draggable={false} className="block object-contain" style={{ width: 140, height: 140, borderRadius: 8 }} />;
+  }
+  const size = count <= 1 ? 92 : count === 2 ? 52 : 38;
+  return (
+    <div dir="ltr" className="flex items-center justify-center whitespace-nowrap" style={{ minWidth: 112, height: 112, fontSize: size, lineHeight: "112px" }}>
+      {m.text.trim() || "🙂"}
+    </div>
+  );
+}
+
+/** TikTok's default group picture: two member photos overlapping on the diagonal. */
+function TtGroupAvatar({ members, avatar, name, size, ring }: { members: Person[]; avatar: string | null; name: string; size: number; ring: string }) {
+  if (avatar) return <Avatar person={{ name, avatar }} size={size} />;
+  const a = members[0] ?? { name, avatar: null };
+  const b = members[1] ?? a;
+  const d = Math.round(size * 0.68);
+  const ringW = Math.max(1.5, size * 0.04);
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <div className="absolute" style={{ top: 0, insetInlineEnd: 0 }}>
+        <Avatar person={b} size={d} />
+      </div>
+      <div className="absolute rounded-full" style={{ bottom: 0, insetInlineStart: 0, padding: ringW, margin: -ringW, background: ring }}>
+        <Avatar person={a} size={d} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Bottom anchoring while the thread shrinks (keyboard rising): the scroll position follows the
+ * bottom edge like the native list does. Off in video export, where the exporter owns the scroll.
+ */
+function useBottomAnchor(ref: RefObject<HTMLDivElement | null>, enabled: boolean) {
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !enabled || typeof ResizeObserver === "undefined") return;
+    let prevH = el.clientHeight;
+    const ro = new ResizeObserver(() => {
+      const h = el.clientHeight;
+      if (h < prevH) el.scrollTop += prevH - h;
+      prevH = h;
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref, enabled]);
 }
 
 /**
@@ -719,6 +1098,36 @@ function TtComposer({ pal, s, draft, clockMs }: { pal: TtPalette; s: TtStrings; 
 
 /* ------------------------------ screen ------------------------------ */
 
+type Seg = "image" | "text" | "voice" | "emoji" | "sticker" | "location" | "file" | "call" | "link";
+
+/** The stacked pieces a message is drawn as (deleted messages are a centred tip instead). */
+function segsOf(m: Message): Seg[] {
+  switch (m.type) {
+    case "image":
+      return m.text.trim() ? ["image", "text"] : ["image"];
+    case "voice":
+      return ["voice"];
+    case "sticker":
+      return ["sticker"];
+    case "location":
+      return ["location"];
+    case "file":
+      return ["file"];
+    case "call":
+      return ["call"];
+    case "deleted":
+      return [];
+    default:
+      if (m.link) return ["link", "text"];
+      return jumboEmojiCount(m.text) ? ["emoji"] : ["text"];
+  }
+}
+
+/** pieces whose corners pinch together inside a run */
+const JOINABLE = new Set<Seg>(["text", "voice", "file", "call", "image"]);
+/** pieces drawn as a filled bubble (tail-bearing) */
+const BUBBLE = new Set<Seg>(["text", "voice", "file", "call"]);
+
 export function TikTok({ scenario, playback, lang, rtl }: PlatformProps) {
   const dark = scenario.theme === "dark";
   const pal = ttPalette(dark);
@@ -727,16 +1136,21 @@ export function TikTok({ scenario, playback, lang, rtl }: PlatformProps) {
   const live = playback.isLive;
   const exporting = clockMs !== undefined;
   const showTyping = typing || (!live && !exporting && scenario.presence === "typing");
-  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${showTyping}-${playback.draft ? Math.floor(playback.draft.text.length / 24) : "-"}`);
-
-  const last = messages[messages.length - 1];
-  const receipt = last && last.sender === "me" ? (playback.statusOf(last) === "read" ? s.seen : s.sent) : null;
-
-  const active = scenario.presence !== "lastseen";
-  const subtitle = active ? s.activeNow : scenario.lastSeenText;
-  const dirKey = rtl ? "rtl" : "ltr";
-  const fontFamily = `var(--font-tiktok-sans), ${deviceFontFamily(scenario.device, scenario.androidFont)}`;
   const draft = playback.draft ? playback.draft.text : null;
+
+  /* OS keyboard: the composer rides on top of it and the thread shrinks above. */
+  const { inset: kbInset, transition: kbTransition } = useKeyboardInset();
+  const kbUp = kbInset > 0;
+
+  const scrollRef = useChatScroll<HTMLDivElement>(`${messages.length}-${showTyping}-${draft === null ? "-" : Math.floor(draft.length / 24)}-${kbUp}`);
+  useBottomAnchor(scrollRef, !exporting);
+
+  /* Group chats: "them" messages belong to a member (authorIndex). */
+  const group = scenario.group ?? null;
+  const authorOf = (m: Message | undefined): Person =>
+    group ? (group.members[m?.authorIndex ?? 0] ?? group.members[0] ?? scenario.them) : scenario.them;
+  const keyOf = (m: Message) => (m.sender === "me" ? "me" : group ? `t${m.authorIndex ?? 0}` : "t");
+  const isSys = (m: Message) => m.type === "deleted";
 
   /** the earlier on-screen message a row quotes (nothing when it is missing) */
   const quoteOf = (i: number): Message | undefined => {
@@ -745,9 +1159,42 @@ export function TikTok({ scenario, playback, lang, rtl }: PlatformProps) {
     const j = messages.findIndex((x) => x.id === id);
     return j >= 0 && j < i ? messages[j] : undefined;
   };
+  /** a run = one author's consecutive messages, cut by a time separator or a system tip */
+  const startsRun = (i: number) =>
+    i === 0 || needsSeparator(messages, i) || keyOf(messages[i - 1]) !== keyOf(messages[i]) || isSys(messages[i - 1]) || isSys(messages[i]);
+  /** a quote block also starts fresh (the bubble above closes its run) */
+  const startsBlock = (i: number) => startsRun(i) || !!quoteOf(i);
+
+  const last = messages[messages.length - 1];
+  const receipt = last && last.sender === "me" && !isSys(last) ? (playback.statusOf(last) === "read" ? s.seen : s.sent) : null;
+
+  /* who is typing: the author of the upcoming "them" message, else the last one who spoke */
+  const upcoming = scenario.messages[messages.length];
+  const typer = authorOf(upcoming?.sender === "them" ? upcoming : [...messages].reverse().find((m) => m.sender === "them"));
+
+  const active = !group && scenario.presence !== "lastseen";
+  const subtitle = group
+    ? showTyping
+      ? s.isTyping(typer.name)
+      : s.members(group.members.length + 1)
+    : active
+      ? s.activeNow
+      : scenario.lastSeenText;
+  const title = group ? group.name : scenario.them.name;
+  const dirKey = rtl ? "rtl" : "ltr";
+  const fontFamily = `var(--font-tiktok-sans), ${deviceFontFamily(scenario.device, scenario.androidFont)}`;
 
   return (
-    <div className="flex h-full w-full flex-col" style={{ background: pal.bg, color: pal.fg, fontFamily }}>
+    <div
+      className="flex h-full w-full flex-col"
+      style={{
+        background: pal.bg,
+        color: pal.fg,
+        fontFamily,
+        paddingBottom: kbInset,
+        transition: kbTransition === "none" ? "none" : `padding-bottom ${kbTransition}`,
+      }}
+    >
       <style>{TT_CSS}</style>
       <StatusBar device={scenario.device} tint={dark ? "light" : "dark"} background={pal.bg} />
 
@@ -772,7 +1219,11 @@ export function TikTok({ scenario, playback, lang, rtl }: PlatformProps) {
             marginInlineStart: 16,
           }}
         >
-          <Avatar person={scenario.them} size={TT.headerAvatar} />
+          {group ? (
+            <TtGroupAvatar members={group.members} avatar={group.avatar} name={group.name} size={TT.headerAvatar} ring={pal.bg} />
+          ) : (
+            <Avatar person={scenario.them} size={TT.headerAvatar} />
+          )}
           {active && (
             <span
               className="absolute rounded-full"
@@ -799,7 +1250,7 @@ export function TikTok({ scenario, playback, lang, rtl }: PlatformProps) {
               textAlign: "start",
             }}
           >
-            {scenario.them.name}
+            {title}
           </div>
           {subtitle && (
             <div
@@ -824,9 +1275,13 @@ export function TikTok({ scenario, playback, lang, rtl }: PlatformProps) {
 
       {/* Thread */}
       <div ref={scrollRef} className="rcss-scroll relative min-h-0 flex-1 overflow-y-auto" style={{ paddingInline: TT.rowInset, paddingBottom: 12 }}>
-        {/* Profile intro that opens every TikTok chat */}
+        {/* Profile (or group) intro that opens every TikTok chat */}
         <div className="flex flex-col items-center text-center" style={{ paddingTop: 20, paddingBottom: 16 }}>
-          <Avatar person={scenario.them} size={92} />
+          {group ? (
+            <TtGroupAvatar members={group.members} avatar={group.avatar} name={group.name} size={92} ring={pal.bg} />
+          ) : (
+            <Avatar person={scenario.them} size={92} />
+          )}
           <div
             className="max-w-full truncate"
             dir="auto"
@@ -837,10 +1292,10 @@ export function TikTok({ scenario, playback, lang, rtl }: PlatformProps) {
               fontWeight: 700,
             }}
           >
-            {scenario.them.name}
+            {title}
           </div>
           <div
-            dir="ltr"
+            dir={group ? undefined : "ltr"}
             style={{
               marginTop: 2,
               fontSize: 15,
@@ -848,7 +1303,7 @@ export function TikTok({ scenario, playback, lang, rtl }: PlatformProps) {
               color: pal.handle,
             }}
           >
-            @{ttHandle(scenario.them)}
+            {group ? s.members(group.members.length + 1) : `@${ttHandle(scenario.them)}`}
           </div>
         </div>
 
@@ -857,45 +1312,60 @@ export function TikTok({ scenario, playback, lang, rtl }: PlatformProps) {
             const mine = m.sender === "me";
             const onRight = mine ? !rtl : rtl;
             const sep = needsSeparator(messages, i);
-            const g = groupInfo(messages, i);
-            const quote = quoteOf(i);
-            // a quote block breaks the run: the reply starts fresh and the bubble above closes it
-            const firstOfGroup = g.firstOfGroup || sep || !!quote;
-            const nextSep = i + 1 < messages.length && needsSeparator(messages, i + 1);
-            const lastOfGroup = g.lastOfGroup || nextSep || (i + 1 < messages.length && !!quoteOf(i + 1));
-            const reaction = m.reaction?.trim() || null;
-
-            const hasImage = m.type === "image";
-            const caption = hasImage ? m.text.trim() : "";
-            const jumbo = m.type === "text" ? jumboEmojiCount(m.text) : 0;
-            const segs: ("image" | "text" | "voice" | "emoji")[] = hasImage
-              ? caption
-                ? ["image", "text"]
-                : ["image"]
-              : m.type === "voice"
-                ? ["voice"]
-                : jumbo
-                  ? ["emoji"]
-                  : ["text"];
-
             const enter = live ? `tt-ios-in-${mine ? "me" : "them"}-${dirKey}` : "";
+            const separator = sep && (
+              <div
+                className={`text-center ${live ? "tt-ios-fade" : ""}`}
+                style={{
+                  paddingTop: i === 0 ? 4 : 16,
+                  paddingBottom: 2,
+                  fontSize: 12,
+                  lineHeight: "15px",
+                  color: pal.sub,
+                }}
+              >
+                <span dir="ltr">{m.time}</span>
+              </div>
+            );
+
+            /* Recalled message → centred tertiary tip (PChatTipContainer: P3, 8px 0, 0 50px) */
+            if (isSys(m)) {
+              return (
+                <Fragment key={m.id}>
+                  {separator}
+                  <div
+                    data-mid={m.id}
+                    data-sender={m.sender}
+                    className={`text-center ${live ? "tt-ios-fade" : ""}`}
+                    style={{ marginTop: 12, marginBottom: 2, paddingInline: 38, fontSize: 13, lineHeight: "17px", color: pal.sub }}
+                  >
+                    {mine ? s.youDeleted : s.theyDeleted(authorOf(m).name)}
+                  </div>
+                </Fragment>
+              );
+            }
+
+            const quote = quoteOf(i);
+            const firstOfGroup = startsBlock(i);
+            const lastOfGroup = i === messages.length - 1 || startsBlock(i + 1);
+            const runStart = startsRun(i);
+            const runEnd = i === messages.length - 1 || startsRun(i + 1) || !!quoteOf(i + 1);
+            const reaction = m.reaction?.trim() || null;
+            const author = mine ? scenario.me : authorOf(m);
+            const showName = !!group && !mine && runStart;
+
+            const segs = segsOf(m);
+            const prev = messages[i - 1];
+            const next = messages[i + 1];
+            const prevSegs = prev ? segsOf(prev) : [];
+            const prevLast = prevSegs[prevSegs.length - 1];
+            const nextFirst = next ? segsOf(next)[0] : undefined;
+            const caption = m.type === "image" ? m.text.trim() : "";
+            const jumbo = m.type === "text" && !m.link ? jumboEmojiCount(m.text) : 0;
 
             return (
               <Fragment key={m.id}>
-                {sep && (
-                  <div
-                    className={`text-center ${live ? "tt-ios-fade" : ""}`}
-                    style={{
-                      paddingTop: i === 0 ? 4 : 16,
-                      paddingBottom: 2,
-                      fontSize: 12,
-                      lineHeight: "15px",
-                      color: pal.sub,
-                    }}
-                  >
-                    <span dir="ltr">{m.time}</span>
-                  </div>
-                )}
+                {separator}
                 <div
                   data-mid={m.id}
                   data-sender={m.sender}
@@ -908,15 +1378,26 @@ export function TikTok({ scenario, playback, lang, rtl }: PlatformProps) {
                 >
                   {!mine && (
                     <div className="shrink-0" style={{ width: TT.avatar }}>
-                      {lastOfGroup && <Avatar person={scenario.them} size={TT.avatar} />}
+                      {runEnd && <Avatar person={author} size={TT.avatar} />}
                     </div>
                   )}
                   <div className={`flex min-w-0 flex-col ${mine ? "items-end" : "items-start"}`} style={{ maxWidth: TT.maxW, gap: TT.groupGap }}>
+                    {showName && (
+                      // group chats: the member's nickname above their run (DivChatItemSenderNameContainer: 12, TextTertiary)
+                      <div className="max-w-full truncate" dir="auto" style={{ fontSize: 12, lineHeight: "15px", color: pal.sub, paddingInline: 2 }}>
+                        {author.name}
+                      </div>
+                    )}
                     {quote && <TtQuote target={quote} pal={pal} s={s} mine={mine} />}
                     {segs.map((seg, k) => {
-                      const joinedAbove = k > 0 || !firstOfGroup;
-                      const joinedBelow = k < segs.length - 1 || !lastOfGroup;
-                      const tail = !joinedBelow;
+                      const joinable = JOINABLE.has(seg);
+                      const joinedAbove =
+                        joinable &&
+                        (k > 0 ? JOINABLE.has(segs[k - 1]) : !firstOfGroup && !!prevLast && JOINABLE.has(prevLast) && !prev?.edited);
+                      const joinedBelow =
+                        joinable &&
+                        (k < segs.length - 1 ? JOINABLE.has(segs[k + 1]) : !lastOfGroup && !!nextFirst && JOINABLE.has(nextFirst) && !m.edited);
+                      const tail = BUBBLE.has(seg) && k === segs.length - 1 && lastOfGroup;
                       const badge = reaction && k === segs.length - 1 ? <TtReaction emoji={reaction} pal={pal} onRight={onRight} /> : null;
                       if (seg === "emoji") {
                         return (
@@ -930,6 +1411,29 @@ export function TikTok({ scenario, playback, lang, rtl }: PlatformProps) {
                             }}
                           >
                             {m.text.trim()}
+                            {badge}
+                          </div>
+                        );
+                      }
+                      if (seg === "sticker") {
+                        return (
+                          <div key={seg} className="relative">
+                            <TtSticker2 m={m} count={jumboEmojiCount(m.text) || 1} />
+                            {badge}
+                          </div>
+                        );
+                      }
+                      if (seg === "link" && m.link) {
+                        return (
+                          <div key={seg} className="relative">
+                            <TtLinkCard link={m.link} pal={pal} />
+                          </div>
+                        );
+                      }
+                      if (seg === "location" && m.location) {
+                        return (
+                          <div key={seg} className="relative">
+                            <TtLocationCard loc={m.location} pal={pal} s={s} person={author} />
                             {badge}
                           </div>
                         );
@@ -959,21 +1463,26 @@ export function TikTok({ scenario, playback, lang, rtl }: PlatformProps) {
                         );
                       }
                       const fill = mine ? TT_CYAN : pal.inBubble;
-                      const text = hasImage ? caption : m.text;
-                      const voice = seg === "voice";
+                      const text = m.type === "image" ? caption : m.text;
+                      const padding =
+                        seg === "voice" ? "11px 12px 11px 10px" : seg === "file" ? "10px 12px" : seg === "call" ? "10px 16px 10px 10px" : `${TT.padY}px ${TT.padX}px`;
                       return (
                         <div
                           key={seg}
                           className="relative"
                           style={{
-                            ...cornersFor(onRight, joinedAbove, joinedBelow, tail, voice ? 22.5 : TT.radius),
+                            ...cornersFor(onRight, joinedAbove, joinedBelow, tail, seg === "voice" ? 22.5 : TT.radius),
                             backgroundColor: fill,
                             color: mine ? "#ffffff" : pal.fg,
-                            padding: voice ? "11px 12px 11px 10px" : `${TT.padY}px ${TT.padX}px`,
+                            padding,
                           }}
                         >
-                          {voice ? (
+                          {seg === "voice" ? (
                             <TtVoice mine={mine} fg={pal.fg} inBubble={pal.inBubble} duration={m.voiceDuration} />
+                          ) : seg === "file" && m.file ? (
+                            <TtFile file={m.file} mine={mine} pal={pal} />
+                          ) : seg === "call" && m.call ? (
+                            <TtCall call={m.call} mine={mine} pal={pal} s={s} />
                           ) : (
                             <div
                               dir={dirOf(text)}
@@ -984,7 +1493,7 @@ export function TikTok({ scenario, playback, lang, rtl }: PlatformProps) {
                                 textAlign: "start",
                               }}
                             >
-                              {text}
+                              {ttLinkify(text)}
                             </div>
                           )}
                           {tail && <TtTail color={fill} onRight={onRight} />}
@@ -992,6 +1501,11 @@ export function TikTok({ scenario, playback, lang, rtl }: PlatformProps) {
                         </div>
                       );
                     })}
+                    {m.edited && (
+                      <div style={{ marginTop: reaction ? TT_REACT_DROP - 2 : -1, fontSize: 12, lineHeight: "15px", color: pal.sub, paddingInline: 2 }}>
+                        {s.edited}
+                      </div>
+                    )}
                   </div>
                 </div>
               </Fragment>
@@ -1004,12 +1518,12 @@ export function TikTok({ scenario, playback, lang, rtl }: PlatformProps) {
             </div>
           )}
 
-          {showTyping && <TtTyping person={scenario.them} pal={pal} clockMs={clockMs} />}
+          {showTyping && <TtTyping person={typer} pal={pal} clockMs={clockMs} />}
         </div>
       </div>
 
-      {/* Quick replies — TikTok drops the row while you are typing */}
-      {draft === null && (
+      {/* Quick replies — TikTok drops the row once the field is focused (keyboard up) or holds text */}
+      {draft === null && !kbUp && (
         <div className="flex shrink-0 overflow-hidden" style={{ gap: 8, paddingInlineStart: TT.rowInset, paddingTop: 2 }}>
           <TtChip bg={pal.chip} width={50}>
             <span style={{ fontSize: 16 }}>❤️</span>
@@ -1031,8 +1545,8 @@ export function TikTok({ scenario, playback, lang, rtl }: PlatformProps) {
         </div>
       )}
 
-      {/* Composer */}
-      <div className="shrink-0" style={{ padding: `8px ${TT.rowInset}px 22px` }}>
+      {/* Composer — sits straight on the keyboard while it is up (no home-indicator band) */}
+      <div className="shrink-0" style={{ padding: `8px ${TT.rowInset}px ${kbUp ? 8 : 22}px` }}>
         <TtComposer pal={pal} s={s} draft={draft} clockMs={clockMs} />
       </div>
 

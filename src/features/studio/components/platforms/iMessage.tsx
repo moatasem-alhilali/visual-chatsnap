@@ -78,8 +78,9 @@ import { createContext, useContext, useLayoutEffect, useRef, useState, type CSSP
 import type { Message, Person } from "../../types";
 import { Avatar, dirOf, SystemBottomBar, useChatScroll } from "../shared";
 import { StatusBar } from "../devices/StatusBar";
+import { useKeyboardInset } from "../devices/keyboard-context";
 import type { Lang } from "./chrome";
-import { groupInfo, type PlatformMotion, type PlatformProps } from "./types";
+import type { PlatformMotion, PlatformProps } from "./types";
 
 /* ------------------------------- tokens ------------------------------- */
 
@@ -104,6 +105,10 @@ interface Palette {
   quoteStroke: string;
   thread: string;
   caret: string;
+  /** systemRed (iOS 26 HIG values) */
+  red: string;
+  /** Apple Maps standard style (map snapshots in location cards) */
+  map: { land: string; block: string; road: string; casing: string; major: string; park: string; water: string };
 }
 
 const LIGHT: Palette = {
@@ -122,6 +127,8 @@ const LIGHT: Palette = {
   quoteStroke: "#d1d1d6",
   thread: "#d1d1d6",
   caret: "#0088ff",
+  red: "#ff383c",
+  map: { land: "#f4f1ea", block: "#ebe6dc", road: "#ffffff", casing: "#ddd6c8", major: "#f9d77e", park: "#cde6bd", water: "#a8d3f3" },
 };
 
 const DARK: Palette = {
@@ -140,6 +147,8 @@ const DARK: Palette = {
   quoteStroke: "#3a3a3c",
   thread: "#3a3a3c",
   caret: "#0091ff",
+  red: "#ff4245",
+  map: { land: "#242628", block: "#2c2e31", road: "#44474c", casing: "#1c1d1f", major: "#75603a", park: "#22362a", water: "#1a3149" },
 };
 
 /** Screen-fixed outgoing gradient (top of display → bottom), fitted to [B]. */
@@ -257,6 +266,15 @@ const COMPOSER_H = 40;
 const COMPOSER_SIDE = 27.5;
 /** last bubble sits 18pt above the composer */
 const BODY_BOTTOM = COMPOSER_BOTTOM + COMPOSER_H + 18;
+/** keyboard up: the input bar floats 8pt above the keyboard, 16pt side insets */
+const KB_GAP = 8;
+const KB_SIDE = 16;
+/** group chats: 28pt sender avatar 9pt from the edge, bubbles start 6pt after it */
+const GROUP_AV = 28;
+const GROUP_AV_X = 9;
+const GROUP_INDENT = GROUP_AV_X + GROUP_AV + 6;
+const STICKER_EMOJI = 96;
+const STICKER_IMG = 128;
 
 /* ------------------------------ motion ------------------------------ */
 
@@ -721,14 +739,22 @@ function TypingBubble({
   live,
   clockMs,
   boxRef,
+  avatar,
 }: {
   p: Palette;
   live: boolean;
   clockMs?: number;
   boxRef: React.RefObject<HTMLDivElement | null>;
+  /** group chats: the typing member's avatar beside the bubble */
+  avatar?: ReactNode;
 }) {
   return (
-    <div className="flex" style={{ paddingInlineStart: SIDE }}>
+    <div className="relative flex" style={{ paddingInlineStart: avatar ? GROUP_INDENT : SIDE }}>
+      {avatar && (
+        <div className="absolute" style={{ insetInlineStart: GROUP_AV_X, bottom: 0 }}>
+          {avatar}
+        </div>
+      )}
       <div
         ref={boxRef}
         className={live ? "imsg-ios-anim-typing" : ""}
@@ -769,6 +795,324 @@ function TypingBubble({
       </div>
     </div>
   );
+}
+
+/* ------------------------- rich cards (iOS 26) ------------------------- */
+
+/**
+ * Rich-link family (LPLinkView): link previews, shared locations and
+ * documents. The plate is the incoming grey on BOTH sides (a sent link is
+ * not blue), keeps the bubble outline and tail of its run, and media sit on
+ * top with the bubble's top corners.
+ */
+const CARD_W = 244;
+const LINK_IMG_H = 128; // 1.91:1 og:image
+const MAP_H = 150;
+
+function Plate({
+  p,
+  tail,
+  width,
+  children,
+}: {
+  p: Palette;
+  tail: "right" | "left" | null;
+  width: number | undefined;
+  children: ReactNode;
+}) {
+  return (
+    <div className="relative" style={{ width, maxWidth: MAX_W, color: p.inText }}>
+      <BubbleFill mine={false} color={p.inBubble} tail={tail} />
+      <div className="relative">{children}</div>
+    </div>
+  );
+}
+
+function PlateFooter({ p, title, sub, subColor }: { p: Palette; title: string; sub?: ReactNode; subColor?: string }) {
+  return (
+    <div style={{ padding: "8.5px 14px 9.5px" }}>
+      <div
+        dir={dirOf(title)}
+        className="overflow-hidden break-words"
+        style={{
+          fontSize: 15,
+          lineHeight: "19px",
+          fontWeight: 600,
+          letterSpacing: "-0.23px",
+          display: "-webkit-box",
+          WebkitBoxOrient: "vertical",
+          WebkitLineClamp: 2,
+        }}
+      >
+        {title}
+      </div>
+      {sub && (
+        <div className="truncate" style={{ color: subColor ?? p.secondary, fontSize: 13, lineHeight: "17px", letterSpacing: "-0.08px", marginTop: 1 }}>
+          {sub}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function siteOf(link: { url: string; siteName?: string }): string {
+  if (link.siteName) return link.siteName;
+  try {
+    return new URL(link.url).hostname.replace(/^www\./, "");
+  } catch {
+    return link.url;
+  }
+}
+
+function LinkCard({ link, p, tail }: { link: NonNullable<Message["link"]>; p: Palette; tail: "right" | "left" | null }) {
+  return (
+    <Plate p={p} tail={tail} width={CARD_W}>
+      <div className="overflow-hidden" style={{ borderRadius: `${RADIUS}px ${RADIUS}px 0 0`, height: LINK_IMG_H, background: p.photoFill }}>
+        {link.image ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={link.image} alt="" draggable={false} className="block" style={{ width: CARD_W, height: LINK_IMG_H, objectFit: "cover" }} />
+        ) : (
+          <div className="flex h-full items-center justify-center">
+            <PhotoGlyph color="rgba(142,142,147,0.9)" />
+          </div>
+        )}
+      </div>
+      <PlateFooter p={p} title={link.title} sub={<span dir="ltr">{siteOf(link)}</span>} />
+    </Plate>
+  );
+}
+
+/** Apple Maps (standard, light/dark) snapshot: blocks, streets, an arterial, a park and water. */
+function MapArt({ p, w, h }: { p: Palette; w: number; h: number }) {
+  const c = p.map;
+  const hs = [0.2, 0.47, 0.76].map((k) => Math.round(h * k));
+  const vs = [0.12, 0.37, 0.63, 0.88].map((k) => Math.round(w * k));
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="block">
+      <rect width={w} height={h} fill={c.land} />
+      {/* city blocks between the streets */}
+      {[0, ...hs].map((y, i) =>
+        [0, ...vs].map((x, j) => (
+          <rect
+            key={`${i}-${j}`}
+            x={x + 6}
+            y={y + 6}
+            width={Math.max(0, (vs[j] ?? w + 6) - x - 12)}
+            height={Math.max(0, (hs[i] ?? h + 6) - y - 12)}
+            rx={2}
+            fill={c.block}
+          />
+        )),
+      )}
+      <rect x={vs[2] + 6} y={6} width={vs[3] - vs[2] - 12} height={hs[0] - 12} rx={3} fill={c.park} />
+      <rect x={vs[0] + 6} y={hs[1] + 6} width={vs[1] - vs[0] - 12} height={hs[2] - hs[1] - 12} rx={3} fill={c.park} />
+      <path d={`M0 ${h * 0.8} C${w * 0.12} ${h * 0.74} ${w * 0.2} ${h * 0.9} ${w * 0.27} ${h}L0 ${h}Z`} fill={c.water} />
+      {/* streets */}
+      <g stroke={c.casing} strokeWidth={6.5}>
+        {hs.map((y) => <line key={`hc${y}`} x1={0} x2={w} y1={y} y2={y} />)}
+        {vs.map((x) => <line key={`vc${x}`} x1={x} x2={x} y1={0} y2={h} />)}
+      </g>
+      <g stroke={c.road} strokeWidth={5}>
+        {hs.map((y) => <line key={`h${y}`} x1={0} x2={w} y1={y} y2={y} />)}
+        {vs.map((x) => <line key={`v${x}`} x1={x} x2={x} y1={0} y2={h} />)}
+      </g>
+      {/* arterial */}
+      <path d={`M${-10} ${h * 0.98} L${w + 10} ${h * 0.06}`} stroke={c.casing} strokeWidth={11} />
+      <path d={`M${-10} ${h * 0.98} L${w + 10} ${h * 0.06}`} stroke={c.major} strokeWidth={8} />
+    </svg>
+  );
+}
+
+function LocationCard({
+  loc,
+  p,
+  tail,
+  l,
+  author,
+  dark,
+}: {
+  loc: NonNullable<Message["location"]>;
+  p: Palette;
+  tail: "right" | "left" | null;
+  l: LocalStrings;
+  author: Person;
+  dark: boolean;
+}) {
+  const cx = CARD_W / 2;
+  const cy = MAP_H / 2;
+  return (
+    <Plate p={p} tail={tail} width={CARD_W}>
+      <div className="relative overflow-hidden" style={{ borderRadius: `${RADIUS}px ${RADIUS}px 0 0`, height: MAP_H }}>
+        <MapArt p={p} w={CARD_W} h={MAP_H} />
+        {loc.live ? (
+          // Find My live pin: the person's photo in a white ring with a soft accuracy halo
+          <div className="absolute" style={{ left: cx - 30, top: cy - 30, width: 60, height: 60 }}>
+            <span className="absolute inset-0 rounded-full" style={{ background: "rgba(0,136,255,0.16)" }} />
+            <span
+              className="absolute flex items-center justify-center rounded-full"
+              style={{ left: 11, top: 11, width: 38, height: 38, background: "#ffffff", boxShadow: "0 1px 4px rgba(0,0,0,0.3)" }}
+            >
+              <ContactAvatar person={author} size={33} dark={dark} />
+            </span>
+          </div>
+        ) : (
+          // Maps dropped pin: red balloon with a white dot, stalk to the point
+          <svg className="absolute" style={{ left: cx - 15, top: cy - 38 }} width="30" height="42" viewBox="0 0 30 42" fill="none">
+            <ellipse cx="15" cy="40" rx="4" ry="1.6" fill="rgba(0,0,0,0.25)" />
+            <path d="M15 24v15.5" stroke="#8e8e93" strokeWidth="2" strokeLinecap="round" />
+            <circle cx="15" cy="13" r="12" fill={p.red} stroke="#ffffff" strokeWidth="2" />
+            <circle cx="15" cy="13" r="4" fill="#ffffff" />
+          </svg>
+        )}
+      </div>
+      <PlateFooter
+        p={p}
+        title={loc.title}
+        sub={loc.live ? l.liveLocation : loc.subtitle || l.location}
+        subColor={loc.live ? p.blue : undefined}
+      />
+    </Plate>
+  );
+}
+
+/** Quick Look document glyph: a page with a folded corner, the type in red for PDF. */
+function DocGlyph({ ext, dark }: { ext: string; dark: boolean }) {
+  const tint = ext === "pdf" ? "#e8453c" : ext === "doc" || ext === "docx" ? "#2a6fdb" : ext === "xls" || ext === "xlsx" ? "#1f9d55" : "#8e8e93";
+  return (
+    <svg width="32" height="40" viewBox="0 0 32 40" fill="none" className="shrink-0">
+      <path d="M3 3.5A2.5 2.5 0 0 1 5.5 1H21l9 9v26.5a2.5 2.5 0 0 1-2.5 2.5h-22A2.5 2.5 0 0 1 3 36.5z" fill={dark ? "#f2f2f7" : "#ffffff"} stroke={dark ? "#c7c7cc" : "#c7c7cc"} strokeWidth="1" />
+      <path d="M21 1v6.5A2.5 2.5 0 0 0 23.5 10H30" fill={dark ? "#d1d1d6" : "#e5e5ea"} stroke="#c7c7cc" strokeWidth="1" strokeLinejoin="round" />
+      {[15, 18.5, 22].map((y) => (
+        <line key={y} x1="8" x2="25" y1={y} y2={y} stroke="#d1d1d6" strokeWidth="1.4" strokeLinecap="round" />
+      ))}
+      <text x="16.5" y="33.5" textAnchor="middle" fontSize="7.5" fontWeight="700" fill={tint} fontFamily="-apple-system, system-ui, sans-serif">
+        {(ext || "doc").toUpperCase().slice(0, 4)}
+      </text>
+    </svg>
+  );
+}
+
+function FileCard({
+  file,
+  p,
+  tail,
+  l,
+  dark,
+}: {
+  file: NonNullable<Message["file"]>;
+  p: Palette;
+  tail: "right" | "left" | null;
+  l: LocalStrings;
+  dark: boolean;
+}) {
+  const ext = (/\.([a-z0-9]{1,5})$/i.exec(file.name)?.[1] ?? "").toLowerCase();
+  const meta = [file.pages, file.size, ext ? ext.toUpperCase() : l.docKind("")].filter(Boolean).join(" · ");
+  return (
+    <Plate p={p} tail={tail} width={undefined}>
+      <div className="flex items-center" style={{ minWidth: 214, padding: "10px 16px 10px 12px", gap: 10 }}>
+        <DocGlyph ext={ext} dark={dark} />
+        <div className="min-w-0 flex-1">
+          <div dir="ltr" className="break-all" style={{ fontSize: 15, lineHeight: "19px", fontWeight: 600, letterSpacing: "-0.23px", textAlign: "start" }}>
+            {file.name}
+          </div>
+          <div className="truncate" style={{ color: p.secondary, fontSize: 13, lineHeight: "17px", letterSpacing: "-0.08px", marginTop: 1 }}>
+            {meta}
+          </div>
+        </div>
+      </div>
+    </Plate>
+  );
+}
+
+/** SF "video.fill" / "phone.fill" at caption size, for the FaceTime rows. */
+function CallGlyph({ video, color }: { video: boolean; color: string }) {
+  return video ? (
+    <svg width="15" height="10" viewBox="0 0 15 10" style={{ display: "inline-block", verticalAlign: -0.5 }}>
+      <rect x="0" y="0.5" width="9.6" height="9" rx="2.4" fill={color} />
+      <path d="M10.4 4 13.6 1.9c.5-.3 1.1 0 1.1.6v5c0 .6-.6.9-1.1.6l-3.2-2.1z" fill={color} />
+    </svg>
+  ) : (
+    <svg width="11" height="11" viewBox="0 0 24 24" style={{ display: "inline-block", verticalAlign: -1 }}>
+      <path
+        d="M6.6 2.3c.6-.2 1.3 0 1.6.6l2 3.6c.3.6.2 1.3-.3 1.7L8.3 9.6c1.2 2.5 3.6 4.9 6.1 6.1l1.4-1.6c.4-.5 1.1-.6 1.7-.3l3.6 2c.6.3.8 1 .6 1.6l-.9 2.4c-.4 1-1.4 1.6-2.4 1.5C10.1 20.6 3.4 13.9 2.7 5.6c-.1-1 .5-2 1.5-2.4z"
+        fill={color}
+      />
+    </svg>
+  );
+}
+
+/** Centred caption line in the transcript (FaceTime rows, Undo Send notices). */
+function CentredNote({ p, children }: { p: Palette; children: ReactNode }) {
+  return (
+    <div className="text-center" style={{ color: p.secondary, fontSize: 11, lineHeight: "13.5px", paddingInline: 40 }}>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * Group header picture when the group has no photo: the members' avatars
+ * stacked as a cluster (most recent in front, larger), each with a ring of
+ * the background colour.
+ */
+function GroupCluster({ members, dark, p }: { members: Person[]; dark: boolean; p: Palette }) {
+  const shown = members.slice(0, 3);
+  if (shown.length <= 1) return <ContactAvatar person={shown[0] ?? { name: "", avatar: null }} size={60} dark={dark} />;
+  const spots =
+    shown.length === 2
+      ? [
+          { x: 0, y: 10, s: 42 },
+          { x: 30, y: 4, s: 48 },
+        ]
+      : [
+          { x: 0, y: 16, s: 38 },
+          { x: 56, y: 16, s: 38 },
+          { x: 23, y: 3, s: 48 },
+        ];
+  const order = shown.length === 2 ? [0, 1] : [1, 2, 0];
+  const w = Math.max(...spots.map((s) => s.x + s.s));
+  return (
+    <div className="relative" style={{ width: w, height: 60 }} dir="ltr">
+      {order.map((mi, k) => {
+        const sp = spots[k];
+        return (
+          <div
+            key={mi}
+            className="absolute rounded-full"
+            style={{ left: sp.x - 1.5, top: sp.y - 1.5, padding: 1.5, background: p.bg }}
+          >
+            <ContactAvatar person={shown[mi]} size={sp.s} dark={dark} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const URL_RE = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
+
+/** Bubble text with data-detected links underlined in the text colour. */
+function linkify(text: string): ReactNode {
+  const parts = text.split(URL_RE);
+  if (parts.length === 1) return text;
+  return parts.map((part, i) =>
+    i % 2 === 1 ? (
+      <span key={i} dir="ltr" style={{ textDecoration: "underline", textUnderlineOffset: 2 }}>
+        {part}
+      </span>
+    ) : (
+      part
+    ),
+  );
+}
+
+/** Messages splits a URL at the start/end of a message into its own rich-link balloon. */
+function splitLink(text: string, url: string): string {
+  const t = text.trim();
+  if (!url) return t;
+  if (t.endsWith(url)) return t.slice(0, -url.length).trim();
+  if (t.startsWith(url)) return t.slice(url.length).trim();
+  return t;
 }
 
 /* ------------------------------ composer ------------------------------ */
@@ -899,7 +1243,17 @@ function ReplyQuote({ parent, p, l, tail }: { parent: Message; p: Palette; l: Lo
 
   const isImage = parent.type === "image" && !!parent.imageSrc;
   const text =
-    parent.type === "voice" ? l.audio : parent.type === "image" ? parent.text.trim() || l.photo : parent.text.trim();
+    parent.type === "voice"
+      ? l.audio
+      : parent.type === "image"
+        ? parent.text.trim() || l.photo
+        : parent.type === "sticker"
+          ? parent.text.trim() || l.sticker
+          : parent.type === "location"
+            ? parent.location?.title || l.location
+            : parent.type === "file"
+              ? parent.file?.name || l.file
+              : parent.text.trim();
   const r = RADIUS * Q;
 
   return (
@@ -1079,6 +1433,11 @@ function minutesOf(t: string): number | null {
   return h * 60 + mins;
 }
 
+/** Rows Messages draws as a centred caption instead of a balloon. */
+function isCentred(m: Message): boolean {
+  return m.type === "call" || m.type === "deleted";
+}
+
 /** iOS sets the AM/PM marker off with a narrow no-break space. */
 function clock(t: string): string {
   return t.trim().replace(/\s+(AM|PM|am|pm|ص|م)$/u, "\u202f$1");
@@ -1180,11 +1539,24 @@ export function IMessage({ scenario, playback, lang, rtl }: PlatformProps) {
     el.style.transform = f.transform;
   }, [typing, clockMs]);
 
+  // Group chats: each "them" message belongs to a member; a run breaks on a new author.
+  const group = scenario.group && scenario.group.members.length > 0 ? scenario.group : null;
+  const authorOf = (m: Message): Person =>
+    group ? (group.members[m.authorIndex ?? 0] ?? group.members[0]) : scenario.them;
+  const sameRun = (a: Message | undefined, b: Message | undefined): boolean =>
+    !!a &&
+    !!b &&
+    a.sender === b.sender &&
+    !isCentred(a) &&
+    !isCentred(b) &&
+    (a.sender === "me" || !group || (a.authorIndex ?? 0) === (b.authorIndex ?? 0));
+
   // The receipt sits under the user's most recent outgoing message, even if
-  // replies came in after it — exactly like Messages.
+  // replies came in after it — exactly like Messages (FaceTime rows and
+  // Undo Send notices never carry one).
   let lastMineId: string | undefined;
   for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].sender === "me") {
+    if (messages[i].sender === "me" && !isCentred(messages[i])) {
       lastMineId = messages[i].id;
       break;
     }
@@ -1201,19 +1573,22 @@ export function IMessage({ scenario, playback, lang, rtl }: PlatformProps) {
   }
 
   const rows: ReactNode[] = [];
+  /** the previous row ended with a receipt / "Edited" line */
   let prevHadReceipt = false;
   messages.forEach((m, i) => {
     const mine = m.sender === "me";
     const next = messages[i + 1];
     const prev = messages[i - 1];
-    const { firstOfGroup, lastOfGroup } = groupInfo(messages, i);
+    const firstOfGroup = !sameRun(prev, m);
+    const lastOfGroup = !sameRun(m, next);
     const onRight = mine ? !rtl : rtl;
     const side: "right" | "left" = onRight ? "right" : "left";
     const status = mine && m.id === lastMineId ? playback.statusOf(m) : undefined;
     const showReceipt = status === "delivered" || status === "read";
     const hasText = m.text.trim().length > 0;
-    const emojis = m.type === "text" ? emojiCount(m.text) : 0;
+    const emojis = m.type === "text" && !m.link ? emojiCount(m.text) : 0;
     const align = mine ? "flex-end" : "flex-start";
+    const author = mine ? scenario.me : authorOf(m);
 
     // Mid-thread time stamp after an hour of silence.
     let stamp: ReactNode = null;
@@ -1234,20 +1609,53 @@ export function IMessage({ scenario, playback, lang, rtl }: PlatformProps) {
       }
     }
 
+    // Centred transcript lines: FaceTime calls and Undo Send notices.
+    if (isCentred(m)) {
+      let note: ReactNode;
+      if (m.type === "deleted") {
+        note = mine ? l.unsentByMe : l.unsentBy(author.name);
+      } else {
+        const c = m.call ?? { video: false, missed: false };
+        const label = c.missed ? (c.video ? l.missedVideo : l.missedAudio) : c.video ? l.faceTimeVideo : l.faceTimeAudio;
+        const tailText = !c.missed && c.duration ? c.duration : clock(m.time);
+        note = (
+          <>
+            <CallGlyph video={c.video} color={c.missed ? p.red : p.secondary} />
+            <bdi style={{ fontWeight: 600, marginInlineStart: 4 }}>{label}</bdi>
+            {" · "}
+            <bdi dir="ltr">{tailText}</bdi>
+          </>
+        );
+      }
+      rows.push(
+        <div
+          key={m.id}
+          data-mid={m.id}
+          data-sender={m.sender}
+          className={live ? "imsg-ios-anim-fade" : ""}
+          style={{ marginTop: i === 0 ? 0 : stamp ? 9.5 : 14, marginBottom: 4.5 }}
+        >
+          <CentredNote p={p}>{note}</CentredNote>
+        </div>,
+      );
+      prevHadReceipt = false;
+      return;
+    }
+
     // Tail: the last bubble of a run; an image also ends its run when a non-image follows.
-    const imageEndsRun = m.type === "image" && !!next && next.sender === m.sender && next.type !== "image";
+    const imageEndsRun = m.type === "image" && !!next && sameRun(m, next) && next.type !== "image";
     const tailOn = lastOfGroup || imageEndsRun;
 
     // Tapback on the bubble's inner top corner (the one facing the screen centre).
     const tap = m.reaction ? <Tapback emoji={m.reaction} byMe={!mine} side={onRight ? "left" : "right"} p={p} /> : null;
     const parent = m.replyToId ? messages.find((x) => x.id === m.replyToId && x.id !== m.id) : undefined;
 
-    const textBubble = (tail: boolean, withTap: boolean) => (
+    const textBubble = (tail: boolean, withTap: boolean, body: string = m.text) => (
       <div className="relative" style={{ maxWidth: MAX_W, minWidth: 40, color: mine ? "#ffffff" : p.inText }}>
         {withTap && tap}
         <BubbleFill mine={mine} color={p.inBubble} tail={tail ? side : null} />
         <p
-          dir={dirOf(m.text)}
+          dir={dirOf(body)}
           className="relative whitespace-pre-wrap break-words"
           style={{
             fontSize: 17,
@@ -1257,12 +1665,13 @@ export function IMessage({ scenario, playback, lang, rtl }: PlatformProps) {
             padding: `${PAD_Y}px ${PAD_X}px`,
           }}
         >
-          {m.text}
+          {linkify(body)}
         </p>
       </div>
     );
 
     let content: ReactNode;
+    let tailBelow = lastOfGroup;
     if (m.type === "voice") {
       content = (
         <div className="relative">
@@ -1280,7 +1689,49 @@ export function IMessage({ scenario, playback, lang, rtl }: PlatformProps) {
           {hasText && <div style={{ marginTop: GAP_GROUP }}>{textBubble(lastOfGroup, false)}</div>}
         </>
       );
+      tailBelow = hasText ? lastOfGroup : tailOn;
+    } else if (m.type === "sticker") {
+      // Stickers float on the transcript: no balloon, no tail.
+      tailBelow = false;
+      content = (
+        <div className="relative" dir="ltr">
+          {tap}
+          {m.imageSrc ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={m.imageSrc} alt="" draggable={false} className="block" style={{ width: STICKER_IMG, height: STICKER_IMG, objectFit: "contain" }} />
+          ) : (
+            <div style={{ fontSize: STICKER_EMOJI, lineHeight: `${Math.round(STICKER_EMOJI * 1.16)}px` }}>{m.text.trim() || "🙂"}</div>
+          )}
+        </div>
+      );
+    } else if (m.type === "location" && m.location) {
+      content = (
+        <div className="relative">
+          {tap}
+          <LocationCard loc={m.location} p={p} tail={lastOfGroup ? side : null} l={l} author={author} dark={dark} />
+        </div>
+      );
+    } else if (m.type === "file" && m.file) {
+      content = (
+        <div className="relative">
+          {tap}
+          <FileCard file={m.file} p={p} tail={lastOfGroup ? side : null} l={l} dark={dark} />
+        </div>
+      );
+    } else if (m.type === "text" && m.link) {
+      // a URL at the start/end of the text is split into its own rich-link balloon
+      const rest = splitLink(m.text, m.link.url);
+      content = (
+        <>
+          {rest && textBubble(false, true, rest)}
+          <div className="relative" style={{ marginTop: rest ? GAP_GROUP : 0 }}>
+            {!rest && tap}
+            <LinkCard link={m.link} p={p} tail={lastOfGroup ? side : null} />
+          </div>
+        </>
+      );
     } else if (emojis) {
+      tailBelow = false;
       const fs = JUMBO_SIZE[emojis];
       content = (
         <div className="relative" dir="ltr" style={{ fontSize: fs, lineHeight: `${Math.round(fs * 1.17)}px`, padding: "0 1px" }}>
@@ -1292,14 +1743,37 @@ export function IMessage({ scenario, playback, lang, rtl }: PlatformProps) {
       content = textBubble(lastOfGroup, true);
     }
 
+    // Group chats: small grey name above a member's run, their avatar beside its last bubble.
+    const grouped = !!group && !mine;
+    if (grouped) {
+      content = (
+        <div className="relative flex flex-col" style={{ alignItems: "flex-start" }}>
+          {firstOfGroup && (
+            <div
+              dir={dirOf(author.name)}
+              className="truncate"
+              style={{ color: p.secondary, fontSize: 11, lineHeight: "13px", paddingInline: 13, marginBottom: 2.5, maxWidth: MAX_W }}
+            >
+              {author.name}
+            </div>
+          )}
+          {content}
+          {lastOfGroup && (
+            <div className="absolute" style={{ insetInlineStart: GROUP_AV_X - GROUP_INDENT, bottom: 0 }}>
+              <ContactAvatar person={author} size={GROUP_AV} dark={dark} />
+            </div>
+          )}
+        </div>
+      );
+    }
+
     const replies = replyCount.get(m.id) ?? 0;
     // the original message carries the blue "N Replies" count under it
-    const bubbleTail = m.type === "image" ? hasText ? lastOfGroup : tailOn : lastOfGroup;
     if (replies > 0) {
       content = (
         <>
           {content}
-          <RepliesLabel n={replies} p={p} l={l} inset={20} marginTop={(bubbleTail ? TAIL_DROP : 0) + 3} />
+          <RepliesLabel n={replies} p={p} l={l} inset={20} marginTop={(tailBelow ? TAIL_DROP : 0) + 3} />
         </>
       );
     }
@@ -1333,12 +1807,30 @@ export function IMessage({ scenario, playback, lang, rtl }: PlatformProps) {
         className={`flex flex-col ${live ? (mine ? "imsg-ios-anim-out" : "imsg-ios-anim-in") : ""}`}
         style={{
           alignItems: align,
-          paddingInline: SIDE,
+          paddingInlineStart: grouped ? GROUP_INDENT : SIDE,
+          paddingInlineEnd: SIDE,
           marginTop,
           transformOrigin: originFor(mine, rtl),
         }}
       >
         {content}
+
+        {/* "Edited" (systemBlue, opens the edit history) right under the balloon */}
+        {m.edited && (
+          <div
+            style={{
+              color: p.blue,
+              fontSize: 11,
+              lineHeight: "13px",
+              fontWeight: 600,
+              marginTop: 6,
+              [mine ? "paddingInlineEnd" : "paddingInlineStart"]: mine ? 21 : 14,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {l.edited}
+          </div>
+        )}
 
         {showReceipt && (
           <div
@@ -1349,7 +1841,7 @@ export function IMessage({ scenario, playback, lang, rtl }: PlatformProps) {
               fontSize: 11,
               lineHeight: "13px",
               fontWeight: 600,
-              marginTop: 6,
+              marginTop: m.edited ? 2 : 6,
               paddingInlineEnd: 21,
               whiteSpace: "nowrap",
             }}
@@ -1360,11 +1852,29 @@ export function IMessage({ scenario, playback, lang, rtl }: PlatformProps) {
         )}
       </div>,
     );
-    prevHadReceipt = showReceipt;
+    prevHadReceipt = showReceipt || !!m.edited;
   });
 
+  // group chats: the member who is about to speak shows beside the typing balloon
+  const shownIds = new Set(messages.map((x) => x.id));
+  const upcoming = group ? scenario.messages.find((x) => x.sender === "them" && !shownIds.has(x.id)) : undefined;
+  const typingAuthor = group ? (group.members[upcoming?.authorIndex ?? 0] ?? group.members[0]) : null;
+
   const last = messages[messages.length - 1];
-  const typingGap = !last ? 0 : prevHadReceipt ? GAP_AFTER_RECEIPT : last.sender === "them" ? GAP_GROUP : GAP_SENDER;
+  const typingGap = !last
+    ? 0
+    : prevHadReceipt
+      ? GAP_AFTER_RECEIPT
+      : last.sender === "them" && !isCentred(last) && (!group || (last.authorIndex ?? 0) === (upcoming?.authorIndex ?? 0))
+        ? GAP_GROUP
+        : GAP_SENDER;
+
+  // OS keyboard: the input bar rides 8pt above it and the transcript lifts with it.
+  const kb = useKeyboardInset();
+  const kbOpen = kb.inset > 0 ? kb.open : 0;
+  const lift = kb.inset > 0 ? Math.max(0, kb.inset + (KB_GAP - COMPOSER_BOTTOM) * kbOpen) : 0;
+  const composerSide = COMPOSER_SIDE + (KB_SIDE - COMPOSER_SIDE) * kbOpen;
+  const kbT = kb.transition === "none" ? undefined : kb.transition;
 
   return (
     <StaticFill.Provider value={clockMs !== undefined}>
@@ -1383,7 +1893,14 @@ export function IMessage({ scenario, playback, lang, rtl }: PlatformProps) {
       <style>{STYLE}</style>
 
       {/* ------------------------------ body ------------------------------ */}
-      <div ref={scrollRef} className="rcss-scroll absolute inset-0 overflow-y-auto">
+      <div
+        ref={scrollRef}
+        className="rcss-scroll absolute inset-0 overflow-y-auto"
+        style={{
+          transform: lift ? `translateY(${-lift}px)` : undefined,
+          transition: kbT ? `transform ${kbT}` : undefined,
+        }}
+      >
         <div style={{ paddingTop: STAMP_TOP, paddingBottom: BODY_BOTTOM + grow }}>
           {/* Service + time stamp */}
           <div
@@ -1401,7 +1918,13 @@ export function IMessage({ scenario, playback, lang, rtl }: PlatformProps) {
 
             {typing && (
               <div style={{ marginTop: typingGap }}>
-                <TypingBubble p={p} live={live} clockMs={clockMs} boxRef={typingRef} />
+                <TypingBubble
+                  p={p}
+                  live={live}
+                  clockMs={clockMs}
+                  boxRef={typingRef}
+                  avatar={typingAuthor ? <ContactAvatar person={typingAuthor} size={GROUP_AV} dark={dark} /> : undefined}
+                />
               </div>
             )}
           </div>
@@ -1432,7 +1955,15 @@ export function IMessage({ scenario, playback, lang, rtl }: PlatformProps) {
 
         {/* contact */}
         <div className="absolute left-1/2 flex -translate-x-1/2 flex-col items-center" style={{ top: 58 }}>
-          <ContactAvatar person={scenario.them} size={60} dark={dark} />
+          {group ? (
+            group.avatar ? (
+              <ContactAvatar person={{ name: group.name, avatar: group.avatar }} size={60} dark={dark} />
+            ) : (
+              <GroupCluster members={group.members} dark={dark} p={p} />
+            )
+          ) : (
+            <ContactAvatar person={scenario.them} size={60} dark={dark} />
+          )}
           <div
             className="flex items-center rounded-full"
             style={{
@@ -1447,10 +1978,10 @@ export function IMessage({ scenario, playback, lang, rtl }: PlatformProps) {
           >
             <span
               className="truncate"
-              dir={dirOf(scenario.them.name)}
+              dir={dirOf(group ? group.name : scenario.them.name)}
               style={{ color: p.label, fontSize: 17, lineHeight: "20px", fontWeight: 600, letterSpacing: "-0.43px" }}
             >
-              {scenario.them.name}
+              {group ? group.name : scenario.them.name}
             </span>
             <ChevronSmall color={p.nameChevron} />
           </div>
@@ -1467,8 +1998,10 @@ export function IMessage({ scenario, playback, lang, rtl }: PlatformProps) {
 
       {/* --------------------- composer scroll-edge fade --------------------- */}
       <div
-        className="pointer-events-none absolute inset-x-0 bottom-0 z-10"
+        className="pointer-events-none absolute inset-x-0 z-10"
         style={{
+          bottom: lift,
+          transition: kbT ? `bottom ${kbT}` : undefined,
           height: BODY_BOTTOM - 4 + grow,
           background: `linear-gradient(to top, ${p.bg} 0px, ${p.bgA(0.92)} ${COMPOSER_BOTTOM + 12}px, ${p.bgA(0.75)} ${COMPOSER_BOTTOM + COMPOSER_H + grow}px, ${p.bgA(0)} ${BODY_BOTTOM - 4 + grow}px)`,
         }}
@@ -1478,7 +2011,14 @@ export function IMessage({ scenario, playback, lang, rtl }: PlatformProps) {
       <div
         ref={composerRef}
         className="pointer-events-none absolute z-20 flex items-end"
-        style={{ insetInline: COMPOSER_SIDE, bottom: COMPOSER_BOTTOM, minHeight: COMPOSER_H, gap: 12 }}
+        style={{
+          left: composerSide,
+          right: composerSide,
+          bottom: COMPOSER_BOTTOM + lift,
+          minHeight: COMPOSER_H,
+          gap: 12,
+          transition: kbT ? `bottom ${kbT}, left ${kbT}, right ${kbT}` : undefined,
+        }}
       >
         <div
           className="flex shrink-0 items-center justify-center rounded-full"

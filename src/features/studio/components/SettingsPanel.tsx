@@ -16,7 +16,9 @@ import {
   Signal,
   Smartphone,
   Sun,
+  Keyboard as KeyboardIcon,
   TextCursorInput,
+  UserRound,
   Users,
   Wifi,
 } from "lucide-react";
@@ -39,6 +41,8 @@ import type { StudioLabels } from "./labels";
 import { FieldLabel, PanelSection } from "./studio/PanelSection";
 import { DevicePicker, PlatformPicker, platformName } from "./studio/Pickers";
 import { ParticipantCard } from "./studio/ParticipantCard";
+import { GroupEditor, nextMember } from "./studio/GroupEditor";
+import { fmt } from "./studio/timing";
 
 /** What each status bar shows when the user has not set a value (mirrors devices/*StatusBar). */
 const DEVICE_DEFAULT_TIME: Record<Device, string> = {
@@ -132,6 +136,8 @@ export function SettingsPanel({ scenario, t, lang }: { scenario: Scenario; t: St
   const setLastSeenText = useStudioStore((s) => s.setLastSeenText);
   const setAndroidFont = useStudioStore((s) => s.setAndroidFont);
   const setComposeTyping = useStudioStore((s) => s.setComposeTyping);
+  const setKeyboard = useStudioStore((s) => s.setKeyboard);
+  const setGroupMode = useStudioStore((s) => s.setGroupMode);
   const setDeviceColor = useStudioStore((s) => s.setDeviceColor);
   const updateStatusBar = useStudioStore((s) => s.updateStatusBar);
   const swapRoles = useStudioStore((s) => s.swapRoles);
@@ -149,7 +155,11 @@ export function SettingsPanel({ scenario, t, lang }: { scenario: Scenario; t: St
     battery: useId(),
     compose: useId(),
     composeHint: useId(),
+    keyboard: useId(),
+    keyboardHint: useId(),
+    chatType: useId(),
   };
+  const keyboardOn = scenario.keyboard !== false;
   const sb = scenario.statusBar ?? DEFAULT_STATUS_BAR;
   const presenceLabel = { online: t.online, typing: t.typing, lastseen: t.lastSeen }[scenario.presence];
   const composeOn = scenario.composeTyping !== false;
@@ -253,24 +263,52 @@ export function SettingsPanel({ scenario, t, lang }: { scenario: Scenario; t: St
       <PanelSection
         icon={<Users />}
         title={t.people}
-        summary={`${scenario.me.name || t.meShort} · ${scenario.them.name || t.themShort}`}
+        summary={
+          scenario.group
+            ? `${scenario.group.name || t.chatGroup} · ${fmt(t.membersCount, { count: scenario.group.members.length + 1 })}`
+            : `${scenario.me.name || t.meShort} · ${scenario.them.name || t.themShort}`
+        }
       >
-        <div className="relative space-y-2">
-          <ParticipantCard who="me" person={scenario.me} t={t} />
-          <ParticipantCard who="them" person={scenario.them} t={t} />
-          <div className="pointer-events-none absolute inset-x-0 top-1/2 flex -translate-y-1/2 justify-end pe-5">
-            <Tooltip content={t.swapRoles}>
-              <button
-                type="button"
-                onClick={swapRoles}
-                aria-label={t.swapRoles}
-                className="pointer-events-auto flex size-7 cursor-pointer items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-studio-float transition-[color,transform] duration-200 ease-studio hover:rotate-180 hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
-              >
-                <ArrowUpDown className="size-3.5" />
-              </button>
-            </Tooltip>
+        <FieldLabel id={ids.chatType}>{t.chatType}</FieldLabel>
+        <SegmentedControl<"direct" | "group">
+          aria-labelledby={ids.chatType}
+          size="sm"
+          value={scenario.group ? "group" : "direct"}
+          onChange={(v) =>
+            setGroupMode(v === "group", {
+              name: t.groupDefaultName,
+              extra: [nextMember([scenario.me, scenario.them], t)],
+            })
+          }
+          options={[
+            { value: "direct", label: t.chatDirect, icon: <UserRound /> },
+            { value: "group", label: t.chatGroup, icon: <Users /> },
+          ]}
+        />
+        {scenario.group ? (
+          <div className="mt-3 space-y-2 animate-in fade-in-0 slide-in-from-top-1 duration-200">
+            <ParticipantCard who="me" person={scenario.me} t={t} />
+            <GroupEditor group={scenario.group} me={scenario.me} t={t} />
+            <p className="px-0.5 text-[11.5px] leading-snug text-muted-foreground">{t.groupHint}</p>
           </div>
-        </div>
+        ) : (
+          <div className="relative mt-3 space-y-2">
+            <ParticipantCard who="me" person={scenario.me} t={t} />
+            <ParticipantCard who="them" person={scenario.them} t={t} />
+            <div className="pointer-events-none absolute inset-x-0 top-1/2 flex -translate-y-1/2 justify-end pe-5">
+              <Tooltip content={t.swapRoles}>
+                <button
+                  type="button"
+                  onClick={swapRoles}
+                  aria-label={t.swapRoles}
+                  className="pointer-events-auto flex size-7 cursor-pointer items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-studio-float transition-[color,transform] duration-200 ease-studio hover:rotate-180 hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+                >
+                  <ArrowUpDown className="size-3.5" />
+                </button>
+              </Tooltip>
+            </div>
+          </div>
+        )}
       </PanelSection>
 
       <PanelSection icon={<PenLine />} title={t.presence} summary={presenceLabel}>
@@ -324,6 +362,32 @@ export function SettingsPanel({ scenario, t, lang }: { scenario: Scenario; t: St
             checked={composeOn}
             aria-describedby={ids.composeHint}
             onCheckedChange={setComposeTyping}
+            className="mt-0.5"
+          />
+        </div>
+        <div
+          className={cn(
+            "mt-2 flex items-start gap-3 rounded-xl border border-border bg-card px-3 py-2.5 transition-opacity duration-150",
+            !composeOn && "opacity-60",
+          )}
+        >
+          <span className="mt-0.5 text-muted-foreground [&_svg]:size-4">
+            <KeyboardIcon />
+          </span>
+          <div className="min-w-0 flex-1">
+            <label htmlFor={ids.keyboard} className={cn("block text-[13px] font-medium", composeOn && "cursor-pointer")}>
+              {t.keyboard}
+            </label>
+            <p id={ids.keyboardHint} className="mt-0.5 text-[11.5px] leading-snug text-muted-foreground">
+              {composeOn ? t.keyboardHint : t.keyboardNeedsCompose}
+            </p>
+          </div>
+          <Switch
+            id={ids.keyboard}
+            checked={composeOn && keyboardOn}
+            disabled={!composeOn}
+            aria-describedby={ids.keyboardHint}
+            onCheckedChange={setKeyboard}
             className="mt-0.5"
           />
         </div>

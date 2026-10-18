@@ -40,6 +40,46 @@ export function canShareVideoFile(file: File): boolean {
   }
 }
 
+/** Whether the share sheet accepts all of these files in one go (batch export on phones). */
+export function canShareFiles(files: File[]): boolean {
+  if (typeof navigator === "undefined" || !files.length) return false;
+  const nav = navigator as Navigator & { canShare?: (data?: ShareData) => boolean };
+  try {
+    return typeof nav.share === "function" && typeof nav.canShare === "function" && nav.canShare({ files });
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * One share sheet for several exports (Save to Photos / Files saves them all).
+ * Must be called from a user gesture. Falls back to downloading each file.
+ */
+export async function shareFiles(files: File[]): Promise<VideoSaveResult> {
+  if (canShareFiles(files)) {
+    try {
+      await navigator.share({ files });
+      return "shared";
+    } catch (e) {
+      if ((e as Error).name === "AbortError") return "cancelled";
+    }
+  }
+  await downloadFiles(files);
+  return "downloaded";
+}
+
+/**
+ * Download several files one after another. Browsers drop downloads fired in
+ * the same tick, so they are spaced out a little (Chrome asks once to allow
+ * multiple downloads from the page).
+ */
+export async function downloadFiles(files: File[], gapMs = 350): Promise<void> {
+  for (let i = 0; i < files.length; i++) {
+    if (i) await new Promise((r) => setTimeout(r, gapMs));
+    downloadVideoFile(files[i]);
+  }
+}
+
 function anchorDownload(file: File): string {
   const url = URL.createObjectURL(file);
   const anchor = document.createElement("a");

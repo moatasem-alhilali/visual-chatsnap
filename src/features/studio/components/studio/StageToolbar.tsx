@@ -37,8 +37,10 @@ export function StageToolbar({ scenario, t, dir }: { scenario: Scenario; t: Stud
   const hydrateMotion = usePreviewMotion((s) => s.hydrate);
   useEffect(() => hydrateMotion(), [hydrateMotion]);
   const setComposeTyping = useStudioStore((s) => s.setComposeTyping);
+  const setKeyboard = useStudioStore((s) => s.setKeyboard);
   const composeOn = scenario.composeTyping !== false;
-  const motionCount = Number(animOn) + Number(zoomOn) + Number(composeOn);
+  const keyboardOn = composeOn && scenario.keyboard !== false;
+  const motionCount = Number(animOn) + Number(zoomOn) + Number(composeOn) + Number(keyboardOn);
 
   return (
     <div
@@ -103,7 +105,7 @@ export function StageToolbar({ scenario, t, dir }: { scenario: Scenario; t: Stud
             <Button
               variant="ghost"
               size="sm"
-              aria-label={`${t.motion}: ${motionCount}/3`}
+              aria-label={`${t.motion}: ${motionCount}/4`}
               className={cn(
                 "h-7 gap-1.5 px-2",
                 motionCount > 0 ? "bg-primary/12 text-primary hover:bg-primary/18" : "text-muted-foreground",
@@ -126,6 +128,17 @@ export function StageToolbar({ scenario, t, dir }: { scenario: Scenario; t: Stud
           <DropdownMenuCheckboxItem checked={composeOn} onCheckedChange={setComposeTyping} onSelect={(e) => e.preventDefault()}>
             {t.motionCompose}
           </DropdownMenuCheckboxItem>
+          <DropdownMenuCheckboxItem
+            checked={keyboardOn}
+            disabled={!composeOn}
+            onCheckedChange={setKeyboard}
+            onSelect={(e) => e.preventDefault()}
+          >
+            <span className="flex min-w-0 flex-col">
+              <span>{t.keyboard}</span>
+              {!composeOn && <span className="text-[11px] text-muted-foreground">{t.keyboardNeedsCompose}</span>}
+            </span>
+          </DropdownMenuCheckboxItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
             onSelect={() => {
@@ -133,6 +146,7 @@ export function StageToolbar({ scenario, t, dir }: { scenario: Scenario; t: Stud
               setAnimations(next);
               setZoom(next);
               setComposeTyping(next);
+              setKeyboard(next);
             }}
           >
             {motionCount === 0 ? <Sparkles className="size-4" /> : <PauseCircle className="size-4" />}
